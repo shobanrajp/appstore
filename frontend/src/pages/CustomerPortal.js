@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import { getMyOrders, getMySubscriptions, getAddresses, createAddress, deleteAddress, updateProfile, paySubscription } from '../lib/api';
