@@ -1469,7 +1469,7 @@ const StoreAdminDashboard = () => {
                                                 />
                                             </div>
                                             <Button type="submit" className="w-full gold-gradient text-white" data-testid="submit-plan-btn">
-                                                Create Plan
+                                                {editingPlan ? 'Update Plan' : 'Create Plan'}
                                             </Button>
                                         </form>
                                     </DialogContent>
@@ -1484,9 +1484,14 @@ const StoreAdminDashboard = () => {
                                                 <Badge variant="default" className="gold-gradient text-white">
                                                     {plan.plan_type}
                                                 </Badge>
-                                                <Badge variant={plan.is_active ? 'outline' : 'secondary'}>
-                                                    {plan.is_active ? 'Active' : 'Inactive'}
-                                                </Badge>
+                                                <div className="flex items-center gap-2">
+                                                    <Badge variant={plan.is_active ? 'outline' : 'secondary'}>
+                                                        {plan.is_active ? 'Active' : 'Inactive'}
+                                                    </Badge>
+                                                    <Button variant="ghost" size="sm" onClick={() => openEditPlan(plan)} data-testid={`edit-plan-${plan.id}`}>
+                                                        <Edit2 className="w-4 h-4" />
+                                                    </Button>
+                                                </div>
                                             </div>
                                             <CardTitle className="font-serif mt-2">{plan.name}</CardTitle>
                                             <CardDescription>{plan.description}</CardDescription>
