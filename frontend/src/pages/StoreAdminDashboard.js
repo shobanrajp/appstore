@@ -138,9 +138,8 @@ const StoreAdminDashboard = () => {
                 ...newProduct,
                 price: parseFloat(newProduct.price),
                 weight: newProduct.weight ? parseFloat(newProduct.weight) : null,
-                images: newProduct.image_url ? [newProduct.image_url] : []
+                images: newProduct.images.filter(img => img.trim() !== '')
             };
-            delete productData.image_url;
             
             if (editingProduct) {
                 await updateProduct(store.id, editingProduct.id, productData);
@@ -151,7 +150,7 @@ const StoreAdminDashboard = () => {
                 toast.success('Product created');
             }
             setProductDialogOpen(false);
-            setNewProduct({ name: '', description: '', price: '', category: '', sku: '', weight: '', image_url: '' });
+            setNewProduct({ name: '', description: '', price: '', category: '', sku: '', weight: '', images: [''] });
             loadData();
         } catch (error) {
             toast.error(error.response?.data?.detail || 'Failed to save product');
@@ -167,9 +166,24 @@ const StoreAdminDashboard = () => {
             category: product.category || '',
             sku: product.sku || '',
             weight: product.weight?.toString() || '',
-            image_url: product.images?.[0] || ''
+            images: product.images?.length > 0 ? product.images : ['']
         });
         setProductDialogOpen(true);
+    };
+
+    const addImageField = () => {
+        setNewProduct({ ...newProduct, images: [...newProduct.images, ''] });
+    };
+
+    const removeImageField = (index) => {
+        const newImages = newProduct.images.filter((_, i) => i !== index);
+        setNewProduct({ ...newProduct, images: newImages.length > 0 ? newImages : [''] });
+    };
+
+    const updateImageField = (index, value) => {
+        const newImages = [...newProduct.images];
+        newImages[index] = value;
+        setNewProduct({ ...newProduct, images: newImages });
     };
 
     const handleDeleteProduct = async (productId) => {
