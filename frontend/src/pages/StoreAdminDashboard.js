@@ -1661,9 +1661,20 @@ const StoreAdminDashboard = () => {
                                 </div>
                                 <div>
                                     <Label className="text-muted-foreground">Status</Label>
-                                    <Badge variant={subscriptionDetails.subscription.status === 'active' ? 'default' : 'secondary'}>
-                                        {subscriptionDetails.subscription.status}
-                                    </Badge>
+                                    <Select 
+                                        value={subscriptionDetails.subscription.status} 
+                                        onValueChange={(value) => handleUpdateSubscriptionStatus(subscriptionDetails.subscription.id, value)}
+                                    >
+                                        <SelectTrigger className="w-[160px] h-8">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="active">Active</SelectItem>
+                                            <SelectItem value="partially_closed">Partially Closed</SelectItem>
+                                            <SelectItem value="completed">Completed</SelectItem>
+                                            <SelectItem value="cancelled">Cancelled</SelectItem>
+                                        </SelectContent>
+                                    </Select>
                                 </div>
                                 <div>
                                     <Label className="text-muted-foreground">Start Date</Label>
@@ -1701,6 +1712,15 @@ const StoreAdminDashboard = () => {
                                 ) : (
                                     <p className="text-muted-foreground text-center py-4">No payments yet</p>
                                 )}
+                            </div>
+
+                            <div className="flex justify-end pt-4 border-t">
+                                <Button 
+                                    variant="destructive" 
+                                    onClick={() => handleDeleteSubscription(subscriptionDetails.subscription.id)}
+                                >
+                                    <Trash2 className="w-4 h-4 mr-2" /> Delete Subscription
+                                </Button>
                             </div>
                         </div>
                     )}
