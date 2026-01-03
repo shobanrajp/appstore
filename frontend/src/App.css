@@ -19,7 +19,7 @@
 }
 
 /* Marquee animation for scrolling text */
-@keyframes marquee {
+@keyframes scroll-left {
     0% {
         transform: translateX(0);
     }
@@ -31,19 +31,19 @@
 .scrolling-text-container {
     overflow: hidden;
     width: 100%;
+    position: relative;
 }
 
 .scrolling-text {
-    display: flex;
-    width: max-content;
-    animation: marquee 20s linear infinite;
+    display: inline-flex;
+    white-space: nowrap;
+    animation: scroll-left 15s linear infinite;
 }
 
 .scrolling-text span {
-    padding: 0 50px;
-    white-space: nowrap;
+    padding-right: 100px;
 }
 
-.scrolling-text:hover {
+.scrolling-text-container:hover .scrolling-text {
     animation-play-state: paused;
 }
