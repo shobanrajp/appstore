@@ -1175,7 +1175,7 @@ const StoreAdminDashboard = () => {
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {orders.map((order) => (
+                                            {filteredOrders.map((order) => (
                                                 <TableRow key={order.id}>
                                                     <TableCell className="font-mono text-sm">{order.id}</TableCell>
                                                     <TableCell>{order.items.length} items</TableCell>
@@ -1198,10 +1198,10 @@ const StoreAdminDashboard = () => {
                                                     </TableCell>
                                                 </TableRow>
                                             ))}
-                                            {orders.length === 0 && (
+                                            {filteredOrders.length === 0 && (
                                                 <TableRow>
                                                     <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                                                        No orders yet.
+                                                        {orders.length === 0 ? 'No orders yet.' : 'No orders match the current filters.'}
                                                     </TableCell>
                                                 </TableRow>
                                             )}
