@@ -1587,14 +1587,27 @@ const StoreAdminDashboard = () => {
                                                         <TableCell>{sub.payments_made}</TableCell>
                                                         <TableCell>{formatCurrency(sub.total_paid, store.currency)}</TableCell>
                                                         <TableCell>
-                                                            <Badge variant={sub.status === 'active' ? 'default' : sub.status === 'completed' ? 'secondary' : 'destructive'}>
-                                                                {sub.status}
-                                                            </Badge>
+                                                            <Select value={sub.status} onValueChange={(value) => handleUpdateSubscriptionStatus(sub.id, value)}>
+                                                                <SelectTrigger className="w-[140px] h-8">
+                                                                    <SelectValue />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    <SelectItem value="active">Active</SelectItem>
+                                                                    <SelectItem value="partially_closed">Partially Closed</SelectItem>
+                                                                    <SelectItem value="completed">Completed</SelectItem>
+                                                                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                                                                </SelectContent>
+                                                            </Select>
                                                         </TableCell>
                                                         <TableCell>
-                                                            <Button variant="outline" size="sm" onClick={() => handleViewSubscription(sub)}>
-                                                                <Eye className="w-4 h-4 mr-1" /> View
-                                                            </Button>
+                                                            <div className="flex gap-1">
+                                                                <Button variant="outline" size="sm" onClick={() => handleViewSubscription(sub)}>
+                                                                    <Eye className="w-4 h-4" />
+                                                                </Button>
+                                                                <Button variant="ghost" size="sm" onClick={() => handleDeleteSubscription(sub.id)}>
+                                                                    <Trash2 className="w-4 h-4 text-destructive" />
+                                                                </Button>
+                                                            </div>
                                                         </TableCell>
                                                     </TableRow>
                                                 ))}
