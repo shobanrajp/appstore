@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { getMyOrders, getMySubscriptions, getAddresses, createAddress, deleteAddress, updateProfile } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -12,7 +12,7 @@ import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Progress } from '../components/ui/progress';
 import { toast } from 'sonner';
-import { User, Package, CreditCard, MapPin, LogOut, Plus, Trash2, Edit2 } from 'lucide-react';
+import { User, Package, CreditCard, MapPin, LogOut, Plus, Trash2, Edit2, Home } from 'lucide-react';
 import { formatCurrency, formatDate, getStatusColor } from '../lib/utils';
 
 const CustomerPortal = () => {
