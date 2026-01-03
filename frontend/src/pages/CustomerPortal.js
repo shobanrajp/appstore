@@ -61,17 +61,15 @@ const CustomerPortal = () => {
     };
 
     // Get the most recent store from orders or subscriptions
-    const getRecentStoreId = () => {
-        if (orders.length > 0) {
+    const recentStoreId = useMemo(() => {
+        if (orders.length > 0 && orders[0].store_id) {
             return orders[0].store_id;
         }
-        if (subscriptions.length > 0) {
+        if (subscriptions.length > 0 && subscriptions[0].store_id) {
             return subscriptions[0].store_id;
         }
         return null;
-    };
-
-    const recentStoreId = getRecentStoreId();
+    }, [orders, subscriptions]);
 
     const handleAddAddress = async (e) => {
         e.preventDefault();
