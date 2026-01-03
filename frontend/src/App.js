@@ -12,6 +12,7 @@ import StoreAdminDashboard from './pages/StoreAdminDashboard';
 import PageEditor from './pages/PageEditor';
 import StoreFront from './pages/StoreFront';
 import ProductDetail from './pages/ProductDetail';
+import CategoryProducts from './pages/CategoryProducts';
 import CustomerPortal from './pages/CustomerPortal';
 
 // Protected Route Component
