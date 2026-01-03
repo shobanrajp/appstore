@@ -99,7 +99,7 @@
     }
 
     .luxury-card {
-        @apply bg-card border border-gold-border shadow-lg transition-all duration-500;
+        @apply bg-card border gold-border shadow-lg transition-all duration-500;
     }
 
     .luxury-card:hover {
