@@ -181,6 +181,8 @@ class OrderResponse(BaseModel):
     total_amount: float
     status: str
     tracking_number: Optional[str] = None
+    carrier_name: Optional[str] = None
+    carrier_url: Optional[str] = None
     notes: Optional[str] = None
     created_at: str
     updated_at: str
@@ -188,6 +190,8 @@ class OrderResponse(BaseModel):
 class OrderStatusUpdate(BaseModel):
     status: str
     tracking_number: Optional[str] = None
+    carrier_name: Optional[str] = None
+    carrier_url: Optional[str] = None
 
 class VendorCreate(BaseModel):
     name: str
