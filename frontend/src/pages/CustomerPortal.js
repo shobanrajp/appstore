@@ -60,13 +60,18 @@ const CustomerPortal = () => {
         }
     };
 
-    // Get the most recent store from orders or subscriptions
+    // Get the most recent store from orders or subscriptions or localStorage
     const recentStoreId = useMemo(() => {
         if (orders.length > 0 && orders[0].store_id) {
             return orders[0].store_id;
         }
         if (subscriptions.length > 0 && subscriptions[0].store_id) {
             return subscriptions[0].store_id;
+        }
+        // Fallback to localStorage if user visited a store before
+        const lastStore = localStorage.getItem('lastVisitedStore');
+        if (lastStore) {
+            return lastStore;
         }
         return null;
     }, [orders, subscriptions]);
