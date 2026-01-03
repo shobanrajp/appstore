@@ -985,6 +985,21 @@ async def get_subscription_plans(store_id: str):
     plans = await db.subscription_plans.find({"store_id": store_id, "is_active": True}, {"_id": 0}).to_list(100)
     return [SubscriptionPlanResponse(**p) for p in plans]
 
+@api_router.put("/stores/{store_id}/subscription-plans/{plan_id}", response_model=SubscriptionPlanResponse)
+async def update_subscription_plan(store_id: str, plan_id: str, plan_data: SubscriptionPlanCreate, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot update plans for other stores")
+    
+    existing = await db.subscription_plans.find_one({"id": plan_id, "store_id": store_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    
+    update_data = plan_data.model_dump()
+    await db.subscription_plans.update_one({"id": plan_id}, {"$set": update_data})
+    
+    updated = await db.subscription_plans.find_one({"id": plan_id}, {"_id": 0})
+    return SubscriptionPlanResponse(**updated)
+
 @api_router.post("/stores/{store_id}/subscribe", response_model=UserSubscriptionResponse)
 async def subscribe_to_plan(store_id: str, sub_data: UserSubscriptionCreate, user: dict = Depends(get_current_user)):
     plan = await db.subscription_plans.find_one({"id": sub_data.plan_id, "store_id": store_id}, {"_id": 0})
