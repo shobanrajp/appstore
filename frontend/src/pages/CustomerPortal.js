@@ -60,6 +60,19 @@ const CustomerPortal = () => {
         }
     };
 
+    // Get the most recent store from orders or subscriptions
+    const getRecentStoreId = () => {
+        if (orders.length > 0) {
+            return orders[0].store_id;
+        }
+        if (subscriptions.length > 0) {
+            return subscriptions[0].store_id;
+        }
+        return null;
+    };
+
+    const recentStoreId = getRecentStoreId();
+
     const handleAddAddress = async (e) => {
         e.preventDefault();
         try {
