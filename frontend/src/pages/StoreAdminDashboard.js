@@ -67,8 +67,12 @@ const StoreAdminDashboard = () => {
     const [posItems, setPosItems] = useState([{ product_id: '', quantity: 1, price: 0 }]);
     const [posPaymentMethod, setPosPaymentMethod] = useState('cash');
     const [posCustomer, setPosCustomer] = useState({ name: '', phone: '' });
-    const [newPlan, setNewPlan] = useState({ name: '', plan_type: 'gold_flexi', duration_months: 11, monthly_amount: '', bonus_percentage: 0, benefits: [], description: '' });
+    const [newPlan, setNewPlan] = useState({ name: '', plan_type: '', duration_months: 11, min_amount: 500, max_amount: 100000, bonus_percentage: 0, benefits: [], description: '' });
     const [currency, setCurrency] = useState('INR');
+    const [subscribers, setSubscribers] = useState([]);
+    const [selectedSubscription, setSelectedSubscription] = useState(null);
+    const [subscriptionDetails, setSubscriptionDetails] = useState(null);
+    const [subscriberDialogOpen, setSubscriberDialogOpen] = useState(false);
 
     useEffect(() => {
         loadData();
