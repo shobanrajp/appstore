@@ -1401,7 +1401,7 @@ const StoreAdminDashboard = () => {
                                                 </div>
                                             </div>
                                             <Button type="submit" className="w-full gold-gradient text-white" data-testid="complete-sale-btn">
-                                                Complete Sale
+                                                {editingPOS ? 'Update Transaction' : 'Complete Sale'}
                                             </Button>
                                         </form>
                                     </DialogContent>
