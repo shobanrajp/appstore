@@ -517,13 +517,13 @@ const StoreAdminDashboard = () => {
                                     <h2 className="text-2xl font-serif font-semibold">Products</h2>
                                     <p className="text-muted-foreground">Manage your product catalog</p>
                                 </div>
-                                <Dialog open={productDialogOpen} onOpenChange={(open) => { setProductDialogOpen(open); if (!open) { setEditingProduct(null); setNewProduct({ name: '', description: '', price: '', category: '', sku: '', weight: '', image_url: '' }); } }}>
+                                <Dialog open={productDialogOpen} onOpenChange={(open) => { setProductDialogOpen(open); if (!open) { setEditingProduct(null); setNewProduct({ name: '', description: '', price: '', category: '', sku: '', weight: '', images: [''] }); } }}>
                                     <DialogTrigger asChild>
                                         <Button className="gold-gradient text-white" data-testid="add-product-btn">
                                             <Plus className="w-4 h-4 mr-2" /> Add Product
                                         </Button>
                                     </DialogTrigger>
-                                    <DialogContent className="max-w-lg">
+                                    <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
                                         <DialogHeader>
                                             <DialogTitle className="font-serif">{editingProduct ? 'Edit Product' : 'Add Product'}</DialogTitle>
                                             <DialogDescription>{editingProduct ? 'Update product details' : 'Add a new product to your catalog'}</DialogDescription>
@@ -589,18 +589,34 @@ const StoreAdminDashboard = () => {
                                                 />
                                             </div>
                                             <div className="space-y-2">
-                                                <Label>Image URL</Label>
-                                                <Input
-                                                    value={newProduct.image_url}
-                                                    onChange={(e) => setNewProduct({ ...newProduct, image_url: e.target.value })}
-                                                    placeholder="https://example.com/image.jpg"
-                                                    data-testid="product-image-input"
-                                                />
-                                                {newProduct.image_url && (
-                                                    <div className="mt-2 h-24 w-24 rounded border overflow-hidden">
-                                                        <img src={newProduct.image_url} alt="Preview" className="w-full h-full object-cover" onError={(e) => e.target.style.display = 'none'} />
+                                                <div className="flex items-center justify-between">
+                                                    <Label>Product Images</Label>
+                                                    <Button type="button" variant="outline" size="sm" onClick={addImageField}>
+                                                        <Plus className="w-3 h-3 mr-1" /> Add Image
+                                                    </Button>
+                                                </div>
+                                                {newProduct.images.map((img, index) => (
+                                                    <div key={index} className="flex gap-2 items-start">
+                                                        <div className="flex-1 space-y-1">
+                                                            <Input
+                                                                value={img}
+                                                                onChange={(e) => updateImageField(index, e.target.value)}
+                                                                placeholder={`Image URL ${index + 1}`}
+                                                                data-testid={`product-image-input-${index}`}
+                                                            />
+                                                            {img && (
+                                                                <div className="h-16 w-16 rounded border overflow-hidden">
+                                                                    <img src={img} alt={`Preview ${index + 1}`} className="w-full h-full object-cover" onError={(e) => e.target.style.display = 'none'} />
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        {newProduct.images.length > 1 && (
+                                                            <Button type="button" variant="ghost" size="sm" onClick={() => removeImageField(index)}>
+                                                                <Trash2 className="w-4 h-4 text-destructive" />
+                                                            </Button>
+                                                        )}
                                                     </div>
-                                                )}
+                                                ))}
                                             </div>
                                             <Button type="submit" className="w-full gold-gradient text-white" data-testid="submit-product-btn">
                                                 {editingProduct ? 'Update Product' : 'Create Product'}
