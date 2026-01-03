@@ -586,6 +586,139 @@ const PageEditor = () => {
                                         </Select>
                                     </div>
                                 )}
+
+                                {/* Common Styling Properties for ALL components */}
+                                <div className="border-t pt-4 mt-4">
+                                    <h4 className="font-medium text-sm mb-3 text-muted-foreground">Styling Properties</h4>
+                                    
+                                    <div className="space-y-4">
+                                        <div className="space-y-2">
+                                            <Label>Scale</Label>
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="range"
+                                                    min="50"
+                                                    max="150"
+                                                    value={selectedComponent.props?.scale || 100}
+                                                    onChange={(e) => updateComponentProps('scale', parseInt(e.target.value))}
+                                                    className="flex-1"
+                                                />
+                                                <span className="text-sm w-12 text-right">{selectedComponent.props?.scale || 100}%</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>Opacity</Label>
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="range"
+                                                    min="0"
+                                                    max="100"
+                                                    value={selectedComponent.props?.opacity || 100}
+                                                    onChange={(e) => updateComponentProps('opacity', parseInt(e.target.value))}
+                                                    className="flex-1"
+                                                />
+                                                <span className="text-sm w-12 text-right">{selectedComponent.props?.opacity || 100}%</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>Padding</Label>
+                                            <Select
+                                                value={String(selectedComponent.props?.padding || 0)}
+                                                onValueChange={(v) => updateComponentProps('padding', parseInt(v))}
+                                            >
+                                                <SelectTrigger>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="0">None</SelectItem>
+                                                    <SelectItem value="8">Small (8px)</SelectItem>
+                                                    <SelectItem value="16">Medium (16px)</SelectItem>
+                                                    <SelectItem value="24">Large (24px)</SelectItem>
+                                                    <SelectItem value="32">XL (32px)</SelectItem>
+                                                    <SelectItem value="48">2XL (48px)</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>Margin</Label>
+                                            <Select
+                                                value={String(selectedComponent.props?.margin || 0)}
+                                                onValueChange={(v) => updateComponentProps('margin', parseInt(v))}
+                                            >
+                                                <SelectTrigger>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="0">None</SelectItem>
+                                                    <SelectItem value="8">Small (8px)</SelectItem>
+                                                    <SelectItem value="16">Medium (16px)</SelectItem>
+                                                    <SelectItem value="24">Large (24px)</SelectItem>
+                                                    <SelectItem value="32">XL (32px)</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>Background Color</Label>
+                                            <div className="flex gap-2">
+                                                <Input
+                                                    type="color"
+                                                    value={selectedComponent.props?.backgroundColor || '#ffffff'}
+                                                    onChange={(e) => updateComponentProps('backgroundColor', e.target.value)}
+                                                    className="w-12 h-10 p-1 cursor-pointer"
+                                                />
+                                                <Input
+                                                    value={selectedComponent.props?.backgroundColor || ''}
+                                                    onChange={(e) => updateComponentProps('backgroundColor', e.target.value)}
+                                                    placeholder="transparent"
+                                                    className="flex-1"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>Border Radius</Label>
+                                            <Select
+                                                value={String(selectedComponent.props?.borderRadius || 0)}
+                                                onValueChange={(v) => updateComponentProps('borderRadius', parseInt(v))}
+                                            >
+                                                <SelectTrigger>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="0">None</SelectItem>
+                                                    <SelectItem value="4">Small (4px)</SelectItem>
+                                                    <SelectItem value="8">Medium (8px)</SelectItem>
+                                                    <SelectItem value="16">Large (16px)</SelectItem>
+                                                    <SelectItem value="24">XL (24px)</SelectItem>
+                                                    <SelectItem value="9999">Full</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>Shadow</Label>
+                                            <Select
+                                                value={selectedComponent.props?.shadow || 'none'}
+                                                onValueChange={(v) => updateComponentProps('shadow', v)}
+                                            >
+                                                <SelectTrigger>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="none">None</SelectItem>
+                                                    <SelectItem value="sm">Small</SelectItem>
+                                                    <SelectItem value="md">Medium</SelectItem>
+                                                    <SelectItem value="lg">Large</SelectItem>
+                                                    <SelectItem value="xl">Extra Large</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         ) : (
                             <div className="p-4 text-center text-muted-foreground">
