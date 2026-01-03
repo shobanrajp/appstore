@@ -1116,6 +1116,48 @@ async def pay_subscription(subscription_id: str, payment_data: SubscriptionPayme
     
     return {"message": "Payment successful", "payment_id": payment_id, "payments_made": new_payments_made}
 
+# Store Admin - Update subscription status
+class SubscriptionStatusUpdate(BaseModel):
+    status: str  # "active", "partially_closed", "completed", "cancelled"
+
+@api_router.put("/stores/{store_id}/subscriptions/{subscription_id}/status")
+async def update_subscription_status(store_id: str, subscription_id: str, status_data: SubscriptionStatusUpdate, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot update subscriptions for other stores")
+    
+    valid_statuses = ["active", "partially_closed", "completed", "cancelled"]
+    if status_data.status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Status must be one of: {', '.join(valid_statuses)}")
+    
+    sub = await db.user_subscriptions.find_one({"id": subscription_id, "store_id": store_id})
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    
+    await db.user_subscriptions.update_one(
+        {"id": subscription_id},
+        {"$set": {"status": status_data.status}}
+    )
+    
+    return {"message": f"Subscription status updated to {status_data.status}"}
+
+# Store Admin - Delete subscription
+@api_router.delete("/stores/{store_id}/subscriptions/{subscription_id}")
+async def delete_subscription(store_id: str, subscription_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot delete subscriptions for other stores")
+    
+    sub = await db.user_subscriptions.find_one({"id": subscription_id, "store_id": store_id})
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    
+    # Delete the subscription
+    await db.user_subscriptions.delete_one({"id": subscription_id})
+    
+    # Also delete related payments
+    await db.subscription_payments.delete_many({"subscription_id": subscription_id})
+    
+    return {"message": "Subscription deleted successfully"}
+
 # ==================== STORE PAYMENT CONFIG (RAZORPAY) ====================
 
 @api_router.put("/stores/{store_id}/payment-config")
