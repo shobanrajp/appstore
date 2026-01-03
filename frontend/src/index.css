@@ -177,3 +177,33 @@
 .drop-indicator {
     @apply bg-gold/20 border-2 border-gold border-dashed;
 }
+
+/* Scrolling text animation */
+.scrolling-text-container {
+    width: 100%;
+    overflow: hidden;
+}
+
+.scrolling-text {
+    display: flex;
+    width: max-content;
+    animation: scroll-text 20s linear infinite;
+}
+
+.scrolling-text span {
+    white-space: nowrap;
+    padding-right: 50px;
+}
+
+@keyframes scroll-text {
+    0% {
+        transform: translateX(0);
+    }
+    100% {
+        transform: translateX(-50%);
+    }
+}
+
+.bg-gold {
+    background-color: #D4AF37;
+}
