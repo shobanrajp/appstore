@@ -1586,6 +1586,22 @@ const StoreAdminDashboard = () => {
                                 </Dialog>
                             </div>
 
+                            {/* Filter Controls */}
+                            <Card className="mb-4">
+                                <CardContent className="p-4">
+                                    <div className="flex items-center gap-4">
+                                        <Filter className="w-4 h-4 text-muted-foreground" />
+                                        <Input
+                                            placeholder="Search vendors..."
+                                            value={filters.vendors.search}
+                                            onChange={(e) => setFilters({ ...filters, vendors: { ...filters.vendors, search: e.target.value } })}
+                                            className="max-w-xs"
+                                            data-testid="vendors-filter-search"
+                                        />
+                                    </div>
+                                </CardContent>
+                            </Card>
+
                             <Card>
                                 <CardContent className="p-0">
                                     <Table>
@@ -1600,7 +1616,7 @@ const StoreAdminDashboard = () => {
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {vendors.map((vendor) => (
+                                            {filteredVendors.map((vendor) => (
                                                 <TableRow key={vendor.id}>
                                                     <TableCell className="font-medium">{vendor.name}</TableCell>
                                                     <TableCell>{vendor.contact_name || '-'}</TableCell>
@@ -1617,10 +1633,10 @@ const StoreAdminDashboard = () => {
                                                     </TableCell>
                                                 </TableRow>
                                             ))}
-                                            {vendors.length === 0 && (
+                                            {filteredVendors.length === 0 && (
                                                 <TableRow>
                                                     <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                                                        No vendors yet.
+                                                        {vendors.length === 0 ? 'No vendors yet.' : 'No vendors match the current filter.'}
                                                     </TableCell>
                                                 </TableRow>
                                             )}
