@@ -14,7 +14,7 @@ import { ShoppingCart, User, Plus, Minus, X, CreditCard, LogIn, Search } from 'l
 import { formatCurrency } from '../lib/utils';
 
 // Dynamic Component Renderer - renders components based on page config
-const DynamicComponent = ({ component, products, plans, store, addToCart, onSubscribe, user, categories, selectedCategory, onCategorySelect, storeId }) => {
+const DynamicComponent = ({ component, products, filteredProducts, plans, store, addToCart, onSubscribe, user, categories, selectedCategory, onCategorySelect, searchTerm, onSearchChange, storeId }) => {
     const { type, props = {} } = component;
 
     // Build style object from props
