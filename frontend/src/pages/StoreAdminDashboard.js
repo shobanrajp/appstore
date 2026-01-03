@@ -716,6 +716,14 @@ const StoreAdminDashboard = () => {
                         >
                             <DollarSign className="w-4 h-4 mr-2" /> Subscription Plans
                         </Button>
+                        <Button
+                            variant={activeTab === 'reporting' ? 'secondary' : 'ghost'}
+                            className="w-full justify-start"
+                            onClick={() => { setActiveTab('reporting'); loadReport(); }}
+                            data-testid="nav-reporting"
+                        >
+                            <BarChart3 className="w-4 h-4 mr-2" /> Reporting
+                        </Button>
                         <div className="border-t my-4" />
                         <Link to={`/page-editor/${store.id}`}>
                             <Button variant="ghost" className="w-full justify-start" data-testid="nav-page-editor">
