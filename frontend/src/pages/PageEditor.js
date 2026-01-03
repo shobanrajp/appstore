@@ -151,7 +151,9 @@ const ComponentPreview = ({ component, products, plans }) => {
                     <div className="relative text-center text-white">
                         <h1 className="text-5xl font-serif mb-4">{props.title || 'Welcome to Our Store'}</h1>
                         <p className="text-xl mb-6">{props.subtitle || 'Discover exquisite jewelry'}</p>
-                        <Button className="gold-gradient text-white">{props.buttonText || 'Shop Now'}</Button>
+                        {props.buttonText && (
+                            <Button className="gold-gradient text-white">{props.buttonText}</Button>
+                        )}
                     </div>
                 </div>
             );
