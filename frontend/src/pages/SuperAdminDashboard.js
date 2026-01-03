@@ -50,14 +50,33 @@ const SuperAdminDashboard = () => {
     const handleCreateStore = async (e) => {
         e.preventDefault();
         try {
-            await createStore(newStore);
-            toast.success('Store created successfully');
+            if (editingStore) {
+                await updateStore(editingStore.id, newStore);
+                toast.success('Store updated successfully');
+                setEditingStore(null);
+            } else {
+                await createStore(newStore);
+                toast.success('Store created successfully');
+            }
             setStoreDialogOpen(false);
             setNewStore({ name: '', description: '', currency: 'INR', contact_email: '', contact_phone: '', address: '' });
             loadData();
         } catch (error) {
-            toast.error(error.response?.data?.detail || 'Failed to create store');
+            toast.error(error.response?.data?.detail || 'Failed to save store');
         }
+    };
+
+    const openEditStore = (store) => {
+        setEditingStore(store);
+        setNewStore({
+            name: store.name,
+            description: store.description || '',
+            currency: store.currency || 'INR',
+            contact_email: store.contact_email || '',
+            contact_phone: store.contact_phone || '',
+            address: store.address || ''
+        });
+        setStoreDialogOpen(true);
     };
 
     const handleDeleteStore = async (storeId) => {
@@ -74,14 +93,32 @@ const SuperAdminDashboard = () => {
     const handleCreateUser = async (e) => {
         e.preventDefault();
         try {
-            await createUser(newUser);
-            toast.success('User created successfully');
+            if (editingUser) {
+                await updateUser(editingUser.id, newUser);
+                toast.success('User updated successfully');
+                setEditingUser(null);
+            } else {
+                await createUser(newUser);
+                toast.success('User created successfully');
+            }
             setUserDialogOpen(false);
             setNewUser({ name: '', email: '', password: '', role: 'store_admin', store_id: '' });
             loadData();
         } catch (error) {
-            toast.error(error.response?.data?.detail || 'Failed to create user');
+            toast.error(error.response?.data?.detail || 'Failed to save user');
         }
+    };
+
+    const openEditUser = (userToEdit) => {
+        setEditingUser(userToEdit);
+        setNewUser({
+            name: userToEdit.name || '',
+            email: userToEdit.email,
+            password: '', // Don't pre-fill password
+            role: userToEdit.role,
+            store_id: userToEdit.store_id || ''
+        });
+        setUserDialogOpen(true);
     };
 
     const handleDeleteUser = async (userId) => {
