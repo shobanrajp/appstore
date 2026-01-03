@@ -93,6 +93,33 @@ const SuperAdminDashboard = () => {
         }
     };
 
+    const openPaymentConfigDialog = async (store) => {
+        setSelectedStoreForPayment(store);
+        try {
+            const res = await getStorePaymentConfig(store.id);
+            setPaymentConfig({
+                razorpay_key_id: res.data.razorpay_key_id || '',
+                razorpay_key_secret: ''
+            });
+        } catch (error) {
+            setPaymentConfig({ razorpay_key_id: '', razorpay_key_secret: '' });
+        }
+        setPaymentConfigDialogOpen(true);
+    };
+
+    const handleSavePaymentConfig = async () => {
+        if (!selectedStoreForPayment) return;
+        try {
+            await updateStorePaymentConfig(selectedStoreForPayment.id, paymentConfig);
+            toast.success('Payment configuration saved');
+            setPaymentConfigDialogOpen(false);
+            setSelectedStoreForPayment(null);
+            setPaymentConfig({ razorpay_key_id: '', razorpay_key_secret: '' });
+        } catch (error) {
+            toast.error('Failed to save payment configuration');
+        }
+    };
+
     const handleLogout = () => {
         logout();
         navigate('/login');
