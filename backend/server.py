@@ -266,10 +266,10 @@ class SubscriptionPlanResponse(BaseModel):
     name: str
     plan_type: str
     duration_months: int
-    min_amount: float
-    max_amount: float
+    min_amount: float = 500
+    max_amount: float = 100000
     bonus_percentage: float
-    benefits: List[str]
+    benefits: List[str] = []
     description: Optional[str] = None
     is_active: bool
     created_at: str
