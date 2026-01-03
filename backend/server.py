@@ -991,21 +991,26 @@ async def subscribe_to_plan(store_id: str, sub_data: UserSubscriptionCreate, use
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
     
+    # Validate monthly amount is within plan limits
+    min_amount = plan.get("min_amount", 500)
+    max_amount = plan.get("max_amount", 100000)
+    if sub_data.monthly_amount < min_amount or sub_data.monthly_amount > max_amount:
+        raise HTTPException(status_code=400, detail=f"Monthly amount must be between {min_amount} and {max_amount}")
+    
     sub_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
     maturity = now + timedelta(days=plan["duration_months"] * 30)
     
-    monthly_amount = sub_data.monthly_amount or plan["monthly_amount"]
-    
     sub_doc = {
         "id": sub_id,
         "user_id": user["id"],
+        "user_email": user.get("email"),
+        "user_name": user.get("name"),
         "store_id": store_id,
         "plan_id": plan["id"],
         "plan_name": plan["name"],
-        "payment_type": sub_data.payment_type,
-        "monthly_amount": monthly_amount,
-        "gold_weight_grams": sub_data.gold_weight_grams,
+        "plan_type": plan.get("plan_type", ""),
+        "monthly_amount": sub_data.monthly_amount,
         "payments_made": 0,
         "total_paid": 0,
         "status": "active",
