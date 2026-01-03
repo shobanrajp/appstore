@@ -568,6 +568,14 @@ const StoreAdminDashboard = () => {
                         <Button
                             variant="ghost"
                             className="w-full justify-start"
+                            onClick={openStoreEditDialog}
+                            data-testid="nav-store-info"
+                        >
+                            <Building2 className="w-4 h-4 mr-2" /> Store Info
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            className="w-full justify-start"
                             onClick={() => setSettingsDialogOpen(true)}
                             data-testid="nav-settings"
                         >
