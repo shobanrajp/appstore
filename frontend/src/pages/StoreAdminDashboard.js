@@ -1381,7 +1381,7 @@ const StoreAdminDashboard = () => {
                                     <h2 className="text-2xl font-serif font-semibold">Subscription Plans</h2>
                                     <p className="text-muted-foreground">Manage Flexi Plans</p>
                                 </div>
-                                <Dialog open={planDialogOpen} onOpenChange={setPlanDialogOpen}>
+                                <Dialog open={planDialogOpen} onOpenChange={(open) => { setPlanDialogOpen(open); if (!open) { setEditingPlan(null); setNewPlan({ name: '', plan_type: '', duration_months: 11, min_amount: 500, max_amount: 100000, bonus_percentage: 0, benefits: [], description: '' }); } }}>
                                     <DialogTrigger asChild>
                                         <Button className="gold-gradient text-white" data-testid="create-plan-btn">
                                             <Plus className="w-4 h-4 mr-2" /> Create Plan
@@ -1389,7 +1389,7 @@ const StoreAdminDashboard = () => {
                                     </DialogTrigger>
                                     <DialogContent className="max-w-lg">
                                         <DialogHeader>
-                                            <DialogTitle className="font-serif">Create Subscription Plan</DialogTitle>
+                                            <DialogTitle className="font-serif">{editingPlan ? 'Edit Subscription Plan' : 'Create Subscription Plan'}</DialogTitle>
                                         </DialogHeader>
                                         <form onSubmit={handleCreatePlan} className="space-y-4">
                                             <div className="grid grid-cols-2 gap-4">
