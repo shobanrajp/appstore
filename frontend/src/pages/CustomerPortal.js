@@ -25,6 +25,9 @@ const CustomerPortal = () => {
     const [activeTab, setActiveTab] = useState('orders');
     const [addressDialogOpen, setAddressDialogOpen] = useState(false);
     const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+    const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+    const [selectedSubscription, setSelectedSubscription] = useState(null);
+    const [paymentProcessing, setPaymentProcessing] = useState(false);
     const [newAddress, setNewAddress] = useState({
         label: 'Home', full_name: '', phone: '', address_line1: '', address_line2: '',
         city: '', state: '', postal_code: '', country: 'India', is_default: false
