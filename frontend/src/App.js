@@ -11,6 +11,7 @@ import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import StoreAdminDashboard from './pages/StoreAdminDashboard';
 import PageEditor from './pages/PageEditor';
 import StoreFront from './pages/StoreFront';
+import ProductDetail from './pages/ProductDetail';
 import CustomerPortal from './pages/CustomerPortal';
 
 // Protected Route Component
