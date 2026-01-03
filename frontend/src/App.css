@@ -21,13 +21,29 @@
 /* Marquee animation for scrolling text */
 @keyframes marquee {
     0% {
-        transform: translateX(100%);
+        transform: translateX(0);
     }
     100% {
-        transform: translateX(-100%);
+        transform: translateX(-50%);
     }
 }
 
-.animate-marquee {
-    animation: marquee 15s linear infinite;
+.scrolling-text-container {
+    overflow: hidden;
+    width: 100%;
+}
+
+.scrolling-text {
+    display: flex;
+    width: max-content;
+    animation: marquee 20s linear infinite;
+}
+
+.scrolling-text span {
+    padding: 0 50px;
+    white-space: nowrap;
+}
+
+.scrolling-text:hover {
+    animation-play-state: paused;
 }
