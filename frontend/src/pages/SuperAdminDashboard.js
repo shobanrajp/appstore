@@ -319,7 +319,7 @@ const SuperAdminDashboard = () => {
                                                 />
                                             </div>
                                             <Button type="submit" className="w-full gold-gradient text-white" data-testid="submit-store-btn">
-                                                Create Store
+                                                {editingStore ? 'Update Store' : 'Create Store'}
                                             </Button>
                                         </form>
                                     </DialogContent>
@@ -356,6 +356,15 @@ const SuperAdminDashboard = () => {
                                                 </TableCell>
                                                 <TableCell>{formatDate(store.created_at)}</TableCell>
                                                 <TableCell className="text-right space-x-1">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={() => openEditStore(store)}
+                                                        title="Edit Store"
+                                                        data-testid={`edit-store-${store.id}`}
+                                                    >
+                                                        <Edit2 className="w-4 h-4" />
+                                                    </Button>
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
