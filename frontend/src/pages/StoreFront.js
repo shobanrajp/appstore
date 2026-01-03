@@ -274,11 +274,24 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                 </section>
             );
         case 'menu':
+            const menuCategories = categories && categories.length > 0 
+                ? ['All', ...categories] 
+                : (props.categories || ['Necklaces', 'Rings', 'Earrings', 'Bangles', 'Chains']);
             return (
                 <nav className="bg-card border-y py-3" style={wrapperStyle}>
                     <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-center gap-4 md:gap-8 px-4">
-                        {(props.categories || ['Necklaces', 'Rings', 'Earrings', 'Bangles', 'Chains']).map((cat, i) => (
-                            <span key={i} className="hover:text-gold cursor-pointer transition-colors text-sm md:text-base">{cat}</span>
+                        {menuCategories.map((cat, i) => (
+                            <span 
+                                key={i} 
+                                className={`hover:text-gold cursor-pointer transition-colors text-sm md:text-base ${
+                                    (cat === 'All' && !selectedCategory) || cat === selectedCategory 
+                                        ? 'text-gold font-semibold' 
+                                        : ''
+                                }`}
+                                onClick={() => onCategorySelect && onCategorySelect(cat === 'All' ? '' : cat)}
+                            >
+                                {cat}
+                            </span>
                         ))}
                     </div>
                 </nav>
