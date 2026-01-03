@@ -53,6 +53,7 @@ const StoreAdminDashboard = () => {
     const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
     const [orderDetailOpen, setOrderDetailOpen] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState(null);
+    const [orderTrackingInfo, setOrderTrackingInfo] = useState({ tracking_number: '', carrier_name: '', carrier_url: '' });
 
     // Form states
     const [newProduct, setNewProduct] = useState({ name: '', description: '', price: '', category: '', sku: '', weight: '', image_url: '' });
