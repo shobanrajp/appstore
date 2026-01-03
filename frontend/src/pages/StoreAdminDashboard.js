@@ -9,7 +9,7 @@ import {
     getPurchaseOrders, createPurchaseOrder,
     getPOSTransactions, createPOSTransaction,
     getSubscriptionPlans, createSubscriptionPlan, updateSubscriptionPlan,
-    getStoreSubscribers, getSubscriptionDetails,
+    getStoreSubscribers, getSubscriptionDetails, updateSubscriptionStatus, deleteSubscription,
     updateStoreSettings
 } from '../lib/api';
 import { Button } from '../components/ui/button';
