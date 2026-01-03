@@ -479,7 +479,7 @@ const SuperAdminDashboard = () => {
                                                 </Select>
                                             </div>
                                             <Button type="submit" className="w-full gold-gradient text-white" data-testid="submit-user-btn">
-                                                Create User
+                                                {editingUser ? 'Update User' : 'Create User'}
                                             </Button>
                                         </form>
                                     </DialogContent>
@@ -513,16 +513,26 @@ const SuperAdminDashboard = () => {
                                                         {u.is_active ? 'Active' : 'Inactive'}
                                                     </Badge>
                                                 </TableCell>
-                                                <TableCell className="text-right">
+                                                <TableCell className="text-right space-x-1">
                                                     {u.role !== 'super_admin' && (
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            onClick={() => handleDeleteUser(u.id)}
-                                                            data-testid={`delete-user-${u.id}`}
-                                                        >
-                                                            <Trash2 className="w-4 h-4 text-destructive" />
-                                                        </Button>
+                                                        <>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={() => openEditUser(u)}
+                                                                data-testid={`edit-user-${u.id}`}
+                                                            >
+                                                                <Edit2 className="w-4 h-4" />
+                                                            </Button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={() => handleDeleteUser(u.id)}
+                                                                data-testid={`delete-user-${u.id}`}
+                                                            >
+                                                                <Trash2 className="w-4 h-4 text-destructive" />
+                                                            </Button>
+                                                        </>
                                                     )}
                                                 </TableCell>
                                             </TableRow>
