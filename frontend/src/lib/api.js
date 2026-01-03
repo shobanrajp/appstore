@@ -97,6 +97,7 @@ export const deleteAddress = (id) => api.delete(`/addresses/${id}`);
 // Subscription Plans
 export const getSubscriptionPlans = (storeId) => api.get(`/stores/${storeId}/subscription-plans`);
 export const createSubscriptionPlan = (storeId, data) => api.post(`/stores/${storeId}/subscription-plans`, data);
+export const updateSubscriptionPlan = (storeId, planId, data) => api.put(`/stores/${storeId}/subscription-plans/${planId}`, data);
 export const subscribeToPlan = (storeId, data) => api.post(`/stores/${storeId}/subscribe`, data);
 export const getMySubscriptions = () => api.get('/my-subscriptions');
 
