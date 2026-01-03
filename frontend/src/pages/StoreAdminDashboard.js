@@ -1996,7 +1996,7 @@ const StoreAdminDashboard = () => {
                                         <BarChart3 className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
                                         <h3 className="text-lg font-medium mb-2">Generate a Report</h3>
                                         <p className="text-muted-foreground mb-4">
-                                            Select a date range and click "Generate Report" to view your sales, expenditure, and profit analytics.
+                                            Select a date range and click &ldquo;Generate Report&rdquo; to view your sales, expenditure, and profit analytics.
                                         </p>
                                         <Button onClick={loadReport} disabled={reportLoading} className="gold-gradient text-white">
                                             {reportLoading ? 'Loading...' : 'Generate Report for All Time'}
