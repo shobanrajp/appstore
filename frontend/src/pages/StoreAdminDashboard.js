@@ -1107,6 +1107,58 @@ const StoreAdminDashboard = () => {
                                 <p className="text-muted-foreground">Manage and track orders</p>
                             </div>
 
+                            {/* Filter Controls */}
+                            <Card className="mb-4">
+                                <CardContent className="p-4">
+                                    <div className="flex items-center gap-4 flex-wrap">
+                                        <Filter className="w-4 h-4 text-muted-foreground" />
+                                        <Select
+                                            value={filters.orders.status || 'all'}
+                                            onValueChange={(v) => setFilters({ ...filters, orders: { ...filters.orders, status: v === 'all' ? '' : v } })}
+                                        >
+                                            <SelectTrigger className="w-[150px]" data-testid="orders-filter-status">
+                                                <SelectValue placeholder="All Statuses" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="all">All Statuses</SelectItem>
+                                                <SelectItem value="pending">Pending</SelectItem>
+                                                <SelectItem value="processing">Processing</SelectItem>
+                                                <SelectItem value="shipped">Shipped</SelectItem>
+                                                <SelectItem value="delivered">Delivered</SelectItem>
+                                                <SelectItem value="cancelled">Cancelled</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <div className="flex items-center gap-2">
+                                            <Calendar className="w-4 h-4 text-muted-foreground" />
+                                            <Input
+                                                type="date"
+                                                value={filters.orders.startDate}
+                                                onChange={(e) => setFilters({ ...filters, orders: { ...filters.orders, startDate: e.target.value } })}
+                                                className="w-[150px]"
+                                                data-testid="orders-filter-start-date"
+                                            />
+                                            <span className="text-muted-foreground">to</span>
+                                            <Input
+                                                type="date"
+                                                value={filters.orders.endDate}
+                                                onChange={(e) => setFilters({ ...filters, orders: { ...filters.orders, endDate: e.target.value } })}
+                                                className="w-[150px]"
+                                                data-testid="orders-filter-end-date"
+                                            />
+                                        </div>
+                                        {(filters.orders.status || filters.orders.startDate || filters.orders.endDate) && (
+                                            <Button 
+                                                variant="ghost" 
+                                                size="sm"
+                                                onClick={() => setFilters({ ...filters, orders: { status: '', startDate: '', endDate: '' } })}
+                                            >
+                                                Clear Filters
+                                            </Button>
+                                        )}
+                                    </div>
+                                </CardContent>
+                            </Card>
+
                             <Card>
                                 <CardContent className="p-0">
                                     <Table>
