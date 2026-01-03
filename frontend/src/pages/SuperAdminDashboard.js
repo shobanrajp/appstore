@@ -243,7 +243,7 @@ const SuperAdminDashboard = () => {
                                     <CardTitle className="font-serif">Stores</CardTitle>
                                     <CardDescription>Manage all stores in the system</CardDescription>
                                 </div>
-                                <Dialog open={storeDialogOpen} onOpenChange={setStoreDialogOpen}>
+                                <Dialog open={storeDialogOpen} onOpenChange={(open) => { setStoreDialogOpen(open); if (!open) { setEditingStore(null); setNewStore({ name: '', description: '', currency: 'INR', contact_email: '', contact_phone: '', address: '' }); } }}>
                                     <DialogTrigger asChild>
                                         <Button className="gold-gradient text-white" data-testid="create-store-btn">
                                             <Plus className="w-4 h-4 mr-2" />
@@ -252,8 +252,8 @@ const SuperAdminDashboard = () => {
                                     </DialogTrigger>
                                     <DialogContent>
                                         <DialogHeader>
-                                            <DialogTitle className="font-serif">Create New Store</DialogTitle>
-                                            <DialogDescription>Add a new store to the platform</DialogDescription>
+                                            <DialogTitle className="font-serif">{editingStore ? 'Edit Store' : 'Create New Store'}</DialogTitle>
+                                            <DialogDescription>{editingStore ? 'Update store information' : 'Add a new store to the platform'}</DialogDescription>
                                         </DialogHeader>
                                         <form onSubmit={handleCreateStore} className="space-y-4">
                                             <div className="space-y-2">
