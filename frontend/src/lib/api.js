@@ -104,6 +104,8 @@ export const getMySubscriptions = () => api.get('/my-subscriptions');
 // Store Admin - Subscribers
 export const getStoreSubscribers = (storeId) => api.get(`/stores/${storeId}/subscribers`);
 export const getSubscriptionDetails = (storeId, subscriptionId) => api.get(`/stores/${storeId}/subscriptions/${subscriptionId}`);
+export const updateSubscriptionStatus = (storeId, subscriptionId, status) => api.put(`/stores/${storeId}/subscriptions/${subscriptionId}/status`, { status });
+export const deleteSubscription = (storeId, subscriptionId) => api.delete(`/stores/${storeId}/subscriptions/${subscriptionId}`);
 
 // End User - Pay subscription
 export const paySubscription = (subscriptionId, amount) => api.post(`/subscriptions/${subscriptionId}/pay`, { subscription_id: subscriptionId, amount });
