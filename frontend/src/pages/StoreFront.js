@@ -323,7 +323,7 @@ const StoreFront = () => {
     });
     const [subscribeOpen, setSubscribeOpen] = useState(false);
     const [selectedPlan, setSelectedPlan] = useState(null);
-    const [paymentType, setPaymentType] = useState('value');
+    const [chosenMonthlyAmount, setChosenMonthlyAmount] = useState('');
     
     // Search and filter states
     const [searchTerm, setSearchTerm] = useState('');
