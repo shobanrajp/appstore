@@ -251,10 +251,11 @@ class POSTransactionResponse(BaseModel):
 
 class SubscriptionPlanCreate(BaseModel):
     name: str
-    plan_type: str  # "gold_flexi" or "silver_flexi"
+    plan_type: str  # Text input - e.g., "Gold", "Silver", "Platinum"
     duration_months: int = 11
-    monthly_amount: float
     bonus_percentage: float = 0
+    min_amount: float = 500  # Minimum monthly amount
+    max_amount: float = 100000  # Maximum monthly amount
     benefits: List[str] = []
     description: Optional[str] = None
     is_active: bool = True
@@ -265,7 +266,8 @@ class SubscriptionPlanResponse(BaseModel):
     name: str
     plan_type: str
     duration_months: int
-    monthly_amount: float
+    min_amount: float
+    max_amount: float
     bonus_percentage: float
     benefits: List[str]
     description: Optional[str] = None
