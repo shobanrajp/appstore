@@ -99,6 +99,27 @@ const CustomerPortal = () => {
         }
     };
 
+    const handlePaySubscription = async () => {
+        if (!selectedSubscription) return;
+        setPaymentProcessing(true);
+        try {
+            await paySubscription(selectedSubscription.id, selectedSubscription.monthly_amount);
+            toast.success('Payment successful!');
+            setPaymentDialogOpen(false);
+            setSelectedSubscription(null);
+            loadData();
+        } catch (error) {
+            toast.error(error.response?.data?.detail || 'Payment failed');
+        } finally {
+            setPaymentProcessing(false);
+        }
+    };
+
+    const openPaymentDialog = (subscription) => {
+        setSelectedSubscription(subscription);
+        setPaymentDialogOpen(true);
+    };
+
     const handleLogout = () => {
         logout();
         navigate('/login');
