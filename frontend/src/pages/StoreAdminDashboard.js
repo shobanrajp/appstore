@@ -1,0 +1,1323 @@
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { useNavigate, Link } from 'react-router-dom';
+import {
+    getStores, getProducts, createProduct, updateProduct, deleteProduct,
+    getInventory, createInventory, updateInventory,
+    getOrders, updateOrderStatus,
+    getVendors, createVendor, deleteVendor,
+    getPurchaseOrders, createPurchaseOrder,
+    getPOSTransactions, createPOSTransaction,
+    getSubscriptionPlans, createSubscriptionPlan,
+    updateStoreSettings
+} from '../lib/api';
+import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
+import { Textarea } from '../components/ui/textarea';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
+import { Badge } from '../components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { ScrollArea } from '../components/ui/scroll-area';
+import { toast } from 'sonner';
+import {
+    Plus, Trash2, Package, ShoppingCart, Users, Settings, LogOut,
+    Box, Truck, DollarSign, CreditCard, Edit2, LayoutDashboard, Palette
+} from 'lucide-react';
+import { formatCurrency, formatDate, formatDateTime, getStatusColor } from '../lib/utils';
+
+const StoreAdminDashboard = () => {
+    const { user, logout } = useAuth();
+    const navigate = useNavigate();
+    const [store, setStore] = useState(null);
+    const [products, setProducts] = useState([]);
+    const [inventory, setInventory] = useState([]);
+    const [orders, setOrders] = useState([]);
+    const [vendors, setVendors] = useState([]);
+    const [purchaseOrders, setPurchaseOrders] = useState([]);
+    const [posTransactions, setPosTransactions] = useState([]);
+    const [subscriptionPlans, setSubscriptionPlans] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [activeTab, setActiveTab] = useState('products');
+
+    // Dialog states
+    const [productDialogOpen, setProductDialogOpen] = useState(false);
+    const [inventoryDialogOpen, setInventoryDialogOpen] = useState(false);
+    const [vendorDialogOpen, setVendorDialogOpen] = useState(false);
+    const [poDialogOpen, setPoDialogOpen] = useState(false);
+    const [posDialogOpen, setPosDialogOpen] = useState(false);
+    const [planDialogOpen, setPlanDialogOpen] = useState(false);
+    const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+    const [orderDetailOpen, setOrderDetailOpen] = useState(false);
+    const [selectedOrder, setSelectedOrder] = useState(null);
+
+    // Form states
+    const [newProduct, setNewProduct] = useState({ name: '', description: '', price: '', category: '', sku: '', weight: '', metal_type: 'gold', images: [] });
+    const [newInventory, setNewInventory] = useState({ product_id: '', quantity: '', min_stock_level: 5, location: '' });
+    const [newVendor, setNewVendor] = useState({ name: '', contact_name: '', email: '', phone: '', address: '', gst_number: '' });
+    const [newPO, setNewPO] = useState({ vendor_id: '', items: [{ product_id: '', quantity: '', unit_price: '' }], notes: '' });
+    const [posItems, setPosItems] = useState([{ product_id: '', quantity: 1, price: 0 }]);
+    const [posPaymentMethod, setPosPaymentMethod] = useState('cash');
+    const [posCustomer, setPosCustomer] = useState({ name: '', phone: '' });
+    const [newPlan, setNewPlan] = useState({ name: '', plan_type: 'gold_flexi', duration_months: 11, monthly_amount: '', bonus_percentage: 0, benefits: [], description: '' });
+    const [currency, setCurrency] = useState('INR');
+
+    useEffect(() => {
+        loadData();
+    }, []);
+
+    const loadData = async () => {
+        try {
+            const storesRes = await getStores();
+            const userStore = storesRes.data.find(s => s.id === user.store_id) || storesRes.data[0];
+            if (!userStore) {
+                toast.error('No store assigned');
+                return;
+            }
+            setStore(userStore);
+            setCurrency(userStore.currency);
+
+            const storeId = userStore.id;
+            const [productsRes, inventoryRes, ordersRes, vendorsRes, posRes, posTransRes, plansRes] = await Promise.all([
+                getProducts(storeId, null, false),
+                getInventory(storeId),
+                getOrders(storeId),
+                getVendors(storeId),
+                getPurchaseOrders(storeId),
+                getPOSTransactions(storeId),
+                getSubscriptionPlans(storeId)
+            ]);
+
+            setProducts(productsRes.data);
+            setInventory(inventoryRes.data);
+            setOrders(ordersRes.data);
+            setVendors(vendorsRes.data);
+            setPurchaseOrders(posRes.data);
+            setPosTransactions(posTransRes.data);
+            setSubscriptionPlans(plansRes.data);
+        } catch (error) {
+            console.error(error);
+            toast.error('Failed to load data');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Product handlers
+    const handleCreateProduct = async (e) => {
+        e.preventDefault();
+        try {
+            await createProduct(store.id, {
+                ...newProduct,
+                price: parseFloat(newProduct.price),
+                weight: newProduct.weight ? parseFloat(newProduct.weight) : null
+            });
+            toast.success('Product created');
+            setProductDialogOpen(false);
+            setNewProduct({ name: '', description: '', price: '', category: '', sku: '', weight: '', metal_type: 'gold', images: [] });
+            loadData();
+        } catch (error) {
+            toast.error(error.response?.data?.detail || 'Failed to create product');
+        }
+    };
+
+    const handleDeleteProduct = async (productId) => {
+        if (!window.confirm('Deactivate this product?')) return;
+        try {
+            await deleteProduct(store.id, productId);
+            toast.success('Product deactivated');
+            loadData();
+        } catch (error) {
+            toast.error('Failed to delete product');
+        }
+    };
+
+    // Inventory handlers
+    const handleCreateInventory = async (e) => {
+        e.preventDefault();
+        try {
+            await createInventory(store.id, {
+                ...newInventory,
+                quantity: parseInt(newInventory.quantity),
+                min_stock_level: parseInt(newInventory.min_stock_level)
+            });
+            toast.success('Inventory added');
+            setInventoryDialogOpen(false);
+            setNewInventory({ product_id: '', quantity: '', min_stock_level: 5, location: '' });
+            loadData();
+        } catch (error) {
+            toast.error(error.response?.data?.detail || 'Failed to add inventory');
+        }
+    };
+
+    // Vendor handlers
+    const handleCreateVendor = async (e) => {
+        e.preventDefault();
+        try {
+            await createVendor(store.id, newVendor);
+            toast.success('Vendor created');
+            setVendorDialogOpen(false);
+            setNewVendor({ name: '', contact_name: '', email: '', phone: '', address: '', gst_number: '' });
+            loadData();
+        } catch (error) {
+            toast.error(error.response?.data?.detail || 'Failed to create vendor');
+        }
+    };
+
+    // PO handlers
+    const handleCreatePO = async (e) => {
+        e.preventDefault();
+        try {
+            await createPurchaseOrder(store.id, {
+                vendor_id: newPO.vendor_id,
+                items: newPO.items.map(i => ({
+                    product_id: i.product_id,
+                    quantity: parseInt(i.quantity),
+                    unit_price: parseFloat(i.unit_price)
+                })),
+                notes: newPO.notes
+            });
+            toast.success('Purchase order created');
+            setPoDialogOpen(false);
+            setNewPO({ vendor_id: '', items: [{ product_id: '', quantity: '', unit_price: '' }], notes: '' });
+            loadData();
+        } catch (error) {
+            toast.error(error.response?.data?.detail || 'Failed to create PO');
+        }
+    };
+
+    // POS handlers
+    const handleCreatePOS = async (e) => {
+        e.preventDefault();
+        try {
+            await createPOSTransaction(store.id, {
+                items: posItems.filter(i => i.product_id).map(i => ({
+                    product_id: i.product_id,
+                    quantity: parseInt(i.quantity),
+                    price: parseFloat(i.price)
+                })),
+                payment_method: posPaymentMethod,
+                customer_name: posCustomer.name || null,
+                customer_phone: posCustomer.phone || null
+            });
+            toast.success('Transaction completed');
+            setPosDialogOpen(false);
+            setPosItems([{ product_id: '', quantity: 1, price: 0 }]);
+            setPosCustomer({ name: '', phone: '' });
+            loadData();
+        } catch (error) {
+            toast.error(error.response?.data?.detail || 'Transaction failed');
+        }
+    };
+
+    // Plan handlers
+    const handleCreatePlan = async (e) => {
+        e.preventDefault();
+        try {
+            await createSubscriptionPlan(store.id, {
+                ...newPlan,
+                monthly_amount: parseFloat(newPlan.monthly_amount),
+                bonus_percentage: parseFloat(newPlan.bonus_percentage),
+                benefits: newPlan.benefits.filter(b => b.trim())
+            });
+            toast.success('Plan created');
+            setPlanDialogOpen(false);
+            setNewPlan({ name: '', plan_type: 'gold_flexi', duration_months: 11, monthly_amount: '', bonus_percentage: 0, benefits: [], description: '' });
+            loadData();
+        } catch (error) {
+            toast.error(error.response?.data?.detail || 'Failed to create plan');
+        }
+    };
+
+    // Order handlers
+    const handleUpdateOrderStatus = async (orderId, status, trackingNumber = null) => {
+        try {
+            await updateOrderStatus(store.id, orderId, { status, tracking_number: trackingNumber });
+            toast.success('Order status updated');
+            loadData();
+            setOrderDetailOpen(false);
+        } catch (error) {
+            toast.error('Failed to update order');
+        }
+    };
+
+    // Settings handlers
+    const handleUpdateSettings = async () => {
+        try {
+            await updateStoreSettings(store.id, currency);
+            toast.success('Settings updated');
+            setSettingsDialogOpen(false);
+            loadData();
+        } catch (error) {
+            toast.error('Failed to update settings');
+        }
+    };
+
+    const handleLogout = () => {
+        logout();
+        navigate('/login');
+    };
+
+    const getProductName = (productId) => {
+        return products.find(p => p.id === productId)?.name || 'Unknown';
+    };
+
+    const getVendorName = (vendorId) => {
+        return vendors.find(v => v.id === vendorId)?.name || 'Unknown';
+    };
+
+    if (loading) {
+        return (
+            <div className="min-h-screen flex items-center justify-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold"></div>
+            </div>
+        );
+    }
+
+    if (!store) {
+        return (
+            <div className="min-h-screen flex items-center justify-center">
+                <Card className="max-w-md">
+                    <CardHeader>
+                        <CardTitle>No Store Assigned</CardTitle>
+                        <CardDescription>Please contact the super admin to assign you to a store.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <Button onClick={handleLogout}>Logout</Button>
+                    </CardContent>
+                </Card>
+            </div>
+        );
+    }
+
+    return (
+        <div className="min-h-screen bg-background flex">
+            {/* Sidebar */}
+            <aside className="w-64 bg-card border-r flex flex-col">
+                <div className="p-6 border-b">
+                    <h1 className="text-xl font-serif font-semibold truncate">{store.name}</h1>
+                    <p className="text-sm text-muted-foreground truncate">{user?.email}</p>
+                </div>
+                <ScrollArea className="flex-1">
+                    <nav className="p-4 space-y-2">
+                        <Button
+                            variant={activeTab === 'products' ? 'secondary' : 'ghost'}
+                            className="w-full justify-start"
+                            onClick={() => setActiveTab('products')}
+                            data-testid="nav-products"
+                        >
+                            <Package className="w-4 h-4 mr-2" /> Products
+                        </Button>
+                        <Button
+                            variant={activeTab === 'inventory' ? 'secondary' : 'ghost'}
+                            className="w-full justify-start"
+                            onClick={() => setActiveTab('inventory')}
+                            data-testid="nav-inventory"
+                        >
+                            <Box className="w-4 h-4 mr-2" /> Inventory
+                        </Button>
+                        <Button
+                            variant={activeTab === 'orders' ? 'secondary' : 'ghost'}
+                            className="w-full justify-start"
+                            onClick={() => setActiveTab('orders')}
+                            data-testid="nav-orders"
+                        >
+                            <ShoppingCart className="w-4 h-4 mr-2" /> Orders
+                        </Button>
+                        <Button
+                            variant={activeTab === 'pos' ? 'secondary' : 'ghost'}
+                            className="w-full justify-start"
+                            onClick={() => setActiveTab('pos')}
+                            data-testid="nav-pos"
+                        >
+                            <CreditCard className="w-4 h-4 mr-2" /> POS
+                        </Button>
+                        <Button
+                            variant={activeTab === 'vendors' ? 'secondary' : 'ghost'}
+                            className="w-full justify-start"
+                            onClick={() => setActiveTab('vendors')}
+                            data-testid="nav-vendors"
+                        >
+                            <Truck className="w-4 h-4 mr-2" /> Vendors
+                        </Button>
+                        <Button
+                            variant={activeTab === 'purchase-orders' ? 'secondary' : 'ghost'}
+                            className="w-full justify-start"
+                            onClick={() => setActiveTab('purchase-orders')}
+                            data-testid="nav-po"
+                        >
+                            <DollarSign className="w-4 h-4 mr-2" /> Purchase Orders
+                        </Button>
+                        <Button
+                            variant={activeTab === 'plans' ? 'secondary' : 'ghost'}
+                            className="w-full justify-start"
+                            onClick={() => setActiveTab('plans')}
+                            data-testid="nav-plans"
+                        >
+                            <DollarSign className="w-4 h-4 mr-2" /> Subscription Plans
+                        </Button>
+                        <div className="border-t my-4" />
+                        <Link to={`/page-editor/${store.id}`}>
+                            <Button variant="ghost" className="w-full justify-start" data-testid="nav-page-editor">
+                                <Palette className="w-4 h-4 mr-2" /> Page Editor
+                            </Button>
+                        </Link>
+                        <Button
+                            variant="ghost"
+                            className="w-full justify-start"
+                            onClick={() => setSettingsDialogOpen(true)}
+                            data-testid="nav-settings"
+                        >
+                            <Settings className="w-4 h-4 mr-2" /> Settings
+                        </Button>
+                    </nav>
+                </ScrollArea>
+                <div className="p-4 border-t">
+                    <Button variant="outline" className="w-full" onClick={handleLogout} data-testid="logout-btn">
+                        <LogOut className="w-4 h-4 mr-2" /> Logout
+                    </Button>
+                </div>
+            </aside>
+
+            {/* Main Content */}
+            <main className="flex-1 overflow-auto">
+                <div className="p-8">
+                    {/* Products Tab */}
+                    {activeTab === 'products' && (
+                        <div className="space-y-6">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-2xl font-serif font-semibold">Products</h2>
+                                    <p className="text-muted-foreground">Manage your product catalog</p>
+                                </div>
+                                <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
+                                    <DialogTrigger asChild>
+                                        <Button className="gold-gradient text-white" data-testid="add-product-btn">
+                                            <Plus className="w-4 h-4 mr-2" /> Add Product
+                                        </Button>
+                                    </DialogTrigger>
+                                    <DialogContent className="max-w-lg">
+                                        <DialogHeader>
+                                            <DialogTitle className="font-serif">Add Product</DialogTitle>
+                                            <DialogDescription>Add a new product to your catalog</DialogDescription>
+                                        </DialogHeader>
+                                        <form onSubmit={handleCreateProduct} className="space-y-4">
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label>Product Name</Label>
+                                                    <Input
+                                                        value={newProduct.name}
+                                                        onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
+                                                        required
+                                                        data-testid="product-name-input"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>SKU</Label>
+                                                    <Input
+                                                        value={newProduct.sku}
+                                                        onChange={(e) => setNewProduct({ ...newProduct, sku: e.target.value })}
+                                                        data-testid="product-sku-input"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Description</Label>
+                                                <Textarea
+                                                    value={newProduct.description}
+                                                    onChange={(e) => setNewProduct({ ...newProduct, description: e.target.value })}
+                                                    data-testid="product-desc-input"
+                                                />
+                                            </div>
+                                            <div className="grid grid-cols-3 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label>Price ({store.currency})</Label>
+                                                    <Input
+                                                        type="number"
+                                                        step="0.01"
+                                                        value={newProduct.price}
+                                                        onChange={(e) => setNewProduct({ ...newProduct, price: e.target.value })}
+                                                        required
+                                                        data-testid="product-price-input"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Weight (g)</Label>
+                                                    <Input
+                                                        type="number"
+                                                        step="0.01"
+                                                        value={newProduct.weight}
+                                                        onChange={(e) => setNewProduct({ ...newProduct, weight: e.target.value })}
+                                                        data-testid="product-weight-input"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Metal Type</Label>
+                                                    <Select value={newProduct.metal_type} onValueChange={(v) => setNewProduct({ ...newProduct, metal_type: v })}>
+                                                        <SelectTrigger data-testid="product-metal-select">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="gold">Gold</SelectItem>
+                                                            <SelectItem value="silver">Silver</SelectItem>
+                                                            <SelectItem value="platinum">Platinum</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Category</Label>
+                                                <Input
+                                                    value={newProduct.category}
+                                                    onChange={(e) => setNewProduct({ ...newProduct, category: e.target.value })}
+                                                    placeholder="e.g., Necklaces, Rings, Earrings"
+                                                    data-testid="product-category-input"
+                                                />
+                                            </div>
+                                            <Button type="submit" className="w-full gold-gradient text-white" data-testid="submit-product-btn">
+                                                Create Product
+                                            </Button>
+                                        </form>
+                                    </DialogContent>
+                                </Dialog>
+                            </div>
+
+                            <Card>
+                                <CardContent className="p-0">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Name</TableHead>
+                                                <TableHead>SKU</TableHead>
+                                                <TableHead>Category</TableHead>
+                                                <TableHead>Price</TableHead>
+                                                <TableHead>Weight</TableHead>
+                                                <TableHead>Status</TableHead>
+                                                <TableHead className="text-right">Actions</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {products.map((product) => (
+                                                <TableRow key={product.id} data-testid={`product-row-${product.id}`}>
+                                                    <TableCell className="font-medium">{product.name}</TableCell>
+                                                    <TableCell>{product.sku || '-'}</TableCell>
+                                                    <TableCell>{product.category || '-'}</TableCell>
+                                                    <TableCell>{formatCurrency(product.price, store.currency)}</TableCell>
+                                                    <TableCell>{product.weight ? `${product.weight}g` : '-'}</TableCell>
+                                                    <TableCell>
+                                                        <Badge variant={product.is_active ? 'default' : 'secondary'}>
+                                                            {product.is_active ? 'Active' : 'Inactive'}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        <Button variant="ghost" size="sm" onClick={() => handleDeleteProduct(product.id)}>
+                                                            <Trash2 className="w-4 h-4 text-destructive" />
+                                                        </Button>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                            {products.length === 0 && (
+                                                <TableRow>
+                                                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                                                        No products yet. Add your first product to get started.
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </CardContent>
+                            </Card>
+                        </div>
+                    )}
+
+                    {/* Inventory Tab */}
+                    {activeTab === 'inventory' && (
+                        <div className="space-y-6">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-2xl font-serif font-semibold">Inventory</h2>
+                                    <p className="text-muted-foreground">Manage stock levels</p>
+                                </div>
+                                <Dialog open={inventoryDialogOpen} onOpenChange={setInventoryDialogOpen}>
+                                    <DialogTrigger asChild>
+                                        <Button className="gold-gradient text-white" data-testid="add-inventory-btn">
+                                            <Plus className="w-4 h-4 mr-2" /> Add Inventory
+                                        </Button>
+                                    </DialogTrigger>
+                                    <DialogContent>
+                                        <DialogHeader>
+                                            <DialogTitle className="font-serif">Add Inventory</DialogTitle>
+                                        </DialogHeader>
+                                        <form onSubmit={handleCreateInventory} className="space-y-4">
+                                            <div className="space-y-2">
+                                                <Label>Product</Label>
+                                                <Select value={newInventory.product_id} onValueChange={(v) => setNewInventory({ ...newInventory, product_id: v })}>
+                                                    <SelectTrigger data-testid="inventory-product-select">
+                                                        <SelectValue placeholder="Select product" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {products.filter(p => p.is_active).map((p) => (
+                                                            <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label>Quantity</Label>
+                                                    <Input
+                                                        type="number"
+                                                        value={newInventory.quantity}
+                                                        onChange={(e) => setNewInventory({ ...newInventory, quantity: e.target.value })}
+                                                        required
+                                                        data-testid="inventory-qty-input"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Min Stock Level</Label>
+                                                    <Input
+                                                        type="number"
+                                                        value={newInventory.min_stock_level}
+                                                        onChange={(e) => setNewInventory({ ...newInventory, min_stock_level: e.target.value })}
+                                                        data-testid="inventory-min-input"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Location</Label>
+                                                <Input
+                                                    value={newInventory.location}
+                                                    onChange={(e) => setNewInventory({ ...newInventory, location: e.target.value })}
+                                                    placeholder="e.g., Shelf A1"
+                                                    data-testid="inventory-location-input"
+                                                />
+                                            </div>
+                                            <Button type="submit" className="w-full gold-gradient text-white" data-testid="submit-inventory-btn">
+                                                Add Inventory
+                                            </Button>
+                                        </form>
+                                    </DialogContent>
+                                </Dialog>
+                            </div>
+
+                            <Card>
+                                <CardContent className="p-0">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Product</TableHead>
+                                                <TableHead>Quantity</TableHead>
+                                                <TableHead>Min Stock</TableHead>
+                                                <TableHead>Location</TableHead>
+                                                <TableHead>Status</TableHead>
+                                                <TableHead>Last Updated</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {inventory.map((inv) => (
+                                                <TableRow key={inv.id}>
+                                                    <TableCell className="font-medium">{getProductName(inv.product_id)}</TableCell>
+                                                    <TableCell>{inv.quantity}</TableCell>
+                                                    <TableCell>{inv.min_stock_level}</TableCell>
+                                                    <TableCell>{inv.location || '-'}</TableCell>
+                                                    <TableCell>
+                                                        <Badge variant={inv.quantity > inv.min_stock_level ? 'default' : 'destructive'}>
+                                                            {inv.quantity > inv.min_stock_level ? 'In Stock' : 'Low Stock'}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell>{formatDate(inv.updated_at)}</TableCell>
+                                                </TableRow>
+                                            ))}
+                                            {inventory.length === 0 && (
+                                                <TableRow>
+                                                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                                                        No inventory records yet.
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </CardContent>
+                            </Card>
+                        </div>
+                    )}
+
+                    {/* Orders Tab */}
+                    {activeTab === 'orders' && (
+                        <div className="space-y-6">
+                            <div>
+                                <h2 className="text-2xl font-serif font-semibold">Customer Orders</h2>
+                                <p className="text-muted-foreground">Manage and track orders</p>
+                            </div>
+
+                            <Card>
+                                <CardContent className="p-0">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Order ID</TableHead>
+                                                <TableHead>Items</TableHead>
+                                                <TableHead>Total</TableHead>
+                                                <TableHead>Status</TableHead>
+                                                <TableHead>Tracking</TableHead>
+                                                <TableHead>Date</TableHead>
+                                                <TableHead className="text-right">Actions</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {orders.map((order) => (
+                                                <TableRow key={order.id}>
+                                                    <TableCell className="font-mono text-sm">{order.id.slice(0, 8)}...</TableCell>
+                                                    <TableCell>{order.items.length} items</TableCell>
+                                                    <TableCell>{formatCurrency(order.total_amount, store.currency)}</TableCell>
+                                                    <TableCell>
+                                                        <Badge className={getStatusColor(order.status)}>{order.status}</Badge>
+                                                    </TableCell>
+                                                    <TableCell>{order.tracking_number || '-'}</TableCell>
+                                                    <TableCell>{formatDate(order.created_at)}</TableCell>
+                                                    <TableCell className="text-right">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => { setSelectedOrder(order); setOrderDetailOpen(true); }}
+                                                        >
+                                                            <Edit2 className="w-4 h-4" />
+                                                        </Button>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                            {orders.length === 0 && (
+                                                <TableRow>
+                                                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                                                        No orders yet.
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </CardContent>
+                            </Card>
+
+                            {/* Order Detail Dialog */}
+                            <Dialog open={orderDetailOpen} onOpenChange={setOrderDetailOpen}>
+                                <DialogContent className="max-w-2xl">
+                                    <DialogHeader>
+                                        <DialogTitle className="font-serif">Order Details</DialogTitle>
+                                    </DialogHeader>
+                                    {selectedOrder && (
+                                        <div className="space-y-4">
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <Label className="text-muted-foreground">Order ID</Label>
+                                                    <p className="font-mono">{selectedOrder.id}</p>
+                                                </div>
+                                                <div>
+                                                    <Label className="text-muted-foreground">Status</Label>
+                                                    <Badge className={getStatusColor(selectedOrder.status)}>{selectedOrder.status}</Badge>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <Label className="text-muted-foreground">Items</Label>
+                                                <div className="mt-2 space-y-2">
+                                                    {selectedOrder.items.map((item, idx) => (
+                                                        <div key={idx} className="flex justify-between text-sm">
+                                                            <span>{item.product_name} x {item.quantity}</span>
+                                                            <span>{formatCurrency(item.price * item.quantity, store.currency)}</span>
+                                                        </div>
+                                                    ))}
+                                                    <div className="border-t pt-2 flex justify-between font-semibold">
+                                                        <span>Total</span>
+                                                        <span>{formatCurrency(selectedOrder.total_amount, store.currency)}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <Label className="text-muted-foreground">Shipping Address</Label>
+                                                <p className="text-sm">
+                                                    {selectedOrder.shipping_address.full_name}<br />
+                                                    {selectedOrder.shipping_address.address_line1}<br />
+                                                    {selectedOrder.shipping_address.city}, {selectedOrder.shipping_address.state} {selectedOrder.shipping_address.postal_code}
+                                                </p>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <Select onValueChange={(status) => handleUpdateOrderStatus(selectedOrder.id, status)}>
+                                                    <SelectTrigger className="w-40">
+                                                        <SelectValue placeholder="Update Status" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="pending">Pending</SelectItem>
+                                                        <SelectItem value="processing">Processing</SelectItem>
+                                                        <SelectItem value="shipped">Shipped</SelectItem>
+                                                        <SelectItem value="delivered">Delivered</SelectItem>
+                                                        <SelectItem value="cancelled">Cancelled</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                        </div>
+                                    )}
+                                </DialogContent>
+                            </Dialog>
+                        </div>
+                    )}
+
+                    {/* POS Tab */}
+                    {activeTab === 'pos' && (
+                        <div className="space-y-6">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-2xl font-serif font-semibold">POS Transactions</h2>
+                                    <p className="text-muted-foreground">Point of Sale transactions</p>
+                                </div>
+                                <Dialog open={posDialogOpen} onOpenChange={setPosDialogOpen}>
+                                    <DialogTrigger asChild>
+                                        <Button className="gold-gradient text-white" data-testid="new-sale-btn">
+                                            <Plus className="w-4 h-4 mr-2" /> New Sale
+                                        </Button>
+                                    </DialogTrigger>
+                                    <DialogContent className="max-w-lg">
+                                        <DialogHeader>
+                                            <DialogTitle className="font-serif">New POS Transaction</DialogTitle>
+                                        </DialogHeader>
+                                        <form onSubmit={handleCreatePOS} className="space-y-4">
+                                            <div className="space-y-2">
+                                                <Label>Items</Label>
+                                                {posItems.map((item, idx) => (
+                                                    <div key={idx} className="grid grid-cols-3 gap-2">
+                                                        <Select value={item.product_id} onValueChange={(v) => {
+                                                            const product = products.find(p => p.id === v);
+                                                            const newItems = [...posItems];
+                                                            newItems[idx] = { ...newItems[idx], product_id: v, price: product?.price || 0 };
+                                                            setPosItems(newItems);
+                                                        }}>
+                                                            <SelectTrigger>
+                                                                <SelectValue placeholder="Product" />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                {products.filter(p => p.is_active).map((p) => (
+                                                                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                        <Input
+                                                            type="number"
+                                                            placeholder="Qty"
+                                                            value={item.quantity}
+                                                            onChange={(e) => {
+                                                                const newItems = [...posItems];
+                                                                newItems[idx].quantity = parseInt(e.target.value) || 1;
+                                                                setPosItems(newItems);
+                                                            }}
+                                                        />
+                                                        <Input
+                                                            type="number"
+                                                            placeholder="Price"
+                                                            value={item.price}
+                                                            onChange={(e) => {
+                                                                const newItems = [...posItems];
+                                                                newItems[idx].price = parseFloat(e.target.value) || 0;
+                                                                setPosItems(newItems);
+                                                            }}
+                                                        />
+                                                    </div>
+                                                ))}
+                                                <Button type="button" variant="outline" size="sm" onClick={() => setPosItems([...posItems, { product_id: '', quantity: 1, price: 0 }])}>
+                                                    Add Item
+                                                </Button>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label>Customer Name</Label>
+                                                    <Input value={posCustomer.name} onChange={(e) => setPosCustomer({ ...posCustomer, name: e.target.value })} />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Phone</Label>
+                                                    <Input value={posCustomer.phone} onChange={(e) => setPosCustomer({ ...posCustomer, phone: e.target.value })} />
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Payment Method</Label>
+                                                <Select value={posPaymentMethod} onValueChange={setPosPaymentMethod}>
+                                                    <SelectTrigger>
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="cash">Cash</SelectItem>
+                                                        <SelectItem value="card">Card</SelectItem>
+                                                        <SelectItem value="upi">UPI</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="p-4 bg-muted rounded-lg">
+                                                <div className="flex justify-between text-lg font-semibold">
+                                                    <span>Total</span>
+                                                    <span>{formatCurrency(posItems.reduce((sum, i) => sum + (i.price * i.quantity), 0), store.currency)}</span>
+                                                </div>
+                                            </div>
+                                            <Button type="submit" className="w-full gold-gradient text-white" data-testid="complete-sale-btn">
+                                                Complete Sale
+                                            </Button>
+                                        </form>
+                                    </DialogContent>
+                                </Dialog>
+                            </div>
+
+                            <Card>
+                                <CardContent className="p-0">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Transaction ID</TableHead>
+                                                <TableHead>Items</TableHead>
+                                                <TableHead>Total</TableHead>
+                                                <TableHead>Payment</TableHead>
+                                                <TableHead>Customer</TableHead>
+                                                <TableHead>Date</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {posTransactions.map((tx) => (
+                                                <TableRow key={tx.id}>
+                                                    <TableCell className="font-mono text-sm">{tx.id.slice(0, 8)}...</TableCell>
+                                                    <TableCell>{tx.items.length} items</TableCell>
+                                                    <TableCell>{formatCurrency(tx.total_amount, store.currency)}</TableCell>
+                                                    <TableCell className="capitalize">{tx.payment_method}</TableCell>
+                                                    <TableCell>{tx.customer_name || '-'}</TableCell>
+                                                    <TableCell>{formatDateTime(tx.created_at)}</TableCell>
+                                                </TableRow>
+                                            ))}
+                                            {posTransactions.length === 0 && (
+                                                <TableRow>
+                                                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                                                        No POS transactions yet.
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </CardContent>
+                            </Card>
+                        </div>
+                    )}
+
+                    {/* Vendors Tab */}
+                    {activeTab === 'vendors' && (
+                        <div className="space-y-6">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-2xl font-serif font-semibold">Vendors</h2>
+                                    <p className="text-muted-foreground">Manage your suppliers</p>
+                                </div>
+                                <Dialog open={vendorDialogOpen} onOpenChange={setVendorDialogOpen}>
+                                    <DialogTrigger asChild>
+                                        <Button className="gold-gradient text-white" data-testid="add-vendor-btn">
+                                            <Plus className="w-4 h-4 mr-2" /> Add Vendor
+                                        </Button>
+                                    </DialogTrigger>
+                                    <DialogContent>
+                                        <DialogHeader>
+                                            <DialogTitle className="font-serif">Add Vendor</DialogTitle>
+                                        </DialogHeader>
+                                        <form onSubmit={handleCreateVendor} className="space-y-4">
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label>Company Name</Label>
+                                                    <Input
+                                                        value={newVendor.name}
+                                                        onChange={(e) => setNewVendor({ ...newVendor, name: e.target.value })}
+                                                        required
+                                                        data-testid="vendor-name-input"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Contact Person</Label>
+                                                    <Input
+                                                        value={newVendor.contact_name}
+                                                        onChange={(e) => setNewVendor({ ...newVendor, contact_name: e.target.value })}
+                                                        data-testid="vendor-contact-input"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label>Email</Label>
+                                                    <Input
+                                                        type="email"
+                                                        value={newVendor.email}
+                                                        onChange={(e) => setNewVendor({ ...newVendor, email: e.target.value })}
+                                                        data-testid="vendor-email-input"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Phone</Label>
+                                                    <Input
+                                                        value={newVendor.phone}
+                                                        onChange={(e) => setNewVendor({ ...newVendor, phone: e.target.value })}
+                                                        data-testid="vendor-phone-input"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>GST Number</Label>
+                                                <Input
+                                                    value={newVendor.gst_number}
+                                                    onChange={(e) => setNewVendor({ ...newVendor, gst_number: e.target.value })}
+                                                    data-testid="vendor-gst-input"
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Address</Label>
+                                                <Textarea
+                                                    value={newVendor.address}
+                                                    onChange={(e) => setNewVendor({ ...newVendor, address: e.target.value })}
+                                                    data-testid="vendor-address-input"
+                                                />
+                                            </div>
+                                            <Button type="submit" className="w-full gold-gradient text-white" data-testid="submit-vendor-btn">
+                                                Add Vendor
+                                            </Button>
+                                        </form>
+                                    </DialogContent>
+                                </Dialog>
+                            </div>
+
+                            <Card>
+                                <CardContent className="p-0">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Name</TableHead>
+                                                <TableHead>Contact</TableHead>
+                                                <TableHead>Email</TableHead>
+                                                <TableHead>Phone</TableHead>
+                                                <TableHead>GST</TableHead>
+                                                <TableHead className="text-right">Actions</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {vendors.map((vendor) => (
+                                                <TableRow key={vendor.id}>
+                                                    <TableCell className="font-medium">{vendor.name}</TableCell>
+                                                    <TableCell>{vendor.contact_name || '-'}</TableCell>
+                                                    <TableCell>{vendor.email || '-'}</TableCell>
+                                                    <TableCell>{vendor.phone || '-'}</TableCell>
+                                                    <TableCell>{vendor.gst_number || '-'}</TableCell>
+                                                    <TableCell className="text-right">
+                                                        <Button variant="ghost" size="sm" onClick={() => deleteVendor(store.id, vendor.id).then(loadData)}>
+                                                            <Trash2 className="w-4 h-4 text-destructive" />
+                                                        </Button>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                            {vendors.length === 0 && (
+                                                <TableRow>
+                                                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                                                        No vendors yet.
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </CardContent>
+                            </Card>
+                        </div>
+                    )}
+
+                    {/* Purchase Orders Tab */}
+                    {activeTab === 'purchase-orders' && (
+                        <div className="space-y-6">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-2xl font-serif font-semibold">Purchase Orders</h2>
+                                    <p className="text-muted-foreground">Manage supplier orders</p>
+                                </div>
+                                <Dialog open={poDialogOpen} onOpenChange={setPoDialogOpen}>
+                                    <DialogTrigger asChild>
+                                        <Button className="gold-gradient text-white" data-testid="create-po-btn">
+                                            <Plus className="w-4 h-4 mr-2" /> Create PO
+                                        </Button>
+                                    </DialogTrigger>
+                                    <DialogContent className="max-w-lg">
+                                        <DialogHeader>
+                                            <DialogTitle className="font-serif">Create Purchase Order</DialogTitle>
+                                        </DialogHeader>
+                                        <form onSubmit={handleCreatePO} className="space-y-4">
+                                            <div className="space-y-2">
+                                                <Label>Vendor</Label>
+                                                <Select value={newPO.vendor_id} onValueChange={(v) => setNewPO({ ...newPO, vendor_id: v })}>
+                                                    <SelectTrigger data-testid="po-vendor-select">
+                                                        <SelectValue placeholder="Select vendor" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {vendors.map((v) => (
+                                                            <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Items</Label>
+                                                {newPO.items.map((item, idx) => (
+                                                    <div key={idx} className="grid grid-cols-3 gap-2">
+                                                        <Select value={item.product_id} onValueChange={(v) => {
+                                                            const items = [...newPO.items];
+                                                            items[idx].product_id = v;
+                                                            setNewPO({ ...newPO, items });
+                                                        }}>
+                                                            <SelectTrigger>
+                                                                <SelectValue placeholder="Product" />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                {products.map((p) => (
+                                                                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                        <Input
+                                                            type="number"
+                                                            placeholder="Qty"
+                                                            value={item.quantity}
+                                                            onChange={(e) => {
+                                                                const items = [...newPO.items];
+                                                                items[idx].quantity = e.target.value;
+                                                                setNewPO({ ...newPO, items });
+                                                            }}
+                                                        />
+                                                        <Input
+                                                            type="number"
+                                                            placeholder="Unit Price"
+                                                            value={item.unit_price}
+                                                            onChange={(e) => {
+                                                                const items = [...newPO.items];
+                                                                items[idx].unit_price = e.target.value;
+                                                                setNewPO({ ...newPO, items });
+                                                            }}
+                                                        />
+                                                    </div>
+                                                ))}
+                                                <Button type="button" variant="outline" size="sm" onClick={() => setNewPO({ ...newPO, items: [...newPO.items, { product_id: '', quantity: '', unit_price: '' }] })}>
+                                                    Add Item
+                                                </Button>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Notes</Label>
+                                                <Textarea value={newPO.notes} onChange={(e) => setNewPO({ ...newPO, notes: e.target.value })} />
+                                            </div>
+                                            <Button type="submit" className="w-full gold-gradient text-white" data-testid="submit-po-btn">
+                                                Create Purchase Order
+                                            </Button>
+                                        </form>
+                                    </DialogContent>
+                                </Dialog>
+                            </div>
+
+                            <Card>
+                                <CardContent className="p-0">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>PO ID</TableHead>
+                                                <TableHead>Vendor</TableHead>
+                                                <TableHead>Items</TableHead>
+                                                <TableHead>Total</TableHead>
+                                                <TableHead>Status</TableHead>
+                                                <TableHead>Date</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {purchaseOrders.map((po) => (
+                                                <TableRow key={po.id}>
+                                                    <TableCell className="font-mono text-sm">{po.id.slice(0, 8)}...</TableCell>
+                                                    <TableCell>{getVendorName(po.vendor_id)}</TableCell>
+                                                    <TableCell>{po.items.length} items</TableCell>
+                                                    <TableCell>{formatCurrency(po.total_amount, store.currency)}</TableCell>
+                                                    <TableCell>
+                                                        <Badge className={getStatusColor(po.status)}>{po.status}</Badge>
+                                                    </TableCell>
+                                                    <TableCell>{formatDate(po.created_at)}</TableCell>
+                                                </TableRow>
+                                            ))}
+                                            {purchaseOrders.length === 0 && (
+                                                <TableRow>
+                                                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                                                        No purchase orders yet.
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </CardContent>
+                            </Card>
+                        </div>
+                    )}
+
+                    {/* Subscription Plans Tab */}
+                    {activeTab === 'plans' && (
+                        <div className="space-y-6">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-2xl font-serif font-semibold">Subscription Plans</h2>
+                                    <p className="text-muted-foreground">Manage Gold/Silver Flexi Plans</p>
+                                </div>
+                                <Dialog open={planDialogOpen} onOpenChange={setPlanDialogOpen}>
+                                    <DialogTrigger asChild>
+                                        <Button className="gold-gradient text-white" data-testid="create-plan-btn">
+                                            <Plus className="w-4 h-4 mr-2" /> Create Plan
+                                        </Button>
+                                    </DialogTrigger>
+                                    <DialogContent className="max-w-lg">
+                                        <DialogHeader>
+                                            <DialogTitle className="font-serif">Create Subscription Plan</DialogTitle>
+                                        </DialogHeader>
+                                        <form onSubmit={handleCreatePlan} className="space-y-4">
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label>Plan Name</Label>
+                                                    <Input
+                                                        value={newPlan.name}
+                                                        onChange={(e) => setNewPlan({ ...newPlan, name: e.target.value })}
+                                                        required
+                                                        placeholder="e.g., Gold Flexi Premium"
+                                                        data-testid="plan-name-input"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Plan Type</Label>
+                                                    <Select value={newPlan.plan_type} onValueChange={(v) => setNewPlan({ ...newPlan, plan_type: v })}>
+                                                        <SelectTrigger data-testid="plan-type-select">
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="gold_flexi">Gold Flexi</SelectItem>
+                                                            <SelectItem value="silver_flexi">Silver Flexi</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-3 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label>Duration (months)</Label>
+                                                    <Input
+                                                        type="number"
+                                                        value={newPlan.duration_months}
+                                                        onChange={(e) => setNewPlan({ ...newPlan, duration_months: parseInt(e.target.value) })}
+                                                        required
+                                                        data-testid="plan-duration-input"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Monthly Amount</Label>
+                                                    <Input
+                                                        type="number"
+                                                        value={newPlan.monthly_amount}
+                                                        onChange={(e) => setNewPlan({ ...newPlan, monthly_amount: e.target.value })}
+                                                        required
+                                                        data-testid="plan-amount-input"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Bonus %</Label>
+                                                    <Input
+                                                        type="number"
+                                                        value={newPlan.bonus_percentage}
+                                                        onChange={(e) => setNewPlan({ ...newPlan, bonus_percentage: e.target.value })}
+                                                        data-testid="plan-bonus-input"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Description</Label>
+                                                <Textarea
+                                                    value={newPlan.description}
+                                                    onChange={(e) => setNewPlan({ ...newPlan, description: e.target.value })}
+                                                    placeholder="Describe the plan benefits..."
+                                                    data-testid="plan-desc-input"
+                                                />
+                                            </div>
+                                            <Button type="submit" className="w-full gold-gradient text-white" data-testid="submit-plan-btn">
+                                                Create Plan
+                                            </Button>
+                                        </form>
+                                    </DialogContent>
+                                </Dialog>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {subscriptionPlans.map((plan) => (
+                                    <Card key={plan.id} className="luxury-card">
+                                        <CardHeader>
+                                            <div className="flex items-center justify-between">
+                                                <Badge variant={plan.plan_type === 'gold_flexi' ? 'default' : 'secondary'} className="gold-gradient text-white">
+                                                    {plan.plan_type === 'gold_flexi' ? 'Gold Flexi' : 'Silver Flexi'}
+                                                </Badge>
+                                                <Badge variant={plan.is_active ? 'outline' : 'secondary'}>
+                                                    {plan.is_active ? 'Active' : 'Inactive'}
+                                                </Badge>
+                                            </div>
+                                            <CardTitle className="font-serif mt-2">{plan.name}</CardTitle>
+                                            <CardDescription>{plan.description}</CardDescription>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <div className="space-y-2">
+                                                <div className="flex justify-between">
+                                                    <span className="text-muted-foreground">Monthly</span>
+                                                    <span className="font-semibold">{formatCurrency(plan.monthly_amount, store.currency)}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span className="text-muted-foreground">Duration</span>
+                                                    <span>{plan.duration_months} months</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span className="text-muted-foreground">Bonus</span>
+                                                    <span className="gold-text font-semibold">{plan.bonus_percentage}%</span>
+                                                </div>
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                ))}
+                                {subscriptionPlans.length === 0 && (
+                                    <Card className="col-span-full">
+                                        <CardContent className="py-8 text-center text-muted-foreground">
+                                            No subscription plans yet. Create your first Gold or Silver Flexi plan.
+                                        </CardContent>
+                                    </Card>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </main>
+
+            {/* Settings Dialog */}
+            <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle className="font-serif">Store Settings</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <Label>Currency</Label>
+                            <Select value={currency} onValueChange={setCurrency}>
+                                <SelectTrigger data-testid="settings-currency-select">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="INR">INR (₹)</SelectItem>
+                                    <SelectItem value="USD">USD ($)</SelectItem>
+                                    <SelectItem value="EUR">EUR (€)</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <Button onClick={handleUpdateSettings} className="w-full gold-gradient text-white" data-testid="save-settings-btn">
+                            Save Settings
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+        </div>
+    );
+};
+
+export default StoreAdminDashboard;
