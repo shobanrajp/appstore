@@ -365,6 +365,8 @@ const PageEditor = () => {
     const [saving, setSaving] = useState(false);
     const [previewMode, setPreviewMode] = useState('desktop');
     const [isPublished, setIsPublished] = useState(false);
+    const [selectedTheme, setSelectedTheme] = useState(null);
+    const [showThemePanel, setShowThemePanel] = useState(false);
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
