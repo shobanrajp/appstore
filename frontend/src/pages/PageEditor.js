@@ -33,6 +33,7 @@ const COMPONENT_TYPES = [
     { type: 'accordion', label: 'Accordion', icon: ChevronDown },
     { type: 'divider', label: 'Divider/Spacer', icon: SeparatorHorizontal },
     { type: 'menu', label: 'Menu Categories', icon: Menu },
+    { type: 'search_bar', label: 'Search Bar', icon: Type },
     { type: 'products', label: 'Product Grid', icon: Grid3X3 },
     { type: 'scrolling_text', label: 'Scrolling Text', icon: Type },
     { type: 'subscription_plans', label: 'Subscription Plans', icon: Square },
