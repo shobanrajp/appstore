@@ -71,6 +71,7 @@ function AppRoutes() {
             
             {/* Store Front (Public) */}
             <Route path="/store/:storeId" element={<StoreFront />} />
+            <Route path="/store/:storeId/product/:productId" element={<ProductDetail />} />
             <Route path="/shop" element={<StoreFront />} />
 
             {/* Super Admin Routes */}
