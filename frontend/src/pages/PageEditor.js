@@ -232,13 +232,13 @@ const ComponentPreview = ({ component, products, plans }) => {
                             <Card key={plan.id} className="luxury-card">
                                 <CardHeader>
                                     <div className="gold-gradient text-white text-xs px-2 py-1 rounded w-fit mb-2">
-                                        {plan.plan_type === 'gold_flexi' ? 'Gold Flexi' : 'Silver Flexi'}
+                                        {plan.plan_type || 'Flexi Plan'}
                                     </div>
                                     <CardTitle className="font-serif">{plan.name}</CardTitle>
                                 </CardHeader>
                                 <CardContent>
-                                    <div className="text-3xl font-serif gold-text mb-2">
-                                        ₹{plan.monthly_amount.toLocaleString()}<span className="text-sm text-muted-foreground">/month</span>
+                                    <div className="text-2xl font-serif gold-text mb-2">
+                                        ₹{(plan.min_amount || 500).toLocaleString()} - ₹{(plan.max_amount || 100000).toLocaleString()}<span className="text-sm text-muted-foreground">/month</span>
                                     </div>
                                     <p className="text-sm text-muted-foreground mb-4">{plan.duration_months} months • {plan.bonus_percentage}% bonus</p>
                                     <Button className="w-full gold-gradient text-white">Subscribe Now</Button>
