@@ -17,8 +17,67 @@ import { v4 as uuidv4 } from 'uuid';
 import {
     ArrowLeft, Save, Eye, Layout, Type, Image, Grid3X3, Columns, Square, 
     Menu, ListOrdered, ChevronDown, SeparatorHorizontal, Trash2, GripVertical,
-    Monitor, Smartphone, Plus, Search
+    Monitor, Smartphone, Plus, Search, Palette
 } from 'lucide-react';
+
+// Predefined Theme Presets
+const THEME_PRESETS = [
+    {
+        id: 'luxury-gold',
+        name: 'Luxury Gold',
+        description: 'Elegant gold tones with dark accents',
+        primaryColor: '#D4AF37',
+        secondaryColor: '#1a1a2e',
+        backgroundColor: '#ffffff',
+        textColor: '#1a1a2e',
+        accentColor: '#F2D06B',
+        fontFamily: 'serif'
+    },
+    {
+        id: 'modern-minimal',
+        name: 'Modern Minimal',
+        description: 'Clean and contemporary',
+        primaryColor: '#000000',
+        secondaryColor: '#f5f5f5',
+        backgroundColor: '#ffffff',
+        textColor: '#333333',
+        accentColor: '#666666',
+        fontFamily: 'sans-serif'
+    },
+    {
+        id: 'royal-blue',
+        name: 'Royal Blue',
+        description: 'Rich blue with silver accents',
+        primaryColor: '#1e3a5f',
+        secondaryColor: '#c0c0c0',
+        backgroundColor: '#f8f9fa',
+        textColor: '#1e3a5f',
+        accentColor: '#4a90d9',
+        fontFamily: 'serif'
+    },
+    {
+        id: 'rose-gold',
+        name: 'Rose Gold',
+        description: 'Warm rose gold elegance',
+        primaryColor: '#b76e79',
+        secondaryColor: '#f5e6e8',
+        backgroundColor: '#fffaf0',
+        textColor: '#4a4a4a',
+        accentColor: '#d4a5a5',
+        fontFamily: 'serif'
+    },
+    {
+        id: 'emerald-luxe',
+        name: 'Emerald Luxe',
+        description: 'Deep green sophistication',
+        primaryColor: '#046307',
+        secondaryColor: '#d4af37',
+        backgroundColor: '#fefefe',
+        textColor: '#1a1a1a',
+        accentColor: '#2d6a4f',
+        fontFamily: 'serif'
+    }
+];
 
 // Component Types
 const COMPONENT_TYPES = [
