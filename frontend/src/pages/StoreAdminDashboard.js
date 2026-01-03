@@ -52,9 +52,11 @@ const StoreAdminDashboard = () => {
     const [posDialogOpen, setPosDialogOpen] = useState(false);
     const [planDialogOpen, setPlanDialogOpen] = useState(false);
     const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+    const [storeEditDialogOpen, setStoreEditDialogOpen] = useState(false);
     const [orderDetailOpen, setOrderDetailOpen] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState(null);
     const [orderTrackingInfo, setOrderTrackingInfo] = useState({ tracking_number: '', carrier_name: '', carrier_url: '' });
+    const [storeEditForm, setStoreEditForm] = useState({ name: '', description: '', contact_email: '', contact_phone: '', address: '' });
 
     // Form states
     const [newProduct, setNewProduct] = useState({ name: '', description: '', price: '', category: '', sku: '', weight: '', images: [''] });
