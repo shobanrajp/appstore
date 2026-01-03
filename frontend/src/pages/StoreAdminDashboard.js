@@ -26,7 +26,8 @@ import { ScrollArea } from '../components/ui/scroll-area';
 import { toast } from 'sonner';
 import {
     Plus, Trash2, Package, ShoppingCart, Users, Settings, LogOut,
-    Box, Truck, DollarSign, CreditCard, Edit2, LayoutDashboard, Palette, Eye, Building2
+    Box, Truck, DollarSign, CreditCard, Edit2, LayoutDashboard, Palette, Eye, Building2,
+    BarChart3, Filter, Calendar
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatDateTime, getStatusColor } from '../lib/utils';
 
