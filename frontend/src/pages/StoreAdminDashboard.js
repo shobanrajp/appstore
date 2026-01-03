@@ -1786,6 +1786,65 @@ const StoreAdminDashboard = () => {
                     </div>
                 </DialogContent>
             </Dialog>
+
+            {/* Store Edit Dialog */}
+            <Dialog open={storeEditDialogOpen} onOpenChange={setStoreEditDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle className="font-serif">Edit Store Information</DialogTitle>
+                        <DialogDescription>Update your store details</DialogDescription>
+                    </DialogHeader>
+                    <form onSubmit={handleUpdateStore} className="space-y-4">
+                        <div className="space-y-2">
+                            <Label>Store Name</Label>
+                            <Input
+                                value={storeEditForm.name}
+                                onChange={(e) => setStoreEditForm({ ...storeEditForm, name: e.target.value })}
+                                required
+                                data-testid="store-edit-name"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Description</Label>
+                            <Textarea
+                                value={storeEditForm.description}
+                                onChange={(e) => setStoreEditForm({ ...storeEditForm, description: e.target.value })}
+                                data-testid="store-edit-desc"
+                            />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label>Contact Email</Label>
+                                <Input
+                                    type="email"
+                                    value={storeEditForm.contact_email}
+                                    onChange={(e) => setStoreEditForm({ ...storeEditForm, contact_email: e.target.value })}
+                                    data-testid="store-edit-email"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Contact Phone</Label>
+                                <Input
+                                    value={storeEditForm.contact_phone}
+                                    onChange={(e) => setStoreEditForm({ ...storeEditForm, contact_phone: e.target.value })}
+                                    data-testid="store-edit-phone"
+                                />
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Address</Label>
+                            <Textarea
+                                value={storeEditForm.address}
+                                onChange={(e) => setStoreEditForm({ ...storeEditForm, address: e.target.value })}
+                                data-testid="store-edit-address"
+                            />
+                        </div>
+                        <Button type="submit" className="w-full gold-gradient text-white" data-testid="save-store-btn">
+                            Save Changes
+                        </Button>
+                    </form>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };
