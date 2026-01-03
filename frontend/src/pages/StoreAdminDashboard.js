@@ -55,7 +55,11 @@ const StoreAdminDashboard = () => {
     const [selectedOrder, setSelectedOrder] = useState(null);
 
     // Form states
-    const [newProduct, setNewProduct] = useState({ name: '', description: '', price: '', category: '', sku: '', weight: '', metal_type: 'gold', images: [] });
+    const [newProduct, setNewProduct] = useState({ name: '', description: '', price: '', category: '', sku: '', weight: '', image_url: '' });
+    const [editingProduct, setEditingProduct] = useState(null);
+    const [editingInventory, setEditingInventory] = useState(null);
+    const [editingVendor, setEditingVendor] = useState(null);
+    const [editingPlan, setEditingPlan] = useState(null);
     const [newInventory, setNewInventory] = useState({ product_id: '', quantity: '', min_stock_level: 5, location: '' });
     const [newVendor, setNewVendor] = useState({ name: '', contact_name: '', email: '', phone: '', address: '', gst_number: '' });
     const [newPO, setNewPO] = useState({ vendor_id: '', items: [{ product_id: '', quantity: '', unit_price: '' }], notes: '' });
@@ -110,18 +114,42 @@ const StoreAdminDashboard = () => {
     const handleCreateProduct = async (e) => {
         e.preventDefault();
         try {
-            await createProduct(store.id, {
+            const productData = {
                 ...newProduct,
                 price: parseFloat(newProduct.price),
-                weight: newProduct.weight ? parseFloat(newProduct.weight) : null
-            });
-            toast.success('Product created');
+                weight: newProduct.weight ? parseFloat(newProduct.weight) : null,
+                images: newProduct.image_url ? [newProduct.image_url] : []
+            };
+            delete productData.image_url;
+            
+            if (editingProduct) {
+                await updateProduct(store.id, editingProduct.id, productData);
+                toast.success('Product updated');
+                setEditingProduct(null);
+            } else {
+                await createProduct(store.id, productData);
+                toast.success('Product created');
+            }
             setProductDialogOpen(false);
-            setNewProduct({ name: '', description: '', price: '', category: '', sku: '', weight: '', metal_type: 'gold', images: [] });
+            setNewProduct({ name: '', description: '', price: '', category: '', sku: '', weight: '', image_url: '' });
             loadData();
         } catch (error) {
-            toast.error(error.response?.data?.detail || 'Failed to create product');
+            toast.error(error.response?.data?.detail || 'Failed to save product');
         }
+    };
+
+    const openEditProduct = (product) => {
+        setEditingProduct(product);
+        setNewProduct({
+            name: product.name,
+            description: product.description || '',
+            price: product.price.toString(),
+            category: product.category || '',
+            sku: product.sku || '',
+            weight: product.weight?.toString() || '',
+            image_url: product.images?.[0] || ''
+        });
+        setProductDialogOpen(true);
     };
 
     const handleDeleteProduct = async (productId) => {
@@ -139,32 +167,70 @@ const StoreAdminDashboard = () => {
     const handleCreateInventory = async (e) => {
         e.preventDefault();
         try {
-            await createInventory(store.id, {
+            const invData = {
                 ...newInventory,
                 quantity: parseInt(newInventory.quantity),
                 min_stock_level: parseInt(newInventory.min_stock_level)
-            });
-            toast.success('Inventory added');
+            };
+            
+            if (editingInventory) {
+                await updateInventory(store.id, editingInventory.id, invData);
+                toast.success('Inventory updated');
+                setEditingInventory(null);
+            } else {
+                await createInventory(store.id, invData);
+                toast.success('Inventory added');
+            }
             setInventoryDialogOpen(false);
             setNewInventory({ product_id: '', quantity: '', min_stock_level: 5, location: '' });
             loadData();
         } catch (error) {
-            toast.error(error.response?.data?.detail || 'Failed to add inventory');
+            toast.error(error.response?.data?.detail || 'Failed to save inventory');
         }
+    };
+
+    const openEditInventory = (inv) => {
+        setEditingInventory(inv);
+        setNewInventory({
+            product_id: inv.product_id,
+            quantity: inv.quantity.toString(),
+            min_stock_level: inv.min_stock_level.toString(),
+            location: inv.location || ''
+        });
+        setInventoryDialogOpen(true);
     };
 
     // Vendor handlers
     const handleCreateVendor = async (e) => {
         e.preventDefault();
         try {
-            await createVendor(store.id, newVendor);
-            toast.success('Vendor created');
+            if (editingVendor) {
+                await updateVendor(store.id, editingVendor.id, newVendor);
+                toast.success('Vendor updated');
+                setEditingVendor(null);
+            } else {
+                await createVendor(store.id, newVendor);
+                toast.success('Vendor created');
+            }
             setVendorDialogOpen(false);
             setNewVendor({ name: '', contact_name: '', email: '', phone: '', address: '', gst_number: '' });
             loadData();
         } catch (error) {
-            toast.error(error.response?.data?.detail || 'Failed to create vendor');
+            toast.error(error.response?.data?.detail || 'Failed to save vendor');
         }
+    };
+
+    const openEditVendor = (vendor) => {
+        setEditingVendor(vendor);
+        setNewVendor({
+            name: vendor.name,
+            contact_name: vendor.contact_name || '',
+            email: vendor.email || '',
+            phone: vendor.phone || '',
+            address: vendor.address || '',
+            gst_number: vendor.gst_number || ''
+        });
+        setVendorDialogOpen(true);
     };
 
     // PO handlers
@@ -217,12 +283,15 @@ const StoreAdminDashboard = () => {
     const handleCreatePlan = async (e) => {
         e.preventDefault();
         try {
-            await createSubscriptionPlan(store.id, {
+            const planData = {
                 ...newPlan,
                 monthly_amount: parseFloat(newPlan.monthly_amount),
                 bonus_percentage: parseFloat(newPlan.bonus_percentage),
                 benefits: newPlan.benefits.filter(b => b.trim())
-            });
+            };
+            
+            // Note: Backend doesn't have update plan endpoint, so always create
+            await createSubscriptionPlan(store.id, planData);
             toast.success('Plan created');
             setPlanDialogOpen(false);
             setNewPlan({ name: '', plan_type: 'gold_flexi', duration_months: 11, monthly_amount: '', bonus_percentage: 0, benefits: [], description: '' });
@@ -230,6 +299,11 @@ const StoreAdminDashboard = () => {
         } catch (error) {
             toast.error(error.response?.data?.detail || 'Failed to create plan');
         }
+    };
+
+    const handleDeletePlan = async (planId) => {
+        // Plans are typically not deleted, just deactivated - but for now we show message
+        toast.info('Plans cannot be deleted as customers may have active subscriptions');
     };
 
     // Order handlers
