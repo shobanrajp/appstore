@@ -276,19 +276,18 @@ class SubscriptionPlanResponse(BaseModel):
 
 class UserSubscriptionCreate(BaseModel):
     plan_id: str
-    payment_type: str = "value"  # "value" or "weight"
-    monthly_amount: Optional[float] = None
-    gold_weight_grams: Optional[float] = None
+    monthly_amount: float  # User chooses the amount within plan limits
 
 class UserSubscriptionResponse(BaseModel):
     id: str
     user_id: str
+    user_email: Optional[str] = None
+    user_name: Optional[str] = None
     store_id: str
     plan_id: str
     plan_name: str
-    payment_type: str
+    plan_type: str
     monthly_amount: float
-    gold_weight_grams: Optional[float] = None
     payments_made: int
     total_paid: float
     status: str
