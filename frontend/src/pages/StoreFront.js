@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getStore, getProducts, getSubscriptionPlans, getPageConfig, createOrder, subscribeToPlan, createPaymentOrder, completePayment, getAddresses, createAddress } from '../lib/api';
 import { Button } from '../components/ui/button';
@@ -10,11 +10,11 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
-import { ShoppingCart, User, Plus, Minus, X, CreditCard, LogIn } from 'lucide-react';
+import { ShoppingCart, User, Plus, Minus, X, CreditCard, LogIn, Search } from 'lucide-react';
 import { formatCurrency } from '../lib/utils';
 
 // Dynamic Component Renderer - renders components based on page config
-const DynamicComponent = ({ component, products, plans, store, addToCart, onSubscribe, user }) => {
+const DynamicComponent = ({ component, products, plans, store, addToCart, onSubscribe, user, categories, selectedCategory, onCategorySelect, storeId }) => {
     const { type, props = {} } = component;
 
     // Build style object from props
