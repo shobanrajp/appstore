@@ -288,6 +288,22 @@ const StoreFront = () => {
     const [subscribeOpen, setSubscribeOpen] = useState(false);
     const [selectedPlan, setSelectedPlan] = useState(null);
     const [paymentType, setPaymentType] = useState('value');
+    
+    // Search and filter states
+    const [searchTerm, setSearchTerm] = useState('');
+    const [selectedCategory, setSelectedCategory] = useState('');
+    
+    // Derive unique categories from products
+    const categories = [...new Set(products.filter(p => p.category).map(p => p.category))];
+    
+    // Filter products based on search and category
+    const filteredProducts = products.filter(product => {
+        const matchesSearch = !searchTerm || 
+            product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (product.description && product.description.toLowerCase().includes(searchTerm.toLowerCase()));
+        const matchesCategory = !selectedCategory || product.category === selectedCategory;
+        return matchesSearch && matchesCategory;
+    });
 
     useEffect(() => {
         loadData();
