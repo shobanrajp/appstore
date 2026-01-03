@@ -187,34 +187,78 @@ const CustomerPortal = () => {
                             </CardHeader>
                             <CardContent>
                                 {orders.length > 0 ? (
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead>Order ID</TableHead>
-                                                <TableHead>Items</TableHead>
-                                                <TableHead>Total</TableHead>
-                                                <TableHead>Status</TableHead>
-                                                <TableHead>Tracking</TableHead>
-                                                <TableHead>Date</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {orders.map((order) => (
-                                                <TableRow key={order.id} data-testid={`order-row-${order.id}`}>
-                                                    <TableCell className="font-mono text-sm">{order.id.slice(0, 8)}...</TableCell>
-                                                    <TableCell>
-                                                        {order.items.map(i => i.product_name).join(', ')}
-                                                    </TableCell>
-                                                    <TableCell>{formatCurrency(order.total_amount)}</TableCell>
-                                                    <TableCell>
-                                                        <Badge className={getStatusColor(order.status)}>{order.status}</Badge>
-                                                    </TableCell>
-                                                    <TableCell>{order.tracking_number || '-'}</TableCell>
-                                                    <TableCell>{formatDate(order.created_at)}</TableCell>
-                                                </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
+                                    <div className="space-y-4">
+                                        {orders.map((order) => (
+                                            <Card key={order.id} className="border" data-testid={`order-card-${order.id}`}>
+                                                <CardContent className="p-4">
+                                                    <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
+                                                        <div>
+                                                            <p className="font-mono text-sm text-muted-foreground">Order ID</p>
+                                                            <p className="font-semibold">{order.id}</p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-sm text-muted-foreground">Status</p>
+                                                            <Badge className={getStatusColor(order.status)}>{order.status}</Badge>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-sm text-muted-foreground">Total</p>
+                                                            <p className="font-semibold gold-text">{formatCurrency(order.total_amount)}</p>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-sm text-muted-foreground">Date</p>
+                                                            <p>{formatDate(order.created_at)}</p>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <div className="border-t pt-4 mb-4">
+                                                        <p className="text-sm text-muted-foreground mb-2">Items</p>
+                                                        <div className="space-y-1">
+                                                            {order.items.map((item, idx) => (
+                                                                <div key={idx} className="flex justify-between text-sm">
+                                                                    <span>{item.product_name} × {item.quantity}</span>
+                                                                    <span>{formatCurrency(item.price * item.quantity)}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Tracking Information */}
+                                                    {(order.tracking_number || order.carrier_name) && (
+                                                        <div className="border-t pt-4 bg-muted/30 -mx-4 -mb-4 px-4 pb-4 rounded-b-lg">
+                                                            <p className="text-sm font-semibold mb-2">Tracking Information</p>
+                                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                                                                {order.tracking_number && (
+                                                                    <div>
+                                                                        <p className="text-muted-foreground">Tracking Number</p>
+                                                                        <p className="font-mono">{order.tracking_number}</p>
+                                                                    </div>
+                                                                )}
+                                                                {order.carrier_name && (
+                                                                    <div>
+                                                                        <p className="text-muted-foreground">Carrier</p>
+                                                                        <p>{order.carrier_name}</p>
+                                                                    </div>
+                                                                )}
+                                                                {order.carrier_url && (
+                                                                    <div>
+                                                                        <p className="text-muted-foreground">Track Shipment</p>
+                                                                        <a 
+                                                                            href={order.carrier_url} 
+                                                                            target="_blank" 
+                                                                            rel="noopener noreferrer"
+                                                                            className="gold-text hover:underline flex items-center gap-1"
+                                                                        >
+                                                                            Track Now →
+                                                                        </a>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </CardContent>
+                                            </Card>
+                                        ))}
+                                    </div>
                                 ) : (
                                     <div className="text-center py-12 text-muted-foreground">
                                         <Package className="w-12 h-12 mx-auto mb-4 opacity-50" />
