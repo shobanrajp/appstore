@@ -1430,8 +1430,8 @@ const StoreAdminDashboard = () => {
                                     <Card key={plan.id} className="luxury-card">
                                         <CardHeader>
                                             <div className="flex items-center justify-between">
-                                                <Badge variant={plan.plan_type === 'gold_flexi' ? 'default' : 'secondary'} className="gold-gradient text-white">
-                                                    {plan.plan_type === 'gold_flexi' ? 'Gold Flexi' : 'Silver Flexi'}
+                                                <Badge variant="default" className="gold-gradient text-white">
+                                                    {plan.plan_type}
                                                 </Badge>
                                                 <Badge variant={plan.is_active ? 'outline' : 'secondary'}>
                                                     {plan.is_active ? 'Active' : 'Inactive'}
@@ -1443,8 +1443,8 @@ const StoreAdminDashboard = () => {
                                         <CardContent>
                                             <div className="space-y-2">
                                                 <div className="flex justify-between">
-                                                    <span className="text-muted-foreground">Monthly</span>
-                                                    <span className="font-semibold">{formatCurrency(plan.monthly_amount, store.currency)}</span>
+                                                    <span className="text-muted-foreground">Amount Range</span>
+                                                    <span className="font-semibold">{formatCurrency(plan.min_amount || 500, store.currency)} - {formatCurrency(plan.max_amount || 100000, store.currency)}</span>
                                                 </div>
                                                 <div className="flex justify-between">
                                                     <span className="text-muted-foreground">Duration</span>
@@ -1461,15 +1461,152 @@ const StoreAdminDashboard = () => {
                                 {subscriptionPlans.length === 0 && (
                                     <Card className="col-span-full">
                                         <CardContent className="py-8 text-center text-muted-foreground">
-                                            No subscription plans yet. Create your first Gold or Silver Flexi plan.
+                                            No subscription plans yet. Create your first plan.
                                         </CardContent>
                                     </Card>
                                 )}
+                            </div>
+
+                            {/* Subscribers Section */}
+                            <div className="mt-8">
+                                <h3 className="text-xl font-serif font-semibold mb-4">Subscribers</h3>
+                                <Card>
+                                    <CardContent className="p-0">
+                                        <Table>
+                                            <TableHeader>
+                                                <TableRow>
+                                                    <TableHead>User</TableHead>
+                                                    <TableHead>Plan</TableHead>
+                                                    <TableHead>Monthly Amount</TableHead>
+                                                    <TableHead>Payments Made</TableHead>
+                                                    <TableHead>Total Paid</TableHead>
+                                                    <TableHead>Status</TableHead>
+                                                    <TableHead>Actions</TableHead>
+                                                </TableRow>
+                                            </TableHeader>
+                                            <TableBody>
+                                                {subscribers.map((sub) => (
+                                                    <TableRow key={sub.id}>
+                                                        <TableCell>
+                                                            <div>
+                                                                <div className="font-medium">{sub.user_name || 'N/A'}</div>
+                                                                <div className="text-sm text-muted-foreground">{sub.user_email}</div>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <Badge variant="outline">{sub.plan_name}</Badge>
+                                                            <div className="text-xs text-muted-foreground">{sub.plan_type}</div>
+                                                        </TableCell>
+                                                        <TableCell>{formatCurrency(sub.monthly_amount, store.currency)}</TableCell>
+                                                        <TableCell>{sub.payments_made}</TableCell>
+                                                        <TableCell>{formatCurrency(sub.total_paid, store.currency)}</TableCell>
+                                                        <TableCell>
+                                                            <Badge variant={sub.status === 'active' ? 'default' : sub.status === 'completed' ? 'secondary' : 'destructive'}>
+                                                                {sub.status}
+                                                            </Badge>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <Button variant="outline" size="sm" onClick={() => handleViewSubscription(sub)}>
+                                                                <Eye className="w-4 h-4 mr-1" /> View
+                                                            </Button>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))}
+                                                {subscribers.length === 0 && (
+                                                    <TableRow>
+                                                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                                                            No subscribers yet.
+                                                        </TableCell>
+                                                    </TableRow>
+                                                )}
+                                            </TableBody>
+                                        </Table>
+                                    </CardContent>
+                                </Card>
                             </div>
                         </div>
                     )}
                 </div>
             </main>
+
+            {/* Subscriber Details Dialog */}
+            <Dialog open={subscriberDialogOpen} onOpenChange={setSubscriberDialogOpen}>
+                <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle className="font-serif">Subscription Details</DialogTitle>
+                    </DialogHeader>
+                    {subscriptionDetails && (
+                        <div className="space-y-6">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <Label className="text-muted-foreground">User</Label>
+                                    <p className="font-medium">{subscriptionDetails.subscription.user_name || 'N/A'}</p>
+                                    <p className="text-sm text-muted-foreground">{subscriptionDetails.subscription.user_email}</p>
+                                </div>
+                                <div>
+                                    <Label className="text-muted-foreground">Plan</Label>
+                                    <p className="font-medium">{subscriptionDetails.subscription.plan_name}</p>
+                                    <p className="text-sm text-muted-foreground">{subscriptionDetails.subscription.plan_type}</p>
+                                </div>
+                                <div>
+                                    <Label className="text-muted-foreground">Monthly Amount</Label>
+                                    <p className="font-medium">{formatCurrency(subscriptionDetails.subscription.monthly_amount, store?.currency)}</p>
+                                </div>
+                                <div>
+                                    <Label className="text-muted-foreground">Total Paid</Label>
+                                    <p className="font-medium">{formatCurrency(subscriptionDetails.subscription.total_paid, store?.currency)}</p>
+                                </div>
+                                <div>
+                                    <Label className="text-muted-foreground">Payments Made</Label>
+                                    <p className="font-medium">{subscriptionDetails.subscription.payments_made}</p>
+                                </div>
+                                <div>
+                                    <Label className="text-muted-foreground">Status</Label>
+                                    <Badge variant={subscriptionDetails.subscription.status === 'active' ? 'default' : 'secondary'}>
+                                        {subscriptionDetails.subscription.status}
+                                    </Badge>
+                                </div>
+                                <div>
+                                    <Label className="text-muted-foreground">Start Date</Label>
+                                    <p className="font-medium">{new Date(subscriptionDetails.subscription.start_date).toLocaleDateString()}</p>
+                                </div>
+                                <div>
+                                    <Label className="text-muted-foreground">Maturity Date</Label>
+                                    <p className="font-medium">{new Date(subscriptionDetails.subscription.maturity_date).toLocaleDateString()}</p>
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <h4 className="font-semibold mb-3">Payment History</h4>
+                                {subscriptionDetails.payments && subscriptionDetails.payments.length > 0 ? (
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Date</TableHead>
+                                                <TableHead>Amount</TableHead>
+                                                <TableHead>Status</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {subscriptionDetails.payments.map((payment) => (
+                                                <TableRow key={payment.id}>
+                                                    <TableCell>{new Date(payment.payment_date).toLocaleDateString()}</TableCell>
+                                                    <TableCell>{formatCurrency(payment.amount, store?.currency)}</TableCell>
+                                                    <TableCell>
+                                                        <Badge variant="outline">{payment.status}</Badge>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                ) : (
+                                    <p className="text-muted-foreground text-center py-4">No payments yet</p>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
 
             {/* Settings Dialog */}
             <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
