@@ -92,8 +92,11 @@ const ComponentPreview = ({ component, products, plans }) => {
         if (props.margin) {
             style.margin = `${props.margin}px`;
         }
-        if (props.backgroundColor && props.backgroundColor !== '#ffffff') {
+        if (props.backgroundColor && props.backgroundColor !== '#ffffff' && props.backgroundColor !== 'transparent') {
             style.backgroundColor = props.backgroundColor;
+        }
+        if (props.fontColor && props.fontColor !== '#000000') {
+            style.color = props.fontColor;
         }
         if (props.borderRadius) {
             style.borderRadius = `${props.borderRadius}px`;
