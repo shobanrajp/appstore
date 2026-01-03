@@ -9,21 +9,6 @@
     }
 }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
-}
-
-.App-link {
-    color: #61dafb;
-}
-
 @keyframes App-logo-spin {
     from {
         transform: rotate(0deg);
@@ -31,4 +16,18 @@
     to {
         transform: rotate(360deg);
     }
+}
+
+/* Marquee animation for scrolling text */
+@keyframes marquee {
+    0% {
+        transform: translateX(100%);
+    }
+    100% {
+        transform: translateX(-100%);
+    }
+}
+
+.animate-marquee {
+    animation: marquee 15s linear infinite;
 }
