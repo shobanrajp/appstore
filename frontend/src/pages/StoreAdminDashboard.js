@@ -1035,6 +1035,22 @@ const StoreAdminDashboard = () => {
                                 </Dialog>
                             </div>
 
+                            {/* Filter Controls */}
+                            <Card className="mb-4">
+                                <CardContent className="p-4">
+                                    <div className="flex items-center gap-4">
+                                        <Filter className="w-4 h-4 text-muted-foreground" />
+                                        <Input
+                                            placeholder="Search by product name..."
+                                            value={filters.inventory.search}
+                                            onChange={(e) => setFilters({ ...filters, inventory: { ...filters.inventory, search: e.target.value } })}
+                                            className="max-w-xs"
+                                            data-testid="inventory-filter-search"
+                                        />
+                                    </div>
+                                </CardContent>
+                            </Card>
+
                             <Card>
                                 <CardContent className="p-0">
                                     <Table>
@@ -1050,7 +1066,7 @@ const StoreAdminDashboard = () => {
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {inventory.map((inv) => (
+                                            {filteredInventory.map((inv) => (
                                                 <TableRow key={inv.id}>
                                                     <TableCell className="font-medium">{getProductName(inv.product_id)}</TableCell>
                                                     <TableCell>{inv.quantity}</TableCell>
@@ -1069,10 +1085,10 @@ const StoreAdminDashboard = () => {
                                                     </TableCell>
                                                 </TableRow>
                                             ))}
-                                            {inventory.length === 0 && (
+                                            {filteredInventory.length === 0 && (
                                                 <TableRow>
                                                     <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                                                        No inventory records yet.
+                                                        {inventory.length === 0 ? 'No inventory records yet.' : 'No inventory matches the current filter.'}
                                                     </TableCell>
                                                 </TableRow>
                                             )}
