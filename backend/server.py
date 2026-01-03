@@ -295,6 +295,29 @@ class UserSubscriptionResponse(BaseModel):
     maturity_date: str
     created_at: str
 
+# Store Payment Config (Razorpay)
+class StorePaymentConfigUpdate(BaseModel):
+    razorpay_key_id: Optional[str] = None
+    razorpay_key_secret: Optional[str] = None
+
+class StorePaymentConfigResponse(BaseModel):
+    store_id: str
+    razorpay_key_id: Optional[str] = None
+    has_razorpay_configured: bool = False
+
+# Subscription Payment
+class SubscriptionPaymentCreate(BaseModel):
+    subscription_id: str
+    amount: float
+
+class SubscriptionPaymentResponse(BaseModel):
+    id: str
+    subscription_id: str
+    user_id: str
+    amount: float
+    payment_date: str
+    status: str
+
 class PageComponentCreate(BaseModel):
     type: str
     props: dict = {}
