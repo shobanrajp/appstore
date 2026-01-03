@@ -486,6 +486,59 @@ const SuperAdminDashboard = () => {
                     </TabsContent>
                 </Tabs>
             </main>
+
+            {/* Payment Config Dialog */}
+            <Dialog open={paymentConfigDialogOpen} onOpenChange={setPaymentConfigDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle className="font-serif">
+                            <CreditCard className="w-5 h-5 inline mr-2" />
+                            Razorpay Configuration
+                        </DialogTitle>
+                        <DialogDescription>
+                            Configure Razorpay payment gateway for {selectedStoreForPayment?.name}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <Label>Razorpay Key ID</Label>
+                            <Input
+                                value={paymentConfig.razorpay_key_id}
+                                onChange={(e) => setPaymentConfig({ ...paymentConfig, razorpay_key_id: e.target.value })}
+                                placeholder="rzp_live_xxxxxxxxxxxx"
+                                data-testid="razorpay-key-id-input"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Razorpay Key Secret</Label>
+                            <Input
+                                type="password"
+                                value={paymentConfig.razorpay_key_secret}
+                                onChange={(e) => setPaymentConfig({ ...paymentConfig, razorpay_key_secret: e.target.value })}
+                                placeholder="Enter new secret to update"
+                                data-testid="razorpay-key-secret-input"
+                            />
+                            <p className="text-xs text-muted-foreground">Leave blank to keep existing secret</p>
+                        </div>
+                        <div className="flex gap-3 pt-2">
+                            <Button 
+                                variant="outline" 
+                                onClick={() => setPaymentConfigDialogOpen(false)} 
+                                className="flex-1"
+                            >
+                                Cancel
+                            </Button>
+                            <Button 
+                                onClick={handleSavePaymentConfig} 
+                                className="flex-1 gold-gradient text-white"
+                                data-testid="save-payment-config-btn"
+                            >
+                                Save Configuration
+                            </Button>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };
