@@ -548,6 +548,61 @@ const CustomerPortal = () => {
                     </form>
                 </DialogContent>
             </Dialog>
+
+            {/* Payment Dialog */}
+            <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle className="font-serif">Pay Monthly Installment</DialogTitle>
+                    </DialogHeader>
+                    {selectedSubscription && (
+                        <div className="space-y-6">
+                            <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+                                <div className="flex justify-between">
+                                    <span className="text-muted-foreground">Plan</span>
+                                    <span className="font-medium">{selectedSubscription.plan_name}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-muted-foreground">Payments Made</span>
+                                    <span className="font-medium">{selectedSubscription.payments_made} / 11</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-muted-foreground">Total Paid So Far</span>
+                                    <span className="font-medium">{formatCurrency(selectedSubscription.total_paid)}</span>
+                                </div>
+                                <hr className="border-border" />
+                                <div className="flex justify-between text-lg">
+                                    <span className="font-semibold">Amount Due</span>
+                                    <span className="font-bold gold-text">{formatCurrency(selectedSubscription.monthly_amount)}</span>
+                                </div>
+                            </div>
+                            
+                            <div className="flex gap-3">
+                                <Button 
+                                    variant="outline" 
+                                    onClick={() => setPaymentDialogOpen(false)} 
+                                    className="flex-1"
+                                    disabled={paymentProcessing}
+                                >
+                                    Cancel
+                                </Button>
+                                <Button 
+                                    onClick={handlePaySubscription} 
+                                    className="flex-1 gold-gradient text-white"
+                                    disabled={paymentProcessing}
+                                    data-testid="confirm-payment-btn"
+                                >
+                                    {paymentProcessing ? 'Processing...' : 'Pay Now'}
+                                </Button>
+                            </div>
+                            
+                            <p className="text-xs text-center text-muted-foreground">
+                                Payment will be processed securely. This is a MOCK payment for demonstration.
+                            </p>
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };
