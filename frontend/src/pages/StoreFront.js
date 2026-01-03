@@ -242,7 +242,7 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                                         <ul className="space-y-2 mb-6">
                                             <li className="flex items-center text-sm">
                                                 <span className="w-2 h-2 bg-gold rounded-full mr-2" />
-                                                Lock gold weight at today's rate
+                                            Lock gold weight at today&apos;s rate
                                             </li>
                                             <li className="flex items-center text-sm">
                                                 <span className="w-2 h-2 bg-gold rounded-full mr-2" />
