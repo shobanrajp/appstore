@@ -8,7 +8,7 @@ import {
     getVendors, createVendor, updateVendor, deleteVendor,
     getPurchaseOrders, createPurchaseOrder,
     getPOSTransactions, createPOSTransaction,
-    getSubscriptionPlans, createSubscriptionPlan,
+    getSubscriptionPlans, createSubscriptionPlan, updateSubscriptionPlan,
     getStoreSubscribers, getSubscriptionDetails,
     updateStoreSettings
 } from '../lib/api';
