@@ -5,7 +5,7 @@ import {
     getStores, getProducts, createProduct, updateProduct, deleteProduct,
     getInventory, createInventory, updateInventory,
     getOrders, updateOrderStatus,
-    getVendors, createVendor, deleteVendor,
+    getVendors, createVendor, updateVendor, deleteVendor,
     getPurchaseOrders, createPurchaseOrder,
     getPOSTransactions, createPOSTransaction,
     getSubscriptionPlans, createSubscriptionPlan,
