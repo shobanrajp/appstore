@@ -319,20 +319,41 @@ const StoreAdminDashboard = () => {
         try {
             const planData = {
                 ...newPlan,
-                monthly_amount: parseFloat(newPlan.monthly_amount),
-                bonus_percentage: parseFloat(newPlan.bonus_percentage),
+                min_amount: parseFloat(newPlan.min_amount) || 500,
+                max_amount: parseFloat(newPlan.max_amount) || 100000,
+                bonus_percentage: parseFloat(newPlan.bonus_percentage) || 0,
                 benefits: newPlan.benefits.filter(b => b.trim())
             };
             
-            // Note: Backend doesn't have update plan endpoint, so always create
-            await createSubscriptionPlan(store.id, planData);
-            toast.success('Plan created');
+            if (editingPlan) {
+                await updateSubscriptionPlan(store.id, editingPlan.id, planData);
+                toast.success('Plan updated');
+                setEditingPlan(null);
+            } else {
+                await createSubscriptionPlan(store.id, planData);
+                toast.success('Plan created');
+            }
             setPlanDialogOpen(false);
-            setNewPlan({ name: '', plan_type: 'gold_flexi', duration_months: 11, monthly_amount: '', bonus_percentage: 0, benefits: [], description: '' });
+            setNewPlan({ name: '', plan_type: '', duration_months: 11, min_amount: 500, max_amount: 100000, bonus_percentage: 0, benefits: [], description: '' });
             loadData();
         } catch (error) {
-            toast.error(error.response?.data?.detail || 'Failed to create plan');
+            toast.error(error.response?.data?.detail || 'Failed to save plan');
         }
+    };
+
+    const openEditPlan = (plan) => {
+        setEditingPlan(plan);
+        setNewPlan({
+            name: plan.name,
+            plan_type: plan.plan_type || '',
+            duration_months: plan.duration_months,
+            min_amount: plan.min_amount || 500,
+            max_amount: plan.max_amount || 100000,
+            bonus_percentage: plan.bonus_percentage || 0,
+            benefits: plan.benefits || [],
+            description: plan.description || ''
+        });
+        setPlanDialogOpen(true);
     };
 
     const handleDeletePlan = async (planId) => {
