@@ -1728,12 +1728,59 @@ const StoreAdminDashboard = () => {
                                                 <Textarea value={newPO.notes} onChange={(e) => setNewPO({ ...newPO, notes: e.target.value })} />
                                             </div>
                                             <Button type="submit" className="w-full gold-gradient text-white" data-testid="submit-po-btn">
-                                                Create Purchase Order
+                                                {editingPO ? 'Update Purchase Order' : 'Create Purchase Order'}
                                             </Button>
                                         </form>
                                     </DialogContent>
                                 </Dialog>
                             </div>
+
+                            {/* Filter Controls */}
+                            <Card className="mb-4">
+                                <CardContent className="p-4">
+                                    <div className="flex items-center gap-4 flex-wrap">
+                                        <Filter className="w-4 h-4 text-muted-foreground" />
+                                        <Select
+                                            value={filters.purchaseOrders.status || 'all'}
+                                            onValueChange={(v) => setFilters({ ...filters, purchaseOrders: { ...filters.purchaseOrders, status: v === 'all' ? '' : v } })}
+                                        >
+                                            <SelectTrigger className="w-[150px]" data-testid="po-filter-status">
+                                                <SelectValue placeholder="All Statuses" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="all">All Statuses</SelectItem>
+                                                <SelectItem value="pending">Pending</SelectItem>
+                                                <SelectItem value="approved">Approved</SelectItem>
+                                                <SelectItem value="received">Received</SelectItem>
+                                                <SelectItem value="cancelled">Cancelled</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <Select
+                                            value={filters.purchaseOrders.vendorId || 'all'}
+                                            onValueChange={(v) => setFilters({ ...filters, purchaseOrders: { ...filters.purchaseOrders, vendorId: v === 'all' ? '' : v } })}
+                                        >
+                                            <SelectTrigger className="w-[180px]" data-testid="po-filter-vendor">
+                                                <SelectValue placeholder="All Vendors" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="all">All Vendors</SelectItem>
+                                                {vendors.map((v) => (
+                                                    <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        {(filters.purchaseOrders.status || filters.purchaseOrders.vendorId) && (
+                                            <Button 
+                                                variant="ghost" 
+                                                size="sm"
+                                                onClick={() => setFilters({ ...filters, purchaseOrders: { status: '', vendorId: '' } })}
+                                            >
+                                                Clear Filters
+                                            </Button>
+                                        )}
+                                    </div>
+                                </CardContent>
+                            </Card>
 
                             <Card>
                                 <CardContent className="p-0">
@@ -1746,25 +1793,47 @@ const StoreAdminDashboard = () => {
                                                 <TableHead>Total</TableHead>
                                                 <TableHead>Status</TableHead>
                                                 <TableHead>Date</TableHead>
+                                                <TableHead className="text-right">Actions</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {purchaseOrders.map((po) => (
+                                            {filteredPurchaseOrders.map((po) => (
                                                 <TableRow key={po.id}>
                                                     <TableCell className="font-mono text-sm">{po.id.slice(0, 8)}...</TableCell>
                                                     <TableCell>{getVendorName(po.vendor_id)}</TableCell>
                                                     <TableCell>{po.items.length} items</TableCell>
                                                     <TableCell>{formatCurrency(po.total_amount, store.currency)}</TableCell>
                                                     <TableCell>
-                                                        <Badge className={getStatusColor(po.status)}>{po.status}</Badge>
+                                                        <Select
+                                                            value={po.status}
+                                                            onValueChange={(v) => handleUpdatePOStatus(po.id, v)}
+                                                        >
+                                                            <SelectTrigger className="w-[120px] h-8" data-testid={`po-status-${po.id}`}>
+                                                                <SelectValue />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                <SelectItem value="pending">Pending</SelectItem>
+                                                                <SelectItem value="approved">Approved</SelectItem>
+                                                                <SelectItem value="received">Received</SelectItem>
+                                                                <SelectItem value="cancelled">Cancelled</SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
                                                     </TableCell>
                                                     <TableCell>{formatDate(po.created_at)}</TableCell>
+                                                    <TableCell className="text-right">
+                                                        <Button variant="ghost" size="sm" onClick={() => handleEditPO(po)} data-testid={`edit-po-${po.id}`}>
+                                                            <Edit2 className="w-4 h-4" />
+                                                        </Button>
+                                                        <Button variant="ghost" size="sm" onClick={() => handleDeletePO(po.id)} data-testid={`delete-po-${po.id}`}>
+                                                            <Trash2 className="w-4 h-4 text-destructive" />
+                                                        </Button>
+                                                    </TableCell>
                                                 </TableRow>
                                             ))}
-                                            {purchaseOrders.length === 0 && (
+                                            {filteredPurchaseOrders.length === 0 && (
                                                 <TableRow>
-                                                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                                                        No purchase orders yet.
+                                                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                                                        {purchaseOrders.length === 0 ? 'No purchase orders yet.' : 'No purchase orders match the current filters.'}
                                                     </TableCell>
                                                 </TableRow>
                                             )}
