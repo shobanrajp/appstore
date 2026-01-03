@@ -94,7 +94,9 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                     <div className="relative text-center text-white px-4">
                         <h1 className="text-4xl md:text-6xl font-serif mb-4">{props.title || `Welcome to ${store?.name}`}</h1>
                         <p className="text-lg md:text-xl mb-6">{props.subtitle || 'Discover exquisite jewelry'}</p>
-                        <Button className="gold-gradient text-white">{props.buttonText || 'Shop Now'}</Button>
+                        {props.buttonText && (
+                            <Button className="gold-gradient text-white">{props.buttonText}</Button>
+                        )}
                     </div>
                 </div>
             );
