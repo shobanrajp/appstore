@@ -1408,6 +1408,56 @@ const StoreAdminDashboard = () => {
                                 </Dialog>
                             </div>
 
+                            {/* Filter Controls */}
+                            <Card className="mb-4">
+                                <CardContent className="p-4">
+                                    <div className="flex items-center gap-4 flex-wrap">
+                                        <Filter className="w-4 h-4 text-muted-foreground" />
+                                        <Select
+                                            value={filters.pos.paymentMethod || 'all'}
+                                            onValueChange={(v) => setFilters({ ...filters, pos: { ...filters.pos, paymentMethod: v === 'all' ? '' : v } })}
+                                        >
+                                            <SelectTrigger className="w-[150px]" data-testid="pos-filter-payment">
+                                                <SelectValue placeholder="All Payments" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="all">All Payments</SelectItem>
+                                                <SelectItem value="cash">Cash</SelectItem>
+                                                <SelectItem value="card">Card</SelectItem>
+                                                <SelectItem value="upi">UPI</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <div className="flex items-center gap-2">
+                                            <Calendar className="w-4 h-4 text-muted-foreground" />
+                                            <Input
+                                                type="date"
+                                                value={filters.pos.startDate}
+                                                onChange={(e) => setFilters({ ...filters, pos: { ...filters.pos, startDate: e.target.value } })}
+                                                className="w-[150px]"
+                                                data-testid="pos-filter-start-date"
+                                            />
+                                            <span className="text-muted-foreground">to</span>
+                                            <Input
+                                                type="date"
+                                                value={filters.pos.endDate}
+                                                onChange={(e) => setFilters({ ...filters, pos: { ...filters.pos, endDate: e.target.value } })}
+                                                className="w-[150px]"
+                                                data-testid="pos-filter-end-date"
+                                            />
+                                        </div>
+                                        {(filters.pos.paymentMethod || filters.pos.startDate || filters.pos.endDate) && (
+                                            <Button 
+                                                variant="ghost" 
+                                                size="sm"
+                                                onClick={() => setFilters({ ...filters, pos: { startDate: '', endDate: '', paymentMethod: '' } })}
+                                            >
+                                                Clear Filters
+                                            </Button>
+                                        )}
+                                    </div>
+                                </CardContent>
+                            </Card>
+
                             <Card>
                                 <CardContent className="p-0">
                                     <Table>
@@ -1419,10 +1469,11 @@ const StoreAdminDashboard = () => {
                                                 <TableHead>Payment</TableHead>
                                                 <TableHead>Customer</TableHead>
                                                 <TableHead>Date</TableHead>
+                                                <TableHead className="text-right">Actions</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {posTransactions.map((tx) => (
+                                            {filteredPOS.map((tx) => (
                                                 <TableRow key={tx.id}>
                                                     <TableCell className="font-mono text-sm">{tx.id.slice(0, 8)}...</TableCell>
                                                     <TableCell>{tx.items.length} items</TableCell>
@@ -1430,12 +1481,20 @@ const StoreAdminDashboard = () => {
                                                     <TableCell className="capitalize">{tx.payment_method}</TableCell>
                                                     <TableCell>{tx.customer_name || '-'}</TableCell>
                                                     <TableCell>{formatDateTime(tx.created_at)}</TableCell>
+                                                    <TableCell className="text-right">
+                                                        <Button variant="ghost" size="sm" onClick={() => handleEditPOS(tx)} data-testid={`edit-pos-${tx.id}`}>
+                                                            <Edit2 className="w-4 h-4" />
+                                                        </Button>
+                                                        <Button variant="ghost" size="sm" onClick={() => handleDeletePOS(tx.id)} data-testid={`delete-pos-${tx.id}`}>
+                                                            <Trash2 className="w-4 h-4 text-destructive" />
+                                                        </Button>
+                                                    </TableCell>
                                                 </TableRow>
                                             ))}
-                                            {posTransactions.length === 0 && (
+                                            {filteredPOS.length === 0 && (
                                                 <TableRow>
-                                                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                                                        No POS transactions yet.
+                                                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                                                        {posTransactions.length === 0 ? 'No POS transactions yet.' : 'No transactions match the current filters.'}
                                                     </TableCell>
                                                 </TableRow>
                                             )}
