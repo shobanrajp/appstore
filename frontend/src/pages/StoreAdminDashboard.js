@@ -875,6 +875,37 @@ const StoreAdminDashboard = () => {
                                 </Dialog>
                             </div>
 
+                            {/* Filter Controls */}
+                            <Card className="mb-4">
+                                <CardContent className="p-4">
+                                    <div className="flex items-center gap-4">
+                                        <Filter className="w-4 h-4 text-muted-foreground" />
+                                        <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-4">
+                                            <Input
+                                                placeholder="Search products..."
+                                                value={filters.products.search}
+                                                onChange={(e) => setFilters({ ...filters, products: { ...filters.products, search: e.target.value } })}
+                                                data-testid="products-filter-search"
+                                            />
+                                            <Select
+                                                value={filters.products.category || 'all'}
+                                                onValueChange={(v) => setFilters({ ...filters, products: { ...filters.products, category: v === 'all' ? '' : v } })}
+                                            >
+                                                <SelectTrigger data-testid="products-filter-category">
+                                                    <SelectValue placeholder="All Categories" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="all">All Categories</SelectItem>
+                                                    {productCategories.map((cat) => (
+                                                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    </div>
+                                </CardContent>
+                            </Card>
+
                             <Card>
                                 <CardContent className="p-0">
                                     <Table>
@@ -891,7 +922,7 @@ const StoreAdminDashboard = () => {
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {products.map((product) => (
+                                            {filteredProducts.map((product) => (
                                                 <TableRow key={product.id} data-testid={`product-row-${product.id}`}>
                                                     <TableCell>
                                                         {product.images?.[0] ? (
@@ -920,10 +951,10 @@ const StoreAdminDashboard = () => {
                                                     </TableCell>
                                                 </TableRow>
                                             ))}
-                                            {products.length === 0 && (
+                                            {filteredProducts.length === 0 && (
                                                 <TableRow>
                                                     <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                                                        No products yet. Add your first product to get started.
+                                                        {products.length === 0 ? 'No products yet. Add your first product to get started.' : 'No products match the current filters.'}
                                                     </TableCell>
                                                 </TableRow>
                                             )}
