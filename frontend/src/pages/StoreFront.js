@@ -296,6 +296,23 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                     </div>
                 </nav>
             );
+        case 'search_bar':
+            return (
+                <div className="py-6 px-4" style={wrapperStyle}>
+                    <div className="max-w-md mx-auto">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                            <input
+                                type="text"
+                                placeholder={props.placeholder || "Search products..."}
+                                value={searchTerm || ''}
+                                onChange={(e) => onSearchChange && onSearchChange(e.target.value)}
+                                className="w-full pl-10 pr-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gold/50"
+                            />
+                        </div>
+                    </div>
+                </div>
+            );
         default:
             return null;
     }
