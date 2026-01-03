@@ -444,7 +444,7 @@ const StoreAdminDashboard = () => {
     const handleCreatePO = async (e) => {
         e.preventDefault();
         try {
-            await createPurchaseOrder(store.id, {
+            const poData = {
                 vendor_id: newPO.vendor_id,
                 items: newPO.items.map(i => ({
                     product_id: i.product_id,
@@ -452,14 +452,21 @@ const StoreAdminDashboard = () => {
                     unit_price: parseFloat(i.unit_price)
                 })),
                 notes: newPO.notes
-            });
-            toast.success('Purchase order created');
+            };
+            
+            if (editingPO) {
+                await updatePurchaseOrder(store.id, editingPO.id, poData);
+                toast.success('Purchase order updated');
+                setEditingPO(null);
+            } else {
+                await createPurchaseOrder(store.id, poData);
+                toast.success('Purchase order created');
+            }
             setPoDialogOpen(false);
             setNewPO({ vendor_id: '', items: [{ product_id: '', quantity: '', unit_price: '' }], notes: '' });
-            setEditingPO(null);
             loadData();
         } catch (error) {
-            toast.error(error.response?.data?.detail || 'Failed to create PO');
+            toast.error(error.response?.data?.detail || 'Failed to save PO');
         }
     };
 
