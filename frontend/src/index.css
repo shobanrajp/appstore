@@ -182,17 +182,17 @@
 .scrolling-text-container {
     width: 100%;
     overflow: hidden;
+    position: relative;
 }
 
 .scrolling-text {
-    display: flex;
-    width: max-content;
-    animation: scroll-text 20s linear infinite;
+    display: inline-flex;
+    animation: scroll-text 15s linear infinite;
 }
 
 .scrolling-text span {
     white-space: nowrap;
-    padding-right: 50px;
+    padding-right: 100px;
 }
 
 @keyframes scroll-text {
@@ -202,6 +202,21 @@
     100% {
         transform: translateX(-50%);
     }
+}
+
+/* Marquee animation for page editor preview */
+@keyframes marquee {
+    0% {
+        transform: translateX(100%);
+    }
+    100% {
+        transform: translateX(-100%);
+    }
+}
+
+.animate-marquee {
+    display: inline-block;
+    animation: marquee 10s linear infinite;
 }
 
 .bg-gold {
