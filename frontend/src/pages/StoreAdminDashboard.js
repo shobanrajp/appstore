@@ -433,6 +433,29 @@ const StoreAdminDashboard = () => {
         }
     };
 
+    const openStoreEditDialog = () => {
+        setStoreEditForm({
+            name: store.name || '',
+            description: store.description || '',
+            contact_email: store.contact_email || '',
+            contact_phone: store.contact_phone || '',
+            address: store.address || ''
+        });
+        setStoreEditDialogOpen(true);
+    };
+
+    const handleUpdateStore = async (e) => {
+        e.preventDefault();
+        try {
+            await updateStore(store.id, { ...storeEditForm, currency: store.currency });
+            toast.success('Store information updated');
+            setStoreEditDialogOpen(false);
+            loadData();
+        } catch (error) {
+            toast.error(error.response?.data?.detail || 'Failed to update store');
+        }
+    };
+
     const handleLogout = () => {
         logout();
         navigate('/login');
