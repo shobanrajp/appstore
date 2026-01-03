@@ -809,9 +809,20 @@ async def get_pos_transactions(store_id: str, user: dict = Depends(require_roles
 
 # ==================== ORDER ENDPOINTS ====================
 
+async def get_next_order_id():
+    """Generate VEL + 15 digit incrementing order ID"""
+    counter = await db.counters.find_one_and_update(
+        {"_id": "order_counter"},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=True
+    )
+    seq = counter.get("seq", 1)
+    return f"VEL{seq:015d}"
+
 @api_router.post("/stores/{store_id}/orders", response_model=OrderResponse)
 async def create_order(store_id: str, order_data: OrderCreate, user: dict = Depends(get_current_user)):
-    order_id = str(uuid.uuid4())
+    order_id = await get_next_order_id()
     now = datetime.now(timezone.utc).isoformat()
     
     # Get shipping address
@@ -841,6 +852,8 @@ async def create_order(store_id: str, order_data: OrderCreate, user: dict = Depe
         "total_amount": total,
         "status": "pending",
         "tracking_number": None,
+        "carrier_name": None,
+        "carrier_url": None,
         "notes": order_data.notes,
         "created_at": now,
         "updated_at": now
@@ -874,8 +887,12 @@ async def update_order_status(store_id: str, order_id: str, status_data: OrderSt
     
     now = datetime.now(timezone.utc).isoformat()
     update_data = {"status": status_data.status, "updated_at": now}
-    if status_data.tracking_number:
+    if status_data.tracking_number is not None:
         update_data["tracking_number"] = status_data.tracking_number
+    if status_data.carrier_name is not None:
+        update_data["carrier_name"] = status_data.carrier_name
+    if status_data.carrier_url is not None:
+        update_data["carrier_url"] = status_data.carrier_url
     
     await db.orders.update_one({"id": order_id, "store_id": store_id}, {"$set": update_data})
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
