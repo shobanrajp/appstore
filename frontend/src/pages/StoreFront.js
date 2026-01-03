@@ -471,15 +471,23 @@ const StoreFront = () => {
     const handleSubscribe = async () => {
         if (!selectedPlan) return;
 
+        const amount = parseFloat(chosenMonthlyAmount);
+        const minAmount = selectedPlan.min_amount || 500;
+        const maxAmount = selectedPlan.max_amount || 100000;
+
+        if (!amount || amount < minAmount || amount > maxAmount) {
+            toast.error(`Please enter an amount between ₹${minAmount} and ₹${maxAmount}`);
+            return;
+        }
+
         try {
             const subRes = await subscribeToPlan(storeId, {
                 plan_id: selectedPlan.id,
-                payment_type: paymentType,
-                monthly_amount: selectedPlan.monthly_amount
+                monthly_amount: amount
             });
 
             const paymentRes = await createPaymentOrder({
-                amount: selectedPlan.monthly_amount,
+                amount: amount,
                 description: `${selectedPlan.name} - First Installment`,
                 subscription_id: subRes.data.id
             });
@@ -489,6 +497,7 @@ const StoreFront = () => {
             toast.success('Subscribed successfully! First payment completed.');
             setSubscribeOpen(false);
             setSelectedPlan(null);
+            setChosenMonthlyAmount('');
         } catch (error) {
             toast.error(error.response?.data?.detail || 'Subscription failed');
         }
@@ -496,6 +505,7 @@ const StoreFront = () => {
 
     const openSubscribeDialog = (plan) => {
         setSelectedPlan(plan);
+        setChosenMonthlyAmount(plan.min_amount?.toString() || '500');
         setSubscribeOpen(true);
     };
 
