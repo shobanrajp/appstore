@@ -1027,6 +1027,113 @@ async def get_my_subscriptions(user: dict = Depends(get_current_user)):
     subs = await db.user_subscriptions.find({"user_id": user["id"]}, {"_id": 0}).to_list(100)
     return [UserSubscriptionResponse(**s) for s in subs]
 
+# Store Admin - Get all subscribers for store
+@api_router.get("/stores/{store_id}/subscribers")
+async def get_store_subscribers(store_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot view subscribers for other stores")
+    
+    subs = await db.user_subscriptions.find({"store_id": store_id}, {"_id": 0}).to_list(1000)
+    return subs
+
+# Store Admin - Get subscription details with payment history
+@api_router.get("/stores/{store_id}/subscriptions/{subscription_id}")
+async def get_subscription_details(store_id: str, subscription_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot view subscription for other stores")
+    
+    sub = await db.user_subscriptions.find_one({"id": subscription_id, "store_id": store_id}, {"_id": 0})
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    
+    # Get payment history for this subscription
+    payments = await db.subscription_payments.find({"subscription_id": subscription_id}, {"_id": 0}).to_list(100)
+    
+    return {
+        "subscription": sub,
+        "payments": payments
+    }
+
+# End User - Pay monthly subscription
+@api_router.post("/subscriptions/{subscription_id}/pay")
+async def pay_subscription(subscription_id: str, payment_data: SubscriptionPaymentCreate, user: dict = Depends(get_current_user)):
+    sub = await db.user_subscriptions.find_one({"id": subscription_id, "user_id": user["id"]}, {"_id": 0})
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    
+    if sub["status"] != "active":
+        raise HTTPException(status_code=400, detail="Subscription is not active")
+    
+    # Validate payment amount matches monthly amount
+    if payment_data.amount != sub["monthly_amount"]:
+        raise HTTPException(status_code=400, detail=f"Payment amount must be {sub['monthly_amount']}")
+    
+    payment_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    
+    payment_doc = {
+        "id": payment_id,
+        "subscription_id": subscription_id,
+        "user_id": user["id"],
+        "amount": payment_data.amount,
+        "payment_date": now,
+        "status": "completed"
+    }
+    
+    await db.subscription_payments.insert_one(payment_doc)
+    
+    # Update subscription
+    plan = await db.subscription_plans.find_one({"id": sub["plan_id"]}, {"_id": 0})
+    duration_months = plan.get("duration_months", 11) if plan else 11
+    
+    new_payments_made = sub["payments_made"] + 1
+    new_total_paid = sub["total_paid"] + payment_data.amount
+    new_status = "completed" if new_payments_made >= duration_months else "active"
+    
+    await db.user_subscriptions.update_one(
+        {"id": subscription_id},
+        {"$set": {
+            "payments_made": new_payments_made,
+            "total_paid": new_total_paid,
+            "status": new_status
+        }}
+    )
+    
+    return {"message": "Payment successful", "payment_id": payment_id, "payments_made": new_payments_made}
+
+# ==================== STORE PAYMENT CONFIG (RAZORPAY) ====================
+
+@api_router.put("/stores/{store_id}/payment-config")
+async def update_store_payment_config(store_id: str, config: StorePaymentConfigUpdate, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN]))):
+    """Super Admin only - Configure Razorpay for a store"""
+    store = await db.stores.find_one({"id": store_id})
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+    
+    update_data = {}
+    if config.razorpay_key_id is not None:
+        update_data["razorpay_key_id"] = config.razorpay_key_id
+    if config.razorpay_key_secret is not None:
+        update_data["razorpay_key_secret"] = config.razorpay_key_secret
+    
+    if update_data:
+        await db.stores.update_one({"id": store_id}, {"$set": update_data})
+    
+    return {"message": "Payment configuration updated"}
+
+@api_router.get("/stores/{store_id}/payment-config", response_model=StorePaymentConfigResponse)
+async def get_store_payment_config(store_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN]))):
+    """Super Admin only - Get Razorpay config for a store"""
+    store = await db.stores.find_one({"id": store_id}, {"_id": 0})
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+    
+    return StorePaymentConfigResponse(
+        store_id=store_id,
+        razorpay_key_id=store.get("razorpay_key_id"),
+        has_razorpay_configured=bool(store.get("razorpay_key_id") and store.get("razorpay_key_secret"))
+    )
+
 # ==================== PAGE CONFIG ENDPOINTS ====================
 
 @api_router.post("/stores/{store_id}/page-config", response_model=PageConfigResponse)
