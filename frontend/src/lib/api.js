@@ -76,11 +76,25 @@ export const deleteVendor = (storeId, vendorId) => api.delete(`/stores/${storeId
 // Purchase Orders
 export const getPurchaseOrders = (storeId) => api.get(`/stores/${storeId}/purchase-orders`);
 export const createPurchaseOrder = (storeId, data) => api.post(`/stores/${storeId}/purchase-orders`, data);
+export const updatePurchaseOrder = (storeId, poId, data) => api.put(`/stores/${storeId}/purchase-orders/${poId}`, data);
 export const updatePOStatus = (storeId, poId, status) => api.put(`/stores/${storeId}/purchase-orders/${poId}/status?status=${status}`);
+export const deletePurchaseOrder = (storeId, poId) => api.delete(`/stores/${storeId}/purchase-orders/${poId}`);
 
 // POS Transactions
 export const getPOSTransactions = (storeId) => api.get(`/stores/${storeId}/pos-transactions`);
 export const createPOSTransaction = (storeId, data) => api.post(`/stores/${storeId}/pos-transactions`, data);
+export const updatePOSTransaction = (storeId, txId, data) => api.put(`/stores/${storeId}/pos-transactions/${txId}`, data);
+export const deletePOSTransaction = (storeId, txId) => api.delete(`/stores/${storeId}/pos-transactions/${txId}`);
+
+// Reporting
+export const getStoreReports = (storeId, startDate, endDate) => {
+    let url = `/stores/${storeId}/reports`;
+    const params = [];
+    if (startDate) params.push(`start_date=${startDate}`);
+    if (endDate) params.push(`end_date=${endDate}`);
+    if (params.length > 0) url += `?${params.join('&')}`;
+    return api.get(url);
+};
 
 // Orders
 export const getOrders = (storeId) => api.get(`/stores/${storeId}/orders`);
