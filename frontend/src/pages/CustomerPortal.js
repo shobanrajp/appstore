@@ -161,9 +161,9 @@ const CustomerPortal = () => {
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        <Link to="/">
+                        <Link to={recentStoreId ? `/store/${recentStoreId}` : "/"}>
                             <Button variant="outline" data-testid="home-btn">
-                                <Home className="w-4 h-4 mr-2" /> Home
+                                <Home className="w-4 h-4 mr-2" /> Store Home
                             </Button>
                         </Link>
                         <Button variant="outline" onClick={() => setProfileDialogOpen(true)} data-testid="edit-profile-btn">
