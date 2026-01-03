@@ -1655,7 +1655,7 @@ const StoreAdminDashboard = () => {
                                     <h2 className="text-2xl font-serif font-semibold">Purchase Orders</h2>
                                     <p className="text-muted-foreground">Manage supplier orders</p>
                                 </div>
-                                <Dialog open={poDialogOpen} onOpenChange={setPoDialogOpen}>
+                                <Dialog open={poDialogOpen} onOpenChange={(open) => { setPoDialogOpen(open); if (!open) { setEditingPO(null); setNewPO({ vendor_id: '', items: [{ product_id: '', quantity: '', unit_price: '' }], notes: '' }); } }}>
                                     <DialogTrigger asChild>
                                         <Button className="gold-gradient text-white" data-testid="create-po-btn">
                                             <Plus className="w-4 h-4 mr-2" /> Create PO
@@ -1663,7 +1663,7 @@ const StoreAdminDashboard = () => {
                                     </DialogTrigger>
                                     <DialogContent className="max-w-lg">
                                         <DialogHeader>
-                                            <DialogTitle className="font-serif">Create Purchase Order</DialogTitle>
+                                            <DialogTitle className="font-serif">{editingPO ? 'Edit Purchase Order' : 'Create Purchase Order'}</DialogTitle>
                                         </DialogHeader>
                                         <form onSubmit={handleCreatePO} className="space-y-4">
                                             <div className="space-y-2">
