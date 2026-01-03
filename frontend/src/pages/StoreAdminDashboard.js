@@ -1328,7 +1328,7 @@ const StoreAdminDashboard = () => {
                             <div className="flex items-center justify-between">
                                 <div>
                                     <h2 className="text-2xl font-serif font-semibold">Subscription Plans</h2>
-                                    <p className="text-muted-foreground">Manage Gold/Silver Flexi Plans</p>
+                                    <p className="text-muted-foreground">Manage Flexi Plans</p>
                                 </div>
                                 <Dialog open={planDialogOpen} onOpenChange={setPlanDialogOpen}>
                                     <DialogTrigger asChild>
@@ -1354,18 +1354,16 @@ const StoreAdminDashboard = () => {
                                                 </div>
                                                 <div className="space-y-2">
                                                     <Label>Plan Type</Label>
-                                                    <Select value={newPlan.plan_type} onValueChange={(v) => setNewPlan({ ...newPlan, plan_type: v })}>
-                                                        <SelectTrigger data-testid="plan-type-select">
-                                                            <SelectValue />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            <SelectItem value="gold_flexi">Gold Flexi</SelectItem>
-                                                            <SelectItem value="silver_flexi">Silver Flexi</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
+                                                    <Input
+                                                        value={newPlan.plan_type}
+                                                        onChange={(e) => setNewPlan({ ...newPlan, plan_type: e.target.value })}
+                                                        required
+                                                        placeholder="e.g., Gold, Silver, Platinum"
+                                                        data-testid="plan-type-input"
+                                                    />
                                                 </div>
                                             </div>
-                                            <div className="grid grid-cols-3 gap-4">
+                                            <div className="grid grid-cols-2 gap-4">
                                                 <div className="space-y-2">
                                                     <Label>Duration (months)</Label>
                                                     <Input
@@ -1377,22 +1375,36 @@ const StoreAdminDashboard = () => {
                                                     />
                                                 </div>
                                                 <div className="space-y-2">
-                                                    <Label>Monthly Amount</Label>
-                                                    <Input
-                                                        type="number"
-                                                        value={newPlan.monthly_amount}
-                                                        onChange={(e) => setNewPlan({ ...newPlan, monthly_amount: e.target.value })}
-                                                        required
-                                                        data-testid="plan-amount-input"
-                                                    />
-                                                </div>
-                                                <div className="space-y-2">
                                                     <Label>Bonus %</Label>
                                                     <Input
                                                         type="number"
                                                         value={newPlan.bonus_percentage}
                                                         onChange={(e) => setNewPlan({ ...newPlan, bonus_percentage: e.target.value })}
                                                         data-testid="plan-bonus-input"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label>Min Amount (₹)</Label>
+                                                    <Input
+                                                        type="number"
+                                                        value={newPlan.min_amount}
+                                                        onChange={(e) => setNewPlan({ ...newPlan, min_amount: parseFloat(e.target.value) })}
+                                                        required
+                                                        placeholder="500"
+                                                        data-testid="plan-min-amount-input"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Max Amount (₹)</Label>
+                                                    <Input
+                                                        type="number"
+                                                        value={newPlan.max_amount}
+                                                        onChange={(e) => setNewPlan({ ...newPlan, max_amount: parseFloat(e.target.value) })}
+                                                        required
+                                                        placeholder="100000"
+                                                        data-testid="plan-max-amount-input"
                                                     />
                                                 </div>
                                             </div>
