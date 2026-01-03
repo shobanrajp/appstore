@@ -192,9 +192,9 @@ const ProductDetail = () => {
                     {/* Product Image */}
                     <div className="space-y-4">
                         <div className="aspect-square bg-muted rounded-lg overflow-hidden">
-                            {product.images?.[0] ? (
+                            {product.images?.[selectedImageIndex] || product.images?.[0] ? (
                                 <img 
-                                    src={product.images[0]} 
+                                    src={product.images[selectedImageIndex] || product.images[0]} 
                                     alt={product.name} 
                                     className="w-full h-full object-cover"
                                 />
@@ -206,9 +206,15 @@ const ProductDetail = () => {
                         </div>
                         {/* Thumbnail gallery if multiple images */}
                         {product.images?.length > 1 && (
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 flex-wrap">
                                 {product.images.map((img, idx) => (
-                                    <div key={idx} className="w-20 h-20 rounded border overflow-hidden cursor-pointer hover:ring-2 ring-gold">
+                                    <div 
+                                        key={idx} 
+                                        className={`w-20 h-20 rounded border overflow-hidden cursor-pointer transition-all ${
+                                            selectedImageIndex === idx ? 'ring-2 ring-gold border-gold' : 'hover:ring-2 ring-gold/50'
+                                        }`}
+                                        onClick={() => setSelectedImageIndex(idx)}
+                                    >
                                         <img src={img} alt={`${product.name} ${idx + 1}`} className="w-full h-full object-cover" />
                                     </div>
                                 ))}
