@@ -115,7 +115,7 @@ const ComponentPreview = ({ component, products, plans }) => {
     switch (type) {
         case 'header':
             return (
-                <header className="bg-primary text-primary-foreground p-4">
+                <header className="bg-primary text-primary-foreground p-4" style={wrapperStyle}>
                     <div className="max-w-7xl mx-auto flex items-center justify-between">
                         <h1 className="text-2xl font-serif">{props.title || 'Store Name'}</h1>
                         <nav className="flex gap-4">
@@ -128,7 +128,7 @@ const ComponentPreview = ({ component, products, plans }) => {
             );
         case 'footer':
             return (
-                <footer className="bg-primary text-primary-foreground p-8">
+                <footer className="bg-primary text-primary-foreground p-8" style={wrapperStyle}>
                     <div className="max-w-7xl mx-auto text-center">
                         <p>{props.text || '© 2025 Your Store. All rights reserved.'}</p>
                     </div>
@@ -138,7 +138,10 @@ const ComponentPreview = ({ component, products, plans }) => {
             return (
                 <div 
                     className="relative h-80 bg-cover bg-center flex items-center justify-center"
-                    style={{ backgroundImage: props.backgroundImage ? `url(${props.backgroundImage})` : 'linear-gradient(135deg, #D4AF37 0%, #F2D06B 50%, #B5942F 100%)' }}
+                    style={{ 
+                        backgroundImage: props.backgroundImage ? `url(${props.backgroundImage})` : 'linear-gradient(135deg, #D4AF37 0%, #F2D06B 50%, #B5942F 100%)',
+                        ...wrapperStyle 
+                    }}
                 >
                     <div className="absolute inset-0 bg-black/40" />
                     <div className="relative text-center text-white">
@@ -150,7 +153,7 @@ const ComponentPreview = ({ component, products, plans }) => {
             );
         case 'text':
             return (
-                <div className="py-8 px-4">
+                <div className="py-8 px-4" style={wrapperStyle}>
                     <div className="max-w-4xl mx-auto">
                         {props.title && <h2 className="text-3xl font-serif mb-4">{props.title}</h2>}
                         <p className="text-muted-foreground">{props.content || 'Add your text content here...'}</p>
@@ -159,7 +162,7 @@ const ComponentPreview = ({ component, products, plans }) => {
             );
         case 'grid':
             return (
-                <div className={`grid grid-cols-${props.columns || 3} gap-4 p-4`}>
+                <div className={`grid grid-cols-${props.columns || 3} gap-4 p-4`} style={wrapperStyle}>
                     {Array(props.columns || 3).fill(0).map((_, i) => (
                         <div key={i} className="bg-muted h-32 rounded-lg flex items-center justify-center text-muted-foreground">
                             Column {i + 1}
@@ -169,7 +172,7 @@ const ComponentPreview = ({ component, products, plans }) => {
             );
         case 'card':
             return (
-                <Card className="max-w-sm mx-auto my-4 luxury-card">
+                <Card className="max-w-sm mx-auto my-4 luxury-card" style={wrapperStyle}>
                     <CardHeader>
                         <CardTitle className="font-serif">{props.title || 'Card Title'}</CardTitle>
                     </CardHeader>
@@ -179,10 +182,10 @@ const ComponentPreview = ({ component, products, plans }) => {
                 </Card>
             );
         case 'divider':
-            return <div className={`h-${props.height || 8}`} />;
+            return <div className={`h-${props.height || 8}`} style={wrapperStyle} />;
         case 'products':
             return (
-                <div className="py-8 px-4">
+                <div className="py-8 px-4" style={wrapperStyle}>
                     <h2 className="text-3xl font-serif text-center mb-8">{props.title || 'Featured Products'}</h2>
                     <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6 max-w-7xl mx-auto">
                         {products.slice(0, props.limit || 4).map((product) => (
@@ -210,7 +213,7 @@ const ComponentPreview = ({ component, products, plans }) => {
             );
         case 'scrolling_text':
             return (
-                <div className="bg-gold text-white py-2 overflow-hidden">
+                <div className="bg-gold text-white py-2 overflow-hidden" style={wrapperStyle}>
                     <div className="animate-marquee whitespace-nowrap">
                         {props.text || 'Add your scrolling announcement here...'}
                     </div>
@@ -218,7 +221,7 @@ const ComponentPreview = ({ component, products, plans }) => {
             );
         case 'subscription_plans':
             return (
-                <div className="py-12 px-4 bg-muted/30">
+                <div className="py-12 px-4 bg-muted/30" style={wrapperStyle}>
                     <h2 className="text-3xl font-serif text-center mb-8">{props.title || 'Gold Savings Plans'}</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
                         {plans.map((plan) => (
@@ -248,7 +251,7 @@ const ComponentPreview = ({ component, products, plans }) => {
             );
         case 'menu':
             return (
-                <nav className="bg-card border-y py-2">
+                <nav className="bg-card border-y py-2" style={wrapperStyle}>
                     <div className="max-w-7xl mx-auto flex items-center justify-center gap-8">
                         {(props.categories || ['Necklaces', 'Rings', 'Earrings', 'Bangles', 'Chains']).map((cat, i) => (
                             <span key={i} className="hover:gold-text cursor-pointer transition-colors">{cat}</span>
@@ -258,7 +261,7 @@ const ComponentPreview = ({ component, products, plans }) => {
             );
         default:
             return (
-                <div className="p-4 border border-dashed rounded-lg text-center text-muted-foreground">
+                <div className="p-4 border border-dashed rounded-lg text-center text-muted-foreground" style={wrapperStyle}>
                     {type} component
                 </div>
             );
