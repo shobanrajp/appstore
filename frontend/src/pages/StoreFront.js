@@ -565,11 +565,18 @@ const StoreFront = () => {
                                 key={component.id || index}
                                 component={component}
                                 products={products}
+                                filteredProducts={filteredProducts}
                                 plans={plans}
                                 store={store}
                                 addToCart={addToCart}
                                 onSubscribe={openSubscribeDialog}
                                 user={user}
+                                categories={categories}
+                                selectedCategory={selectedCategory}
+                                onCategorySelect={setSelectedCategory}
+                                searchTerm={searchTerm}
+                                onSearchChange={setSearchTerm}
+                                storeId={storeId}
                             />
                         ))}
                 </>
