@@ -57,7 +57,7 @@ const StoreAdminDashboard = () => {
     const [orderTrackingInfo, setOrderTrackingInfo] = useState({ tracking_number: '', carrier_name: '', carrier_url: '' });
 
     // Form states
-    const [newProduct, setNewProduct] = useState({ name: '', description: '', price: '', category: '', sku: '', weight: '', image_url: '' });
+    const [newProduct, setNewProduct] = useState({ name: '', description: '', price: '', category: '', sku: '', weight: '', images: [''] });
     const [editingProduct, setEditingProduct] = useState(null);
     const [editingInventory, setEditingInventory] = useState(null);
     const [editingVendor, setEditingVendor] = useState(null);
