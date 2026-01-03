@@ -974,18 +974,22 @@ const StoreFront = () => {
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle className="font-serif">Subscribe to {selectedPlan?.name}</DialogTitle>
-                        <DialogDescription>Choose your preferred payment type</DialogDescription>
+                        <DialogDescription>Choose your monthly investment amount</DialogDescription>
                     </DialogHeader>
                     {selectedPlan && (
                         <div className="space-y-4">
                             <div className="p-4 bg-muted rounded-lg">
                                 <div className="flex justify-between mb-2">
-                                    <span>Monthly Payment</span>
-                                    <span className="font-semibold">{formatCurrency(selectedPlan.monthly_amount, store.currency)}</span>
+                                    <span>Plan Type</span>
+                                    <span className="font-semibold">{selectedPlan.plan_type}</span>
                                 </div>
                                 <div className="flex justify-between mb-2">
                                     <span>Duration</span>
                                     <span>{selectedPlan.duration_months} months</span>
+                                </div>
+                                <div className="flex justify-between mb-2">
+                                    <span>Amount Range</span>
+                                    <span>{formatCurrency(selectedPlan.min_amount || 500, store.currency)} - {formatCurrency(selectedPlan.max_amount || 100000, store.currency)}</span>
                                 </div>
                                 <div className="flex justify-between">
                                     <span>Bonus</span>
@@ -994,16 +998,19 @@ const StoreFront = () => {
                             </div>
 
                             <div className="space-y-2">
-                                <Label>Payment Type</Label>
-                                <Select value={paymentType} onValueChange={setPaymentType}>
-                                    <SelectTrigger>
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="value">Value Based (Fixed Amount)</SelectItem>
-                                        <SelectItem value="weight">Weight Based (Fixed Gold Weight)</SelectItem>
-                                    </SelectContent>
-                                </Select>
+                                <Label>Your Monthly Amount (₹)</Label>
+                                <Input
+                                    type="number"
+                                    value={chosenMonthlyAmount}
+                                    onChange={(e) => setChosenMonthlyAmount(e.target.value)}
+                                    placeholder={`Min: ${selectedPlan.min_amount || 500}, Max: ${selectedPlan.max_amount || 100000}`}
+                                    min={selectedPlan.min_amount || 500}
+                                    max={selectedPlan.max_amount || 100000}
+                                    data-testid="subscription-amount-input"
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    Choose any amount between ₹{selectedPlan.min_amount || 500} and ₹{selectedPlan.max_amount || 100000}
+                                </p>
                             </div>
 
                             <Button
@@ -1011,10 +1018,10 @@ const StoreFront = () => {
                                 onClick={handleSubscribe}
                                 data-testid="confirm-subscribe-btn"
                             >
-                                Subscribe & Pay First Installment (Mock)
+                                Subscribe & Pay First Installment ({formatCurrency(parseFloat(chosenMonthlyAmount) || 0, store.currency)})
                             </Button>
                             <p className="text-xs text-center text-muted-foreground">
-                                This is a demo subscription with mock payment
+                                This is a demo subscription with MOCK payment
                             </p>
                         </div>
                     )}
