@@ -254,10 +254,13 @@ const ComponentPreview = ({ component, products, plans }) => {
                 </div>
             );
         case 'menu':
+            // Derive categories from actual products
+            const productCategories = [...new Set(products.filter(p => p.category).map(p => p.category))];
+            const displayCategories = productCategories.length > 0 ? productCategories : ['No categories yet'];
             return (
                 <nav className="bg-card border-y py-2" style={wrapperStyle}>
                     <div className="max-w-7xl mx-auto flex items-center justify-center gap-8">
-                        {(props.categories || ['Necklaces', 'Rings', 'Earrings', 'Bangles', 'Chains']).map((cat, i) => (
+                        {displayCategories.map((cat, i) => (
                             <span key={i} className="hover:gold-text cursor-pointer transition-colors">{cat}</span>
                         ))}
                     </div>
