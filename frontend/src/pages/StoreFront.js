@@ -212,14 +212,14 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                                 <Card key={plan.id} className="luxury-card" data-testid={`plan-card-${plan.id}`}>
                                     <CardHeader>
                                         <Badge className="w-fit gold-gradient text-white">
-                                            {plan.plan_type === 'gold_flexi' ? 'Gold Flexi' : 'Silver Flexi'}
+                                            {plan.plan_type}
                                         </Badge>
                                         <CardTitle className="font-serif text-2xl mt-2">{plan.name}</CardTitle>
                                         <CardDescription>{plan.description}</CardDescription>
                                     </CardHeader>
                                     <CardContent>
-                                        <div className="text-4xl font-serif gold-text mb-1">
-                                            {formatCurrency(plan.monthly_amount, store?.currency)}
+                                        <div className="text-2xl font-serif gold-text mb-1">
+                                            {formatCurrency(plan.min_amount || 500, store?.currency)} - {formatCurrency(plan.max_amount || 100000, store?.currency)}
                                             <span className="text-base text-muted-foreground">/month</span>
                                         </div>
                                         <p className="text-sm text-muted-foreground mb-4">
@@ -236,7 +236,7 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                                             </li>
                                             <li className="flex items-center text-sm">
                                                 <span className="w-2 h-2 bg-gold rounded-full mr-2" />
-                                                Flexible redemption options
+                                                Choose your own monthly amount
                                             </li>
                                         </ul>
                                         <Button
