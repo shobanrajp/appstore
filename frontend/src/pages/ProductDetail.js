@@ -19,6 +19,7 @@ const ProductDetail = () => {
     const [recentlyViewed, setRecentlyViewed] = useState([]);
     const [quantity, setQuantity] = useState(1);
     const [loading, setLoading] = useState(true);
+    const [selectedImageIndex, setSelectedImageIndex] = useState(0);
     const [cart, setCart] = useState(() => {
         const saved = localStorage.getItem(`cart_${storeId}`);
         return saved ? JSON.parse(saved) : [];
