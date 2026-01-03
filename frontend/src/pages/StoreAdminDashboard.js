@@ -456,6 +456,7 @@ const StoreAdminDashboard = () => {
             toast.success('Purchase order created');
             setPoDialogOpen(false);
             setNewPO({ vendor_id: '', items: [{ product_id: '', quantity: '', unit_price: '' }], notes: '' });
+            setEditingPO(null);
             loadData();
         } catch (error) {
             toast.error(error.response?.data?.detail || 'Failed to create PO');
@@ -466,7 +467,7 @@ const StoreAdminDashboard = () => {
     const handleCreatePOS = async (e) => {
         e.preventDefault();
         try {
-            await createPOSTransaction(store.id, {
+            const posData = {
                 items: posItems.filter(i => i.product_id).map(i => ({
                     product_id: i.product_id,
                     quantity: parseInt(i.quantity),
@@ -475,8 +476,16 @@ const StoreAdminDashboard = () => {
                 payment_method: posPaymentMethod,
                 customer_name: posCustomer.name || null,
                 customer_phone: posCustomer.phone || null
-            });
-            toast.success('Transaction completed');
+            };
+            
+            if (editingPOS) {
+                await updatePOSTransaction(store.id, editingPOS.id, posData);
+                toast.success('Transaction updated');
+                setEditingPOS(null);
+            } else {
+                await createPOSTransaction(store.id, posData);
+                toast.success('Transaction completed');
+            }
             setPosDialogOpen(false);
             setPosItems([{ product_id: '', quantity: 1, price: 0 }]);
             setPosCustomer({ name: '', phone: '' });
