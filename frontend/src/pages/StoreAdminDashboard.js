@@ -308,15 +308,31 @@ const StoreAdminDashboard = () => {
     };
 
     // Order handlers
-    const handleUpdateOrderStatus = async (orderId, status, trackingNumber = null) => {
+    const handleUpdateOrderStatus = async (orderId, status) => {
         try {
-            await updateOrderStatus(store.id, orderId, { status, tracking_number: trackingNumber });
-            toast.success('Order status updated');
+            await updateOrderStatus(store.id, orderId, { 
+                status, 
+                tracking_number: orderTrackingInfo.tracking_number || null,
+                carrier_name: orderTrackingInfo.carrier_name || null,
+                carrier_url: orderTrackingInfo.carrier_url || null
+            });
+            toast.success('Order updated');
             loadData();
             setOrderDetailOpen(false);
+            setOrderTrackingInfo({ tracking_number: '', carrier_name: '', carrier_url: '' });
         } catch (error) {
             toast.error('Failed to update order');
         }
+    };
+
+    const openOrderDetail = (order) => {
+        setSelectedOrder(order);
+        setOrderTrackingInfo({
+            tracking_number: order.tracking_number || '',
+            carrier_name: order.carrier_name || '',
+            carrier_url: order.carrier_url || ''
+        });
+        setOrderDetailOpen(true);
     };
 
     // Settings handlers
