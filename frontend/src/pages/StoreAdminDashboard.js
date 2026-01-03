@@ -1844,6 +1844,169 @@ const StoreAdminDashboard = () => {
                         </div>
                     )}
 
+                    {/* Reporting Tab */}
+                    {activeTab === 'reporting' && (
+                        <div className="space-y-6">
+                            <div className="flex items-center justify-between flex-wrap gap-4">
+                                <div>
+                                    <h2 className="text-2xl font-serif font-semibold">Reporting</h2>
+                                    <p className="text-muted-foreground">Sales, expenditure, and profit analytics</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Calendar className="w-4 h-4 text-muted-foreground" />
+                                    <Input
+                                        type="date"
+                                        value={reportPeriod.startDate}
+                                        onChange={(e) => setReportPeriod({ ...reportPeriod, startDate: e.target.value })}
+                                        className="w-[150px]"
+                                        data-testid="report-start-date"
+                                    />
+                                    <span className="text-muted-foreground">to</span>
+                                    <Input
+                                        type="date"
+                                        value={reportPeriod.endDate}
+                                        onChange={(e) => setReportPeriod({ ...reportPeriod, endDate: e.target.value })}
+                                        className="w-[150px]"
+                                        data-testid="report-end-date"
+                                    />
+                                    <Button onClick={loadReport} disabled={reportLoading} data-testid="generate-report-btn">
+                                        {reportLoading ? 'Loading...' : 'Generate Report'}
+                                    </Button>
+                                </div>
+                            </div>
+
+                            {reportData ? (
+                                <div className="space-y-6">
+                                    {/* Summary Cards */}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                        <Card className="luxury-card">
+                                            <CardHeader className="pb-2">
+                                                <CardTitle className="text-sm font-medium text-muted-foreground">Total Sales</CardTitle>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="text-2xl font-bold gold-text">
+                                                    {formatCurrency(reportData.total_sales || 0, store.currency)}
+                                                </div>
+                                                <p className="text-xs text-muted-foreground mt-1">
+                                                    Online: {formatCurrency(reportData.online_sales || 0, store.currency)} | POS: {formatCurrency(reportData.pos_sales || 0, store.currency)}
+                                                </p>
+                                            </CardContent>
+                                        </Card>
+
+                                        <Card className="luxury-card">
+                                            <CardHeader className="pb-2">
+                                                <CardTitle className="text-sm font-medium text-muted-foreground">Total Expenditures</CardTitle>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="text-2xl font-bold text-red-500">
+                                                    {formatCurrency(reportData.total_expenditures || 0, store.currency)}
+                                                </div>
+                                                <p className="text-xs text-muted-foreground mt-1">From Purchase Orders</p>
+                                            </CardContent>
+                                        </Card>
+
+                                        <Card className="luxury-card">
+                                            <CardHeader className="pb-2">
+                                                <CardTitle className="text-sm font-medium text-muted-foreground">Net Profit</CardTitle>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className={`text-2xl font-bold ${(reportData.net_profit || 0) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                                    {formatCurrency(reportData.net_profit || 0, store.currency)}
+                                                </div>
+                                                <p className="text-xs text-muted-foreground mt-1">Sales - Expenditures</p>
+                                            </CardContent>
+                                        </Card>
+
+                                        <Card className="luxury-card">
+                                            <CardHeader className="pb-2">
+                                                <CardTitle className="text-sm font-medium text-muted-foreground">Subscription Revenue</CardTitle>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="text-2xl font-bold gold-text">
+                                                    {formatCurrency(reportData.subscription_revenue || 0, store.currency)}
+                                                </div>
+                                                <p className="text-xs text-muted-foreground mt-1">{reportData.total_subscribers || 0} subscribers</p>
+                                            </CardContent>
+                                        </Card>
+                                    </div>
+
+                                    {/* Detailed Stats */}
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <Card>
+                                            <CardHeader>
+                                                <CardTitle className="text-lg font-serif">Orders Summary</CardTitle>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="space-y-2">
+                                                    <div className="flex justify-between">
+                                                        <span className="text-muted-foreground">Online Orders</span>
+                                                        <span className="font-medium">{reportData.total_orders || 0}</span>
+                                                    </div>
+                                                    <div className="flex justify-between">
+                                                        <span className="text-muted-foreground">POS Transactions</span>
+                                                        <span className="font-medium">{reportData.total_pos_transactions || 0}</span>
+                                                    </div>
+                                                    <div className="flex justify-between">
+                                                        <span className="text-muted-foreground">Total Customers</span>
+                                                        <span className="font-medium">{reportData.total_customers || 0}</span>
+                                                    </div>
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+
+                                        <Card>
+                                            <CardHeader>
+                                                <CardTitle className="text-lg font-serif">Period</CardTitle>
+                                            </CardHeader>
+                                            <CardContent>
+                                                <div className="space-y-2">
+                                                    <div className="flex justify-between">
+                                                        <span className="text-muted-foreground">From</span>
+                                                        <span className="font-medium">{reportData.period?.start || 'All time'}</span>
+                                                    </div>
+                                                    <div className="flex justify-between">
+                                                        <span className="text-muted-foreground">To</span>
+                                                        <span className="font-medium">{reportData.period?.end || 'Today'}</span>
+                                                    </div>
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+
+                                        <Card>
+                                            <CardHeader>
+                                                <CardTitle className="text-lg font-serif">Quick Actions</CardTitle>
+                                            </CardHeader>
+                                            <CardContent className="space-y-2">
+                                                <Button variant="outline" className="w-full" onClick={() => setActiveTab('orders')}>
+                                                    View Orders
+                                                </Button>
+                                                <Button variant="outline" className="w-full" onClick={() => setActiveTab('pos')}>
+                                                    View POS Transactions
+                                                </Button>
+                                                <Button variant="outline" className="w-full" onClick={() => setActiveTab('purchase-orders')}>
+                                                    View Purchase Orders
+                                                </Button>
+                                            </CardContent>
+                                        </Card>
+                                    </div>
+                                </div>
+                            ) : (
+                                <Card className="py-12">
+                                    <CardContent className="text-center">
+                                        <BarChart3 className="w-12 h-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                                        <h3 className="text-lg font-medium mb-2">Generate a Report</h3>
+                                        <p className="text-muted-foreground mb-4">
+                                            Select a date range and click "Generate Report" to view your sales, expenditure, and profit analytics.
+                                        </p>
+                                        <Button onClick={loadReport} disabled={reportLoading} className="gold-gradient text-white">
+                                            {reportLoading ? 'Loading...' : 'Generate Report for All Time'}
+                                        </Button>
+                                    </CardContent>
+                                </Card>
+                            )}
+                        </div>
+                    )}
+
                     {/* Subscription Plans Tab */}
                     {activeTab === 'plans' && (
                         <div className="space-y-6">
