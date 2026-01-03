@@ -10,7 +10,7 @@ import {
     getPOSTransactions, createPOSTransaction,
     getSubscriptionPlans, createSubscriptionPlan, updateSubscriptionPlan,
     getStoreSubscribers, getSubscriptionDetails, updateSubscriptionStatus, deleteSubscription,
-    updateStoreSettings
+    updateStoreSettings, updateStore
 } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -26,7 +26,7 @@ import { ScrollArea } from '../components/ui/scroll-area';
 import { toast } from 'sonner';
 import {
     Plus, Trash2, Package, ShoppingCart, Users, Settings, LogOut,
-    Box, Truck, DollarSign, CreditCard, Edit2, LayoutDashboard, Palette, Eye
+    Box, Truck, DollarSign, CreditCard, Edit2, LayoutDashboard, Palette, Eye, Building2
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatDateTime, getStatusColor } from '../lib/utils';
 
