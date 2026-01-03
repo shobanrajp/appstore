@@ -531,6 +531,15 @@ const PageEditor = () => {
                             <Label htmlFor="publish" className="text-sm">Published</Label>
                             <Switch id="publish" checked={isPublished} onCheckedChange={setIsPublished} />
                         </div>
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => setShowThemePanel(!showThemePanel)}
+                            className={showThemePanel ? 'bg-accent' : ''}
+                            data-testid="theme-btn"
+                        >
+                            <Palette className="w-4 h-4 mr-2" /> Themes
+                        </Button>
                         <Link to={`/store/${storeId}`} target="_blank">
                             <Button variant="outline" size="sm" data-testid="preview-store-btn">
                                 <Eye className="w-4 h-4 mr-2" /> Preview
@@ -542,6 +551,37 @@ const PageEditor = () => {
                     </div>
                 </div>
             </header>
+
+            {/* Theme Selection Panel */}
+            {showThemePanel && (
+                <div className="border-b bg-card p-4">
+                    <div className="max-w-7xl mx-auto">
+                        <h3 className="font-semibold mb-3 flex items-center gap-2">
+                            <Palette className="w-4 h-4" /> Choose a Theme
+                        </h3>
+                        <div className="flex gap-4 overflow-x-auto pb-2">
+                            {THEME_PRESETS.map((theme) => (
+                                <button
+                                    key={theme.id}
+                                    onClick={() => applyTheme(theme)}
+                                    className={`flex-shrink-0 p-3 rounded-lg border-2 transition-all hover:shadow-md ${
+                                        selectedTheme?.id === theme.id ? 'border-gold ring-2 ring-gold/30' : 'border-muted'
+                                    }`}
+                                    data-testid={`theme-${theme.id}`}
+                                >
+                                    <div className="flex gap-1 mb-2">
+                                        <div className="w-6 h-6 rounded-full" style={{ backgroundColor: theme.primaryColor }} />
+                                        <div className="w-6 h-6 rounded-full" style={{ backgroundColor: theme.secondaryColor }} />
+                                        <div className="w-6 h-6 rounded-full" style={{ backgroundColor: theme.accentColor }} />
+                                    </div>
+                                    <p className="text-sm font-medium">{theme.name}</p>
+                                    <p className="text-xs text-muted-foreground">{theme.description}</p>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Main Editor */}
             <div className="flex-1 flex">
