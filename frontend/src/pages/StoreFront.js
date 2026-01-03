@@ -139,20 +139,6 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                     <div className="max-w-7xl mx-auto">
                         <h2 className="text-4xl font-serif text-center mb-8">{props.title || 'Our Collection'}</h2>
                         
-                        {/* Search Bar */}
-                        <div className="max-w-md mx-auto mb-8">
-                            <div className="relative">
-                                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                                <input
-                                    type="text"
-                                    placeholder="Search products..."
-                                    value={searchTerm || ''}
-                                    onChange={(e) => onSearchChange && onSearchChange(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-gold/50"
-                                />
-                            </div>
-                        </div>
-                        
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                             {displayProducts.map((product) => (
                                 <Link key={product.id} to={`/store/${storeId}/product/${product.id}`}>
