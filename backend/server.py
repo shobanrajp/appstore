@@ -286,7 +286,7 @@ class UserSubscriptionResponse(BaseModel):
     store_id: str
     plan_id: str
     plan_name: str
-    plan_type: str
+    plan_type: Optional[str] = ""
     monthly_amount: float
     payments_made: int
     total_paid: float
