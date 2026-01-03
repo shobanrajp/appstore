@@ -467,7 +467,7 @@ const StoreAdminDashboard = () => {
                                     <h2 className="text-2xl font-serif font-semibold">Products</h2>
                                     <p className="text-muted-foreground">Manage your product catalog</p>
                                 </div>
-                                <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
+                                <Dialog open={productDialogOpen} onOpenChange={(open) => { setProductDialogOpen(open); if (!open) { setEditingProduct(null); setNewProduct({ name: '', description: '', price: '', category: '', sku: '', weight: '', image_url: '' }); } }}>
                                     <DialogTrigger asChild>
                                         <Button className="gold-gradient text-white" data-testid="add-product-btn">
                                             <Plus className="w-4 h-4 mr-2" /> Add Product
@@ -475,8 +475,8 @@ const StoreAdminDashboard = () => {
                                     </DialogTrigger>
                                     <DialogContent className="max-w-lg">
                                         <DialogHeader>
-                                            <DialogTitle className="font-serif">Add Product</DialogTitle>
-                                            <DialogDescription>Add a new product to your catalog</DialogDescription>
+                                            <DialogTitle className="font-serif">{editingProduct ? 'Edit Product' : 'Add Product'}</DialogTitle>
+                                            <DialogDescription>{editingProduct ? 'Update product details' : 'Add a new product to your catalog'}</DialogDescription>
                                         </DialogHeader>
                                         <form onSubmit={handleCreateProduct} className="space-y-4">
                                             <div className="grid grid-cols-2 gap-4">
@@ -506,7 +506,7 @@ const StoreAdminDashboard = () => {
                                                     data-testid="product-desc-input"
                                                 />
                                             </div>
-                                            <div className="grid grid-cols-3 gap-4">
+                                            <div className="grid grid-cols-2 gap-4">
                                                 <div className="space-y-2">
                                                     <Label>Price ({store.currency})</Label>
                                                     <Input
@@ -528,19 +528,6 @@ const StoreAdminDashboard = () => {
                                                         data-testid="product-weight-input"
                                                     />
                                                 </div>
-                                                <div className="space-y-2">
-                                                    <Label>Metal Type</Label>
-                                                    <Select value={newProduct.metal_type} onValueChange={(v) => setNewProduct({ ...newProduct, metal_type: v })}>
-                                                        <SelectTrigger data-testid="product-metal-select">
-                                                            <SelectValue />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            <SelectItem value="gold">Gold</SelectItem>
-                                                            <SelectItem value="silver">Silver</SelectItem>
-                                                            <SelectItem value="platinum">Platinum</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                </div>
                                             </div>
                                             <div className="space-y-2">
                                                 <Label>Category</Label>
@@ -551,8 +538,22 @@ const StoreAdminDashboard = () => {
                                                     data-testid="product-category-input"
                                                 />
                                             </div>
+                                            <div className="space-y-2">
+                                                <Label>Image URL</Label>
+                                                <Input
+                                                    value={newProduct.image_url}
+                                                    onChange={(e) => setNewProduct({ ...newProduct, image_url: e.target.value })}
+                                                    placeholder="https://example.com/image.jpg"
+                                                    data-testid="product-image-input"
+                                                />
+                                                {newProduct.image_url && (
+                                                    <div className="mt-2 h-24 w-24 rounded border overflow-hidden">
+                                                        <img src={newProduct.image_url} alt="Preview" className="w-full h-full object-cover" onError={(e) => e.target.style.display = 'none'} />
+                                                    </div>
+                                                )}
+                                            </div>
                                             <Button type="submit" className="w-full gold-gradient text-white" data-testid="submit-product-btn">
-                                                Create Product
+                                                {editingProduct ? 'Update Product' : 'Create Product'}
                                             </Button>
                                         </form>
                                     </DialogContent>
@@ -564,6 +565,7 @@ const StoreAdminDashboard = () => {
                                     <Table>
                                         <TableHeader>
                                             <TableRow>
+                                                <TableHead>Image</TableHead>
                                                 <TableHead>Name</TableHead>
                                                 <TableHead>SKU</TableHead>
                                                 <TableHead>Category</TableHead>
@@ -576,6 +578,13 @@ const StoreAdminDashboard = () => {
                                         <TableBody>
                                             {products.map((product) => (
                                                 <TableRow key={product.id} data-testid={`product-row-${product.id}`}>
+                                                    <TableCell>
+                                                        {product.images?.[0] ? (
+                                                            <img src={product.images[0]} alt={product.name} className="w-12 h-12 object-cover rounded" />
+                                                        ) : (
+                                                            <div className="w-12 h-12 bg-muted rounded flex items-center justify-center text-muted-foreground text-xs">No img</div>
+                                                        )}
+                                                    </TableCell>
                                                     <TableCell className="font-medium">{product.name}</TableCell>
                                                     <TableCell>{product.sku || '-'}</TableCell>
                                                     <TableCell>{product.category || '-'}</TableCell>
@@ -587,7 +596,10 @@ const StoreAdminDashboard = () => {
                                                         </Badge>
                                                     </TableCell>
                                                     <TableCell className="text-right">
-                                                        <Button variant="ghost" size="sm" onClick={() => handleDeleteProduct(product.id)}>
+                                                        <Button variant="ghost" size="sm" onClick={() => openEditProduct(product)} data-testid={`edit-product-${product.id}`}>
+                                                            <Edit2 className="w-4 h-4" />
+                                                        </Button>
+                                                        <Button variant="ghost" size="sm" onClick={() => handleDeleteProduct(product.id)} data-testid={`delete-product-${product.id}`}>
                                                             <Trash2 className="w-4 h-4 text-destructive" />
                                                         </Button>
                                                     </TableCell>
@@ -595,7 +607,7 @@ const StoreAdminDashboard = () => {
                                             ))}
                                             {products.length === 0 && (
                                                 <TableRow>
-                                                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                                                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                                                         No products yet. Add your first product to get started.
                                                     </TableCell>
                                                 </TableRow>
