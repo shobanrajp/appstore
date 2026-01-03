@@ -293,6 +293,7 @@ const SuperAdminDashboard = () => {
                                             <TableHead>Name</TableHead>
                                             <TableHead>Currency</TableHead>
                                             <TableHead>Contact</TableHead>
+                                            <TableHead>Payment</TableHead>
                                             <TableHead>Status</TableHead>
                                             <TableHead>Created</TableHead>
                                             <TableHead className="text-right">Actions</TableHead>
@@ -305,12 +306,26 @@ const SuperAdminDashboard = () => {
                                                 <TableCell>{store.currency}</TableCell>
                                                 <TableCell>{store.contact_email || '-'}</TableCell>
                                                 <TableCell>
+                                                    <Badge variant={store.razorpay_key_id ? 'default' : 'outline'}>
+                                                        {store.razorpay_key_id ? 'Configured' : 'Not Set'}
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell>
                                                     <Badge variant={store.is_active ? 'default' : 'secondary'}>
                                                         {store.is_active ? 'Active' : 'Inactive'}
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell>{formatDate(store.created_at)}</TableCell>
-                                                <TableCell className="text-right">
+                                                <TableCell className="text-right space-x-1">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={() => openPaymentConfigDialog(store)}
+                                                        title="Configure Razorpay"
+                                                        data-testid={`config-payment-${store.id}`}
+                                                    >
+                                                        <CreditCard className="w-4 h-4" />
+                                                    </Button>
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
@@ -324,7 +339,7 @@ const SuperAdminDashboard = () => {
                                         ))}
                                         {stores.length === 0 && (
                                             <TableRow>
-                                                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                                                <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                                                     No stores yet. Create your first store to get started.
                                                 </TableCell>
                                             </TableRow>
