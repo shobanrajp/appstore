@@ -100,6 +100,17 @@ export const createSubscriptionPlan = (storeId, data) => api.post(`/stores/${sto
 export const subscribeToPlan = (storeId, data) => api.post(`/stores/${storeId}/subscribe`, data);
 export const getMySubscriptions = () => api.get('/my-subscriptions');
 
+// Store Admin - Subscribers
+export const getStoreSubscribers = (storeId) => api.get(`/stores/${storeId}/subscribers`);
+export const getSubscriptionDetails = (storeId, subscriptionId) => api.get(`/stores/${storeId}/subscriptions/${subscriptionId}`);
+
+// End User - Pay subscription
+export const paySubscription = (subscriptionId, amount) => api.post(`/subscriptions/${subscriptionId}/pay`, { subscription_id: subscriptionId, amount });
+
+// Store Payment Config (Super Admin)
+export const getStorePaymentConfig = (storeId) => api.get(`/stores/${storeId}/payment-config`);
+export const updateStorePaymentConfig = (storeId, data) => api.put(`/stores/${storeId}/payment-config`, data);
+
 // Page Config
 export const getPageConfigs = (storeId) => api.get(`/stores/${storeId}/page-config`);
 export const getPageConfig = (storeId, pageName) => api.get(`/stores/${storeId}/page-config/${pageName}`);
