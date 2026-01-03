@@ -305,8 +305,13 @@ const CustomerPortal = () => {
                                     <Card key={sub.id} className="luxury-card" data-testid={`subscription-card-${sub.id}`}>
                                         <CardHeader>
                                             <div className="flex items-center justify-between">
-                                                <Badge className="gold-gradient text-white">{sub.plan_name}</Badge>
-                                                <Badge variant={sub.status === 'active' ? 'default' : 'secondary'}>
+                                                <div>
+                                                    <Badge className="gold-gradient text-white">{sub.plan_name}</Badge>
+                                                    {sub.plan_type && (
+                                                        <Badge variant="outline" className="ml-2">{sub.plan_type}</Badge>
+                                                    )}
+                                                </div>
+                                                <Badge variant={sub.status === 'active' ? 'default' : sub.status === 'completed' ? 'secondary' : 'destructive'}>
                                                     {sub.status}
                                                 </Badge>
                                             </div>
@@ -336,6 +341,16 @@ const CustomerPortal = () => {
                                                 <span className="text-muted-foreground">Started</span>
                                                 <p>{formatDate(sub.start_date)}</p>
                                             </div>
+                                            {sub.status === 'active' && (
+                                                <Button 
+                                                    onClick={() => openPaymentDialog(sub)} 
+                                                    className="w-full gold-gradient text-white"
+                                                    data-testid={`pay-subscription-${sub.id}`}
+                                                >
+                                                    <IndianRupee className="w-4 h-4 mr-2" />
+                                                    Pay Monthly Installment ({formatCurrency(sub.monthly_amount)})
+                                                </Button>
+                                            )}
                                         </CardContent>
                                     </Card>
                                 ))
