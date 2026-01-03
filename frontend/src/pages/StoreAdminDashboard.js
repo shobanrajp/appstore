@@ -1315,7 +1315,7 @@ const StoreAdminDashboard = () => {
                                     <h2 className="text-2xl font-serif font-semibold">POS Transactions</h2>
                                     <p className="text-muted-foreground">Point of Sale transactions</p>
                                 </div>
-                                <Dialog open={posDialogOpen} onOpenChange={setPosDialogOpen}>
+                                <Dialog open={posDialogOpen} onOpenChange={(open) => { setPosDialogOpen(open); if (!open) { setEditingPOS(null); setPosItems([{ product_id: '', quantity: 1, price: 0 }]); setPosCustomer({ name: '', phone: '' }); setPosPaymentMethod('cash'); } }}>
                                     <DialogTrigger asChild>
                                         <Button className="gold-gradient text-white" data-testid="new-sale-btn">
                                             <Plus className="w-4 h-4 mr-2" /> New Sale
@@ -1323,7 +1323,7 @@ const StoreAdminDashboard = () => {
                                     </DialogTrigger>
                                     <DialogContent className="max-w-lg">
                                         <DialogHeader>
-                                            <DialogTitle className="font-serif">New POS Transaction</DialogTitle>
+                                            <DialogTitle className="font-serif">{editingPOS ? 'Edit POS Transaction' : 'New POS Transaction'}</DialogTitle>
                                         </DialogHeader>
                                         <form onSubmit={handleCreatePOS} className="space-y-4">
                                             <div className="space-y-2">
