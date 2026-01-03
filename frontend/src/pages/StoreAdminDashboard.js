@@ -772,6 +772,7 @@ const StoreAdminDashboard = () => {
                                                 <TableHead>Total</TableHead>
                                                 <TableHead>Status</TableHead>
                                                 <TableHead>Tracking</TableHead>
+                                                <TableHead>Carrier</TableHead>
                                                 <TableHead>Date</TableHead>
                                                 <TableHead className="text-right">Actions</TableHead>
                                             </TableRow>
@@ -779,19 +780,21 @@ const StoreAdminDashboard = () => {
                                         <TableBody>
                                             {orders.map((order) => (
                                                 <TableRow key={order.id}>
-                                                    <TableCell className="font-mono text-sm">{order.id.slice(0, 8)}...</TableCell>
+                                                    <TableCell className="font-mono text-sm">{order.id}</TableCell>
                                                     <TableCell>{order.items.length} items</TableCell>
                                                     <TableCell>{formatCurrency(order.total_amount, store.currency)}</TableCell>
                                                     <TableCell>
                                                         <Badge className={getStatusColor(order.status)}>{order.status}</Badge>
                                                     </TableCell>
                                                     <TableCell>{order.tracking_number || '-'}</TableCell>
+                                                    <TableCell>{order.carrier_name || '-'}</TableCell>
                                                     <TableCell>{formatDate(order.created_at)}</TableCell>
                                                     <TableCell className="text-right">
                                                         <Button
                                                             variant="ghost"
                                                             size="sm"
-                                                            onClick={() => { setSelectedOrder(order); setOrderDetailOpen(true); }}
+                                                            onClick={() => openOrderDetail(order)}
+                                                            data-testid={`edit-order-${order.id}`}
                                                         >
                                                             <Edit2 className="w-4 h-4" />
                                                         </Button>
@@ -800,7 +803,7 @@ const StoreAdminDashboard = () => {
                                             ))}
                                             {orders.length === 0 && (
                                                 <TableRow>
-                                                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                                                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                                                         No orders yet.
                                                     </TableCell>
                                                 </TableRow>
@@ -811,7 +814,7 @@ const StoreAdminDashboard = () => {
                             </Card>
 
                             {/* Order Detail Dialog */}
-                            <Dialog open={orderDetailOpen} onOpenChange={setOrderDetailOpen}>
+                            <Dialog open={orderDetailOpen} onOpenChange={(open) => { setOrderDetailOpen(open); if (!open) setOrderTrackingInfo({ tracking_number: '', carrier_name: '', carrier_url: '' }); }}>
                                 <DialogContent className="max-w-2xl">
                                     <DialogHeader>
                                         <DialogTitle className="font-serif">Order Details</DialogTitle>
@@ -851,9 +854,44 @@ const StoreAdminDashboard = () => {
                                                     {selectedOrder.shipping_address.city}, {selectedOrder.shipping_address.state} {selectedOrder.shipping_address.postal_code}
                                                 </p>
                                             </div>
-                                            <div className="flex gap-2">
+                                            
+                                            {/* Tracking Information */}
+                                            <div className="border-t pt-4 space-y-4">
+                                                <h4 className="font-semibold">Tracking Information</h4>
+                                                <div className="grid grid-cols-1 gap-4">
+                                                    <div className="space-y-2">
+                                                        <Label>Tracking Number</Label>
+                                                        <Input
+                                                            value={orderTrackingInfo.tracking_number}
+                                                            onChange={(e) => setOrderTrackingInfo({ ...orderTrackingInfo, tracking_number: e.target.value })}
+                                                            placeholder="Enter tracking number"
+                                                            data-testid="order-tracking-input"
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label>Carrier Name</Label>
+                                                        <Input
+                                                            value={orderTrackingInfo.carrier_name}
+                                                            onChange={(e) => setOrderTrackingInfo({ ...orderTrackingInfo, carrier_name: e.target.value })}
+                                                            placeholder="e.g., FedEx, DHL, BlueDart"
+                                                            data-testid="order-carrier-input"
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label>Carrier Tracking URL</Label>
+                                                        <Input
+                                                            value={orderTrackingInfo.carrier_url}
+                                                            onChange={(e) => setOrderTrackingInfo({ ...orderTrackingInfo, carrier_url: e.target.value })}
+                                                            placeholder="https://track.carrier.com/..."
+                                                            data-testid="order-carrier-url-input"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex gap-2 pt-4">
                                                 <Select onValueChange={(status) => handleUpdateOrderStatus(selectedOrder.id, status)}>
-                                                    <SelectTrigger className="w-40">
+                                                    <SelectTrigger className="w-48" data-testid="order-status-select">
                                                         <SelectValue placeholder="Update Status" />
                                                     </SelectTrigger>
                                                     <SelectContent>
