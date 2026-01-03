@@ -137,6 +137,129 @@ const StoreAdminDashboard = () => {
             setLoading(false);
         }
     };
+
+    // Filtered data using useMemo
+    const filteredProducts = useMemo(() => {
+        return products.filter(p => {
+            if (filters.products.search && !p.name.toLowerCase().includes(filters.products.search.toLowerCase())) return false;
+            if (filters.products.category && p.category !== filters.products.category) return false;
+            return true;
+        });
+    }, [products, filters.products]);
+
+    const filteredInventory = useMemo(() => {
+        return inventory.filter(i => {
+            if (filters.inventory.search) {
+                const productName = products.find(p => p.id === i.product_id)?.name || '';
+                if (!productName.toLowerCase().includes(filters.inventory.search.toLowerCase())) return false;
+            }
+            return true;
+        });
+    }, [inventory, products, filters.inventory]);
+
+    const filteredOrders = useMemo(() => {
+        return orders.filter(o => {
+            if (filters.orders.status && o.status !== filters.orders.status) return false;
+            if (filters.orders.startDate && o.created_at < filters.orders.startDate) return false;
+            if (filters.orders.endDate && o.created_at > filters.orders.endDate + 'T23:59:59') return false;
+            return true;
+        });
+    }, [orders, filters.orders]);
+
+    const filteredPOS = useMemo(() => {
+        return posTransactions.filter(t => {
+            if (filters.pos.paymentMethod && t.payment_method !== filters.pos.paymentMethod) return false;
+            if (filters.pos.startDate && t.created_at < filters.pos.startDate) return false;
+            if (filters.pos.endDate && t.created_at > filters.pos.endDate + 'T23:59:59') return false;
+            return true;
+        });
+    }, [posTransactions, filters.pos]);
+
+    const filteredVendors = useMemo(() => {
+        return vendors.filter(v => {
+            if (filters.vendors.search && !v.name.toLowerCase().includes(filters.vendors.search.toLowerCase())) return false;
+            return true;
+        });
+    }, [vendors, filters.vendors]);
+
+    const filteredPurchaseOrders = useMemo(() => {
+        return purchaseOrders.filter(po => {
+            if (filters.purchaseOrders.status && po.status !== filters.purchaseOrders.status) return false;
+            if (filters.purchaseOrders.vendorId && po.vendor_id !== filters.purchaseOrders.vendorId) return false;
+            return true;
+        });
+    }, [purchaseOrders, filters.purchaseOrders]);
+
+    const productCategories = useMemo(() => {
+        return [...new Set(products.filter(p => p.category).map(p => p.category))];
+    }, [products]);
+
+    // Reporting
+    const loadReport = async () => {
+        if (!store) return;
+        setReportLoading(true);
+        try {
+            const res = await getStoreReports(store.id, reportPeriod.startDate || null, reportPeriod.endDate || null);
+            setReportData(res.data);
+        } catch (error) {
+            console.error(error);
+            toast.error('Failed to load report');
+        } finally {
+            setReportLoading(false);
+        }
+    };
+
+    // POS Edit/Delete handlers
+    const handleEditPOS = (tx) => {
+        setEditingPOS(tx);
+        setPosItems(tx.items.map(item => ({ product_id: item.product_id, quantity: item.quantity, price: item.price })));
+        setPosPaymentMethod(tx.payment_method);
+        setPosCustomer({ name: tx.customer_name || '', phone: tx.customer_phone || '' });
+        setPosDialogOpen(true);
+    };
+
+    const handleDeletePOS = async (txId) => {
+        if (!window.confirm('Delete this POS transaction?')) return;
+        try {
+            await deletePOSTransaction(store.id, txId);
+            toast.success('Transaction deleted');
+            loadData();
+        } catch (error) {
+            toast.error('Failed to delete transaction');
+        }
+    };
+
+    // PO Edit/Delete handlers
+    const handleEditPO = (po) => {
+        setEditingPO(po);
+        setNewPO({
+            vendor_id: po.vendor_id,
+            items: po.items.map(item => ({ product_id: item.product_id, quantity: item.quantity.toString(), unit_price: item.unit_price.toString() })),
+            notes: po.notes || ''
+        });
+        setPoDialogOpen(true);
+    };
+
+    const handleDeletePO = async (poId) => {
+        if (!window.confirm('Delete this purchase order?')) return;
+        try {
+            await deletePurchaseOrder(store.id, poId);
+            toast.success('Purchase order deleted');
+            loadData();
+        } catch (error) {
+            toast.error('Failed to delete purchase order');
+        }
+    };
+
+    const handleUpdatePOStatus = async (poId, status) => {
+        try {
+            await updatePOStatus(store.id, poId, status);
+            toast.success('PO status updated');
+            loadData();
+        } catch (error) {
+            toast.error('Failed to update status');
+        }
+    };
     
     // View subscription details
     const handleViewSubscription = async (subscription) => {
