@@ -1002,7 +1002,7 @@ const StoreAdminDashboard = () => {
                                     <h2 className="text-2xl font-serif font-semibold">Vendors</h2>
                                     <p className="text-muted-foreground">Manage your suppliers</p>
                                 </div>
-                                <Dialog open={vendorDialogOpen} onOpenChange={setVendorDialogOpen}>
+                                <Dialog open={vendorDialogOpen} onOpenChange={(open) => { setVendorDialogOpen(open); if (!open) { setEditingVendor(null); setNewVendor({ name: '', contact_name: '', email: '', phone: '', address: '', gst_number: '' }); } }}>
                                     <DialogTrigger asChild>
                                         <Button className="gold-gradient text-white" data-testid="add-vendor-btn">
                                             <Plus className="w-4 h-4 mr-2" /> Add Vendor
@@ -1010,7 +1010,7 @@ const StoreAdminDashboard = () => {
                                     </DialogTrigger>
                                     <DialogContent>
                                         <DialogHeader>
-                                            <DialogTitle className="font-serif">Add Vendor</DialogTitle>
+                                            <DialogTitle className="font-serif">{editingVendor ? 'Edit Vendor' : 'Add Vendor'}</DialogTitle>
                                         </DialogHeader>
                                         <form onSubmit={handleCreateVendor} className="space-y-4">
                                             <div className="grid grid-cols-2 gap-4">
@@ -1068,7 +1068,7 @@ const StoreAdminDashboard = () => {
                                                 />
                                             </div>
                                             <Button type="submit" className="w-full gold-gradient text-white" data-testid="submit-vendor-btn">
-                                                Add Vendor
+                                                {editingVendor ? 'Update Vendor' : 'Add Vendor'}
                                             </Button>
                                         </form>
                                     </DialogContent>
@@ -1097,7 +1097,10 @@ const StoreAdminDashboard = () => {
                                                     <TableCell>{vendor.phone || '-'}</TableCell>
                                                     <TableCell>{vendor.gst_number || '-'}</TableCell>
                                                     <TableCell className="text-right">
-                                                        <Button variant="ghost" size="sm" onClick={() => deleteVendor(store.id, vendor.id).then(loadData)}>
+                                                        <Button variant="ghost" size="sm" onClick={() => openEditVendor(vendor)} data-testid={`edit-vendor-${vendor.id}`}>
+                                                            <Edit2 className="w-4 h-4" />
+                                                        </Button>
+                                                        <Button variant="ghost" size="sm" onClick={() => deleteVendor(store.id, vendor.id).then(loadData)} data-testid={`delete-vendor-${vendor.id}`}>
                                                             <Trash2 className="w-4 h-4 text-destructive" />
                                                         </Button>
                                                     </TableCell>
