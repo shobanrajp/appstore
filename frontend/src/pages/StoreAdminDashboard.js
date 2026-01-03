@@ -130,6 +130,36 @@ const StoreAdminDashboard = () => {
         }
     };
 
+    const handleUpdateSubscriptionStatus = async (subscriptionId, newStatus) => {
+        try {
+            await updateSubscriptionStatus(store.id, subscriptionId, newStatus);
+            toast.success(`Status updated to ${newStatus}`);
+            loadData();
+            // If viewing details, refresh them
+            if (subscriptionDetails && subscriptionDetails.subscription.id === subscriptionId) {
+                const res = await getSubscriptionDetails(store.id, subscriptionId);
+                setSubscriptionDetails(res.data);
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error('Failed to update status');
+        }
+    };
+
+    const handleDeleteSubscription = async (subscriptionId) => {
+        if (!window.confirm('Are you sure you want to delete this subscription? This will also delete all payment history.')) return;
+        try {
+            await deleteSubscription(store.id, subscriptionId);
+            toast.success('Subscription deleted');
+            setSubscriberDialogOpen(false);
+            setSubscriptionDetails(null);
+            loadData();
+        } catch (error) {
+            console.error(error);
+            toast.error('Failed to delete subscription');
+        }
+    };
+
     // Product handlers
     const handleCreateProduct = async (e) => {
         e.preventDefault();
