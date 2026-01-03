@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
-import { getMyOrders, getMySubscriptions, getAddresses, createAddress, deleteAddress, updateProfile } from '../lib/api';
+import { getMyOrders, getMySubscriptions, getAddresses, createAddress, deleteAddress, updateProfile, paySubscription } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -12,7 +12,7 @@ import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Progress } from '../components/ui/progress';
 import { toast } from 'sonner';
-import { User, Package, CreditCard, MapPin, LogOut, Plus, Trash2, Edit2, Home } from 'lucide-react';
+import { User, Package, CreditCard, MapPin, LogOut, Plus, Trash2, Edit2, Home, IndianRupee } from 'lucide-react';
 import { formatCurrency, formatDate, getStatusColor } from '../lib/utils';
 
 const CustomerPortal = () => {
