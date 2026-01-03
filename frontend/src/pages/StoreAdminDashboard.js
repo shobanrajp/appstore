@@ -65,6 +65,8 @@ const StoreAdminDashboard = () => {
     const [editingInventory, setEditingInventory] = useState(null);
     const [editingVendor, setEditingVendor] = useState(null);
     const [editingPlan, setEditingPlan] = useState(null);
+    const [editingPO, setEditingPO] = useState(null);
+    const [editingPOS, setEditingPOS] = useState(null);
     const [newInventory, setNewInventory] = useState({ product_id: '', quantity: '', min_stock_level: 5, location: '' });
     const [newVendor, setNewVendor] = useState({ name: '', contact_name: '', email: '', phone: '', address: '', gst_number: '' });
     const [newPO, setNewPO] = useState({ vendor_id: '', items: [{ product_id: '', quantity: '', unit_price: '' }], notes: '' });
@@ -77,6 +79,21 @@ const StoreAdminDashboard = () => {
     const [selectedSubscription, setSelectedSubscription] = useState(null);
     const [subscriptionDetails, setSubscriptionDetails] = useState(null);
     const [subscriberDialogOpen, setSubscriberDialogOpen] = useState(false);
+
+    // Filter states
+    const [filters, setFilters] = useState({
+        products: { search: '', category: '' },
+        inventory: { search: '' },
+        orders: { status: '', startDate: '', endDate: '' },
+        pos: { startDate: '', endDate: '', paymentMethod: '' },
+        vendors: { search: '' },
+        purchaseOrders: { status: '', vendorId: '' }
+    });
+
+    // Reporting states
+    const [reportData, setReportData] = useState(null);
+    const [reportPeriod, setReportPeriod] = useState({ startDate: '', endDate: '' });
+    const [reportLoading, setReportLoading] = useState(false);
 
     useEffect(() => {
         loadData();
