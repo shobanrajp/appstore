@@ -1,0 +1,154 @@
+{
+  "identity": {
+    "name": "E1: The Anti-AI Designer",
+    "mission": "Create a 'Gilded Vault' aesthetic that fuses Swiss Finance precision with High Fashion luxury. Avoid generic SaaS templates.",
+    "principles": [
+      "Fusion: Swiss Grids + Baroque Typography",
+      "Emotion: Trust (Admin) & Desire (Storefront)",
+      "Texture: Grain over Gloss",
+      "Negative Space: Luxury = Empty Space"
+    ]
+  },
+  "typography": {
+    "primary_font": "Manrope",
+    "secondary_font": "Playfair Display",
+    "mono_font": "JetBrains Mono",
+    "usage": {
+      "headings": "Playfair Display, font-serif, tracking-tight, font-medium",
+      "body": "Manrope, font-sans, leading-relaxed",
+      "data_tables": "Manrope, font-sans, tabular-nums",
+      "code_editor": "JetBrains Mono, font-mono"
+    },
+    "scale": {
+      "h1": "text-5xl md:text-7xl font-serif tracking-tighter",
+      "h2": "text-4xl md:text-5xl font-serif tracking-tight",
+      "h3": "text-2xl md:text-3xl font-serif",
+      "body": "text-base md:text-lg text-muted-foreground"
+    }
+  },
+  "colors": {
+    "palette_name": "The Gilded Vault",
+    "mode_strategy": "Hybrid",
+    "light_theme": {
+      "background": "#FDFCF8",
+      "foreground": "#1A1A1A",
+      "card": "#FFFFFF",
+      "card_foreground": "#1A1A1A",
+      "primary": "#0F172A",
+      "primary_foreground": "#D4AF37",
+      "secondary": "#F4F4F5",
+      "secondary_foreground": "#18181B",
+      "muted": "#F4F4F5",
+      "muted_foreground": "#71717A",
+      "accent": "#FDFCF8",
+      "accent_foreground": "#D4AF37",
+      "border": "#E4E4E7",
+      "input": "#E4E4E7",
+      "ring": "#D4AF37"
+    },
+    "dark_theme": {
+      "background": "#09090B",
+      "foreground": "#FAFAFA",
+      "card": "#121212",
+      "card_foreground": "#FAFAFA",
+      "primary": "#FAFAFA",
+      "primary_foreground": "#09090B",
+      "secondary": "#27272A",
+      "secondary_foreground": "#FAFAFA",
+      "muted": "#27272A",
+      "muted_foreground": "#A1A1AA",
+      "accent": "#121212",
+      "accent_foreground": "#D4AF37",
+      "border": "#27272A",
+      "input": "#27272A",
+      "ring": "#D4AF37"
+    },
+    "special_colors": {
+      "gold_metallic": "linear-gradient(135deg, #D4AF37 0%, #F2D06B 50%, #B5942F 100%)",
+      "gold_solid": "#D4AF37",
+      "luxury_black": "#0F172A",
+      "success_green": "#10B981",
+      "error_red": "#EF4444"
+    }
+  },
+  "layout": {
+    "spacing_system": "Generous. Use p-8 or p-12 for containers. p-4 is too tight.",
+    "grid_strategy": {
+      "dashboard": "Bento Grid Mode B: Dense, data-heavy, gap-4",
+      "marketing": "Tetris Grid Mode A: Asymmetric, gap-12, large hero spans",
+      "editor": "Sidebar (w-80) + Canvas (flex-1) + Properties (w-80)"
+    },
+    "container_width": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"
+  },
+  "components": {
+    "radius": "0.5rem",
+    "buttons": {
+      "primary": "bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg hover:shadow-xl transition-all duration-300",
+      "secondary": "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+      "outline": "border-2 border-primary text-primary hover:bg-primary hover:text-primary-foreground",
+      "ghost": "hover:bg-accent hover:text-accent-foreground"
+    },
+    "cards": {
+      "default": "bg-card text-card-foreground rounded-lg border shadow-sm",
+      "luxury": "bg-card border border-gold-solid/20 shadow-lg hover:shadow-gold-solid/10 transition-all duration-500",
+      "glass": "bg-white/10 backdrop-blur-md border border-white/20 shadow-xl"
+    },
+    "inputs": {
+      "default": "h-12 bg-background border-input focus:ring-2 focus:ring-ring focus:border-transparent transition-all"
+    }
+  },
+  "visual_enhancers": {
+    "textures": {
+      "noise": "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E\")",
+      "dot_grid": "radial-gradient(#D4AF37 1px, transparent 1px) [background-size: 20px 20px]"
+    },
+    "shadows": {
+      "gold_glow": "0 0 20px -5px rgba(212, 175, 55, 0.3)",
+      "deep": "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)"
+    }
+  },
+  "images": {
+    "hero_product": {
+      "url": "https://images.unsplash.com/photo-1758995115857-2de1eb6283d0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzR8MHwxfHNlYXJjaHwzfHxnb2xkJTIwbmVja2xhY2UlMjBsdXh1cnklMjB3aGl0ZSUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzY3NDIwNDM0fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Grand gold necklace on white stand",
+      "category": "product"
+    },
+    "traditional_collection": {
+      "url": "https://images.unsplash.com/photo-1705684451639-c03ebdf8bd9c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzR8MHwxfHNlYXJjaHwyfHxnb2xkJTIwbmVja2xhY2UlMjBsdXh1cnklMjB3aGl0ZSUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzY3NDIwNDM0fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "South India Gold Jewellery on red velvet",
+      "category": "collection"
+    },
+    "store_interior": {
+      "url": "https://images.pexels.com/photos/7679824/pexels-photo-7679824.jpeg",
+      "alt": "Luxury jewellery store interior",
+      "category": "store"
+    },
+    "savings_plan": {
+      "url": "https://images.unsplash.com/photo-1744819773373-e9e1cc11e826?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1NzZ8MHwxfHNlYXJjaHwxfHxnb2xkJTIwY29pbnMlMjBzdGFjayUyMHNhdmluZ3N8ZW58MHx8fHwxNzY3NDIwNDM4fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Gold coins illuminated stack",
+      "category": "finance"
+    },
+    "team_portrait": {
+      "url": "https://images.unsplash.com/photo-1758518731468-98e90ffd7430?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NjZ8MHwxfHNlYXJjaHwzfHxwcm9mZXNzaW9uYWwlMjBwb3J0cmFpdCUyMGRpdmVyc2V8ZW58MHx8fHwxNzY3NDIwNDM5fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Professional team portrait",
+      "category": "about"
+    }
+  },
+  "universal_guidelines": [
+    "DO NOT use generic gradients. Use noise/grain textures.",
+    "DO NOT use 'Inter' for headings. Use 'Playfair Display'.",
+    "DO NOT center everything. Use asymmetry.",
+    "DO NOT use default Shadcn cards without customization. Add hover effects.",
+    "ALWAYS use 'sonner' for toasts.",
+    "ALWAYS use 'lucide-react' for icons.",
+    "ALWAYS add 'data-testid' to interactive elements."
+  ],
+  "instructions_to_main_agent": {
+    "step_1": "Install fonts: Manrope and Playfair Display via Google Fonts in index.css.",
+    "step_2": "Update tailwind.config.js with the 'Gilded Vault' color palette and font families.",
+    "step_3": "Create a 'Layout' component that handles the Sidebar/Header structure for the Admin Portal.",
+    "step_4": "Implement the 'Page Editor' using a drag-and-drop library (dnd-kit or react-dnd) with a dot-grid background.",
+    "step_5": "Build the 'Subscription Plan' cards using the 'luxury' card style defined in components.",
+    "step_6": "Ensure all forms (Login, Register, Product Add) use Shadcn Form + Zod validation."
+  }
+}
