@@ -445,6 +445,26 @@ const PageEditor = () => {
         if (selectedComponent?.id === id) setSelectedComponent(null);
     };
 
+    const applyTheme = (theme) => {
+        // Apply theme colors to all components
+        const updatedComponents = components.map(c => ({
+            ...c,
+            props: {
+                ...c.props,
+                // Apply theme colors based on component type
+                ...(c.type === 'header' || c.type === 'footer' 
+                    ? { backgroundColor: theme.primaryColor, fontColor: '#ffffff' }
+                    : {}),
+                ...(c.type === 'hero' 
+                    ? { backgroundColor: theme.primaryColor }
+                    : {}),
+            }
+        }));
+        setComponents(updatedComponents);
+        setSelectedTheme(theme);
+        toast.success(`Applied "${theme.name}" theme`);
+    };
+
     const handleSave = async () => {
         setSaving(true);
         try {
