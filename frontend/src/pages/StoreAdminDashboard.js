@@ -91,14 +91,15 @@ const StoreAdminDashboard = () => {
             setCurrency(userStore.currency);
 
             const storeId = userStore.id;
-            const [productsRes, inventoryRes, ordersRes, vendorsRes, posRes, posTransRes, plansRes] = await Promise.all([
+            const [productsRes, inventoryRes, ordersRes, vendorsRes, posRes, posTransRes, plansRes, subscribersRes] = await Promise.all([
                 getProducts(storeId, null, false),
                 getInventory(storeId),
                 getOrders(storeId),
                 getVendors(storeId),
                 getPurchaseOrders(storeId),
                 getPOSTransactions(storeId),
-                getSubscriptionPlans(storeId)
+                getSubscriptionPlans(storeId),
+                getStoreSubscribers(storeId).catch(() => ({ data: [] }))
             ]);
 
             setProducts(productsRes.data);
@@ -108,11 +109,24 @@ const StoreAdminDashboard = () => {
             setPurchaseOrders(posRes.data);
             setPosTransactions(posTransRes.data);
             setSubscriptionPlans(plansRes.data);
+            setSubscribers(subscribersRes.data || []);
         } catch (error) {
             console.error(error);
             toast.error('Failed to load data');
         } finally {
             setLoading(false);
+        }
+    };
+    
+    // View subscription details
+    const handleViewSubscription = async (subscription) => {
+        try {
+            const res = await getSubscriptionDetails(store.id, subscription.id);
+            setSubscriptionDetails(res.data);
+            setSubscriberDialogOpen(true);
+        } catch (error) {
+            console.error(error);
+            toast.error('Failed to load subscription details');
         }
     };
 
