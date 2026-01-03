@@ -406,7 +406,7 @@ const SuperAdminDashboard = () => {
                                     <CardTitle className="font-serif">Users</CardTitle>
                                     <CardDescription>Manage store admins and users</CardDescription>
                                 </div>
-                                <Dialog open={userDialogOpen} onOpenChange={setUserDialogOpen}>
+                                <Dialog open={userDialogOpen} onOpenChange={(open) => { setUserDialogOpen(open); if (!open) { setEditingUser(null); setNewUser({ name: '', email: '', password: '', role: 'store_admin', store_id: '' }); } }}>
                                     <DialogTrigger asChild>
                                         <Button className="gold-gradient text-white" data-testid="create-user-btn">
                                             <Plus className="w-4 h-4 mr-2" />
@@ -415,8 +415,8 @@ const SuperAdminDashboard = () => {
                                     </DialogTrigger>
                                     <DialogContent>
                                         <DialogHeader>
-                                            <DialogTitle className="font-serif">Create New User</DialogTitle>
-                                            <DialogDescription>Add a new admin or user</DialogDescription>
+                                            <DialogTitle className="font-serif">{editingUser ? 'Edit User' : 'Create New User'}</DialogTitle>
+                                            <DialogDescription>{editingUser ? 'Update user information' : 'Add a new admin or user'}</DialogDescription>
                                         </DialogHeader>
                                         <form onSubmit={handleCreateUser} className="space-y-4">
                                             <div className="space-y-2">
@@ -441,13 +441,13 @@ const SuperAdminDashboard = () => {
                                                 />
                                             </div>
                                             <div className="space-y-2">
-                                                <Label htmlFor="user-password">Password</Label>
+                                                <Label htmlFor="user-password">Password {editingUser && '(leave blank to keep current)'}</Label>
                                                 <Input
                                                     id="user-password"
                                                     type="password"
                                                     value={newUser.password}
                                                     onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                                                    required
+                                                    required={!editingUser}
                                                     data-testid="user-password-input"
                                                 />
                                             </div>
