@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { getStores, createStore, deleteStore, getUsers, createUser, deleteUser, getStorePaymentConfig, updateStorePaymentConfig } from '../lib/api';
+import { getStores, createStore, updateStore, deleteStore, getUsers, createUser, updateUser, deleteUser, getStorePaymentConfig, updateStorePaymentConfig } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { toast } from 'sonner';
-import { Plus, Trash2, Store, Users, LogOut, Building2, CreditCard, Settings } from 'lucide-react';
+import { Plus, Trash2, Store, Users, LogOut, Building2, CreditCard, Settings, Edit2 } from 'lucide-react';
 import { formatDate, getRoleLabel, USER_ROLES } from '../lib/utils';
 import { useNavigate } from 'react-router-dom';
 
@@ -28,6 +28,8 @@ const SuperAdminDashboard = () => {
     const [paymentConfig, setPaymentConfig] = useState({ razorpay_key_id: '', razorpay_key_secret: '' });
     const [newStore, setNewStore] = useState({ name: '', description: '', currency: 'INR', contact_email: '', contact_phone: '', address: '' });
     const [newUser, setNewUser] = useState({ name: '', email: '', password: '', role: 'store_admin', store_id: '' });
+    const [editingStore, setEditingStore] = useState(null);
+    const [editingUser, setEditingUser] = useState(null);
 
     useEffect(() => {
         loadData();
