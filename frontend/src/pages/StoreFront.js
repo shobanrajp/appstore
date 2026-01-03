@@ -260,25 +260,24 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                 </section>
             );
         case 'menu':
-            const menuCategories = categories && categories.length > 0 
-                ? ['All', ...categories] 
-                : (props.categories || ['Necklaces', 'Rings', 'Earrings', 'Bangles', 'Chains']);
+            // Only show categories that exist in products
+            const productCategories = categories && categories.length > 0 ? categories : [];
             return (
                 <nav className="bg-card border-y py-3" style={wrapperStyle}>
                     <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-center gap-4 md:gap-8 px-4">
-                        {menuCategories.map((cat, i) => (
-                            <span 
-                                key={i} 
-                                className={`hover:text-gold cursor-pointer transition-colors text-sm md:text-base ${
-                                    (cat === 'All' && !selectedCategory) || cat === selectedCategory 
-                                        ? 'text-gold font-semibold' 
-                                        : ''
-                                }`}
-                                onClick={() => onCategorySelect && onCategorySelect(cat === 'All' ? '' : cat)}
-                            >
-                                {cat}
-                            </span>
-                        ))}
+                        {productCategories.length > 0 ? (
+                            productCategories.map((cat, i) => (
+                                <Link 
+                                    key={i}
+                                    to={`/store/${storeId}/category/${encodeURIComponent(cat)}`}
+                                    className="hover:text-gold cursor-pointer transition-colors text-sm md:text-base"
+                                >
+                                    {cat}
+                                </Link>
+                            ))
+                        ) : (
+                            <span className="text-muted-foreground text-sm">No categories available</span>
+                        )}
                     </div>
                 </nav>
             );
