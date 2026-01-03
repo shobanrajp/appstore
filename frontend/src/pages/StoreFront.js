@@ -361,6 +361,9 @@ const StoreFront = () => {
             setStore(storeRes.data);
             setProducts(productsRes.data);
             setPlans(plansRes.data);
+            
+            // Save last visited store for CustomerPortal navigation
+            localStorage.setItem('lastVisitedStore', storeId);
 
             try {
                 const configRes = await getPageConfig(storeId, 'home');
