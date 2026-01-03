@@ -719,6 +719,24 @@ const PageEditor = () => {
                                         </div>
 
                                         <div className="space-y-2">
+                                            <Label>Font/Text Color</Label>
+                                            <div className="flex gap-2">
+                                                <Input
+                                                    type="color"
+                                                    value={selectedComponent.props?.fontColor || '#000000'}
+                                                    onChange={(e) => updateComponentProps('fontColor', e.target.value)}
+                                                    className="w-12 h-10 p-1 cursor-pointer"
+                                                />
+                                                <Input
+                                                    value={selectedComponent.props?.fontColor || ''}
+                                                    onChange={(e) => updateComponentProps('fontColor', e.target.value)}
+                                                    placeholder="inherit"
+                                                    className="flex-1"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2">
                                             <Label>Border Radius</Label>
                                             <Select
                                                 value={String(selectedComponent.props?.borderRadius || 0)}
