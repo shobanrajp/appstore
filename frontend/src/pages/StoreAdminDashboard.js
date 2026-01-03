@@ -627,7 +627,7 @@ const StoreAdminDashboard = () => {
                                     <h2 className="text-2xl font-serif font-semibold">Inventory</h2>
                                     <p className="text-muted-foreground">Manage stock levels</p>
                                 </div>
-                                <Dialog open={inventoryDialogOpen} onOpenChange={setInventoryDialogOpen}>
+                                <Dialog open={inventoryDialogOpen} onOpenChange={(open) => { setInventoryDialogOpen(open); if (!open) { setEditingInventory(null); setNewInventory({ product_id: '', quantity: '', min_stock_level: 5, location: '' }); } }}>
                                     <DialogTrigger asChild>
                                         <Button className="gold-gradient text-white" data-testid="add-inventory-btn">
                                             <Plus className="w-4 h-4 mr-2" /> Add Inventory
@@ -635,12 +635,12 @@ const StoreAdminDashboard = () => {
                                     </DialogTrigger>
                                     <DialogContent>
                                         <DialogHeader>
-                                            <DialogTitle className="font-serif">Add Inventory</DialogTitle>
+                                            <DialogTitle className="font-serif">{editingInventory ? 'Edit Inventory' : 'Add Inventory'}</DialogTitle>
                                         </DialogHeader>
                                         <form onSubmit={handleCreateInventory} className="space-y-4">
                                             <div className="space-y-2">
                                                 <Label>Product</Label>
-                                                <Select value={newInventory.product_id} onValueChange={(v) => setNewInventory({ ...newInventory, product_id: v })}>
+                                                <Select value={newInventory.product_id} onValueChange={(v) => setNewInventory({ ...newInventory, product_id: v })} disabled={!!editingInventory}>
                                                     <SelectTrigger data-testid="inventory-product-select">
                                                         <SelectValue placeholder="Select product" />
                                                     </SelectTrigger>
@@ -682,7 +682,7 @@ const StoreAdminDashboard = () => {
                                                 />
                                             </div>
                                             <Button type="submit" className="w-full gold-gradient text-white" data-testid="submit-inventory-btn">
-                                                Add Inventory
+                                                {editingInventory ? 'Update Inventory' : 'Add Inventory'}
                                             </Button>
                                         </form>
                                     </DialogContent>
@@ -700,6 +700,7 @@ const StoreAdminDashboard = () => {
                                                 <TableHead>Location</TableHead>
                                                 <TableHead>Status</TableHead>
                                                 <TableHead>Last Updated</TableHead>
+                                                <TableHead className="text-right">Actions</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -715,11 +716,16 @@ const StoreAdminDashboard = () => {
                                                         </Badge>
                                                     </TableCell>
                                                     <TableCell>{formatDate(inv.updated_at)}</TableCell>
+                                                    <TableCell className="text-right">
+                                                        <Button variant="ghost" size="sm" onClick={() => openEditInventory(inv)} data-testid={`edit-inventory-${inv.id}`}>
+                                                            <Edit2 className="w-4 h-4" />
+                                                        </Button>
+                                                    </TableCell>
                                                 </TableRow>
                                             ))}
                                             {inventory.length === 0 && (
                                                 <TableRow>
-                                                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                                                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                                                         No inventory records yet.
                                                     </TableCell>
                                                 </TableRow>
