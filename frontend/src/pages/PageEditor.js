@@ -17,7 +17,7 @@ import { v4 as uuidv4 } from 'uuid';
 import {
     ArrowLeft, Save, Eye, Layout, Type, Image, Grid3X3, Columns, Square, 
     Menu, ListOrdered, ChevronDown, SeparatorHorizontal, Trash2, GripVertical,
-    Monitor, Smartphone, Plus
+    Monitor, Smartphone, Plus, Search
 } from 'lucide-react';
 
 // Component Types
