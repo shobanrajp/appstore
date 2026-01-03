@@ -831,6 +831,134 @@ async def get_pos_transactions(store_id: str, user: dict = Depends(require_roles
     txs = await db.pos_transactions.find({"store_id": store_id}, {"_id": 0}).to_list(1000)
     return [POSTransactionResponse(**tx) for tx in txs]
 
+@api_router.put("/stores/{store_id}/pos-transactions/{tx_id}", response_model=POSTransactionResponse)
+async def update_pos_transaction(store_id: str, tx_id: str, pos_data: POSTransactionCreate, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot update transactions for other stores")
+    
+    items = [item.model_dump() for item in pos_data.items]
+    total = sum(item["quantity"] * item["price"] for item in items)
+    
+    update_data = {
+        "items": items,
+        "total_amount": total,
+        "payment_method": pos_data.payment_method,
+        "customer_name": pos_data.customer_name,
+        "customer_phone": pos_data.customer_phone
+    }
+    
+    await db.pos_transactions.update_one({"id": tx_id, "store_id": store_id}, {"$set": update_data})
+    tx = await db.pos_transactions.find_one({"id": tx_id}, {"_id": 0})
+    return POSTransactionResponse(**tx)
+
+@api_router.delete("/stores/{store_id}/pos-transactions/{tx_id}")
+async def delete_pos_transaction(store_id: str, tx_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot delete transactions for other stores")
+    
+    await db.pos_transactions.delete_one({"id": tx_id, "store_id": store_id})
+    return {"message": "Transaction deleted"}
+
+@api_router.put("/stores/{store_id}/purchase-orders/{po_id}", response_model=PurchaseOrderResponse)
+async def update_purchase_order(store_id: str, po_id: str, po_data: PurchaseOrderCreate, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot update POs for other stores")
+    
+    items = [item.model_dump() for item in po_data.items]
+    total = sum(float(item["quantity"]) * float(item["unit_price"]) for item in items)
+    
+    update_data = {
+        "vendor_id": po_data.vendor_id,
+        "items": items,
+        "total_amount": total,
+        "notes": po_data.notes
+    }
+    
+    await db.purchase_orders.update_one({"id": po_id, "store_id": store_id}, {"$set": update_data})
+    po = await db.purchase_orders.find_one({"id": po_id}, {"_id": 0})
+    return PurchaseOrderResponse(**po)
+
+@api_router.delete("/stores/{store_id}/purchase-orders/{po_id}")
+async def delete_purchase_order(store_id: str, po_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot delete POs for other stores")
+    
+    await db.purchase_orders.delete_one({"id": po_id, "store_id": store_id})
+    return {"message": "Purchase order deleted"}
+
+# ==================== REPORTING ENDPOINTS ====================
+
+@api_router.get("/stores/{store_id}/reports")
+async def get_store_reports(store_id: str, start_date: str = None, end_date: str = None, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot view reports for other stores")
+    
+    # Build date filter
+    date_filter = {"store_id": store_id}
+    if start_date:
+        date_filter["created_at"] = {"$gte": start_date}
+    if end_date:
+        if "created_at" in date_filter:
+            date_filter["created_at"]["$lte"] = end_date
+        else:
+            date_filter["created_at"] = {"$lte": end_date}
+    
+    # Get orders for the period
+    orders = await db.orders.find(date_filter, {"_id": 0}).to_list(10000)
+    total_sales = sum(o.get("total_amount", 0) for o in orders)
+    total_orders = len(orders)
+    
+    # Get POS transactions
+    pos_txs = await db.pos_transactions.find(date_filter, {"_id": 0}).to_list(10000)
+    pos_sales = sum(tx.get("total_amount", 0) for tx in pos_txs)
+    
+    # Get purchase orders (expenditures)
+    po_filter = {"store_id": store_id}
+    if start_date:
+        po_filter["created_at"] = {"$gte": start_date}
+    if end_date:
+        if "created_at" in po_filter:
+            po_filter["created_at"]["$lte"] = end_date
+        else:
+            po_filter["created_at"] = {"$lte": end_date}
+    
+    purchase_orders = await db.purchase_orders.find(po_filter, {"_id": 0}).to_list(10000)
+    total_expenditures = sum(po.get("total_amount", 0) for po in purchase_orders)
+    
+    # Get unique customers (users who placed orders)
+    unique_customers = len(set(o.get("user_id") for o in orders if o.get("user_id")))
+    
+    # Get subscriptions
+    sub_filter = {"store_id": store_id}
+    if start_date:
+        sub_filter["created_at"] = {"$gte": start_date}
+    if end_date:
+        if "created_at" in sub_filter:
+            sub_filter["created_at"]["$lte"] = end_date
+        else:
+            sub_filter["created_at"] = {"$lte": end_date}
+    
+    subscriptions = await db.user_subscriptions.find(sub_filter, {"_id": 0}).to_list(10000)
+    total_subscribers = len(subscriptions)
+    subscription_revenue = sum(s.get("total_paid", 0) for s in subscriptions)
+    
+    return {
+        "total_sales": total_sales + pos_sales,
+        "online_sales": total_sales,
+        "pos_sales": pos_sales,
+        "total_orders": total_orders,
+        "total_pos_transactions": len(pos_txs),
+        "total_expenditures": total_expenditures,
+        "total_customers": unique_customers,
+        "total_subscribers": total_subscribers,
+        "subscription_revenue": subscription_revenue,
+        "net_profit": (total_sales + pos_sales + subscription_revenue) - total_expenditures,
+        "period": {
+            "start": start_date,
+            "end": end_date
+        }
+    }
+
 # ==================== ORDER ENDPOINTS ====================
 
 async def get_next_order_id():
