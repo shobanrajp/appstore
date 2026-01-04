@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getStore, getSubscriptionPlans, subscribeToPlan } from '../lib/api';
 import { Button } from '../components/ui/button';
@@ -8,8 +8,10 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { toast } from 'sonner';
-import { ShoppingCart, User, LogIn, ArrowLeft, Clock, Calendar, CreditCard } from 'lucide-react';
+import { Clock, Calendar, CreditCard } from 'lucide-react';
 import { formatCurrency } from '../lib/utils';
+import StoreHeader from '../components/StoreHeader';
+import StoreFooter from '../components/StoreFooter';
 
 const StorePlans = () => {
     const { storeId } = useParams();
