@@ -1029,7 +1029,7 @@ async def create_staff(store_id: str, staff_data: StaffCreate, user: dict = Depe
     
     now = datetime.now(timezone.utc).isoformat()
     staff_doc = {
-        "id": str(uuid4()),
+        "id": str(uuid.uuid4()),
         "email": staff_data.email,
         "hashed_password": hash_password(staff_data.password),
         "name": staff_data.name,
