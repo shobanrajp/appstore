@@ -498,7 +498,8 @@ async def login(credentials: UserLogin):
             role=user["role"],
             store_id=user.get("store_id"),
             is_active=user.get("is_active", True),
-            created_at=user["created_at"]
+            created_at=user["created_at"],
+            menu_access=user.get("menu_access")
         )
     )
 
@@ -511,7 +512,8 @@ async def get_me(user: dict = Depends(get_current_user)):
         role=user["role"],
         store_id=user.get("store_id"),
         is_active=user.get("is_active", True),
-        created_at=user["created_at"]
+        created_at=user["created_at"],
+        menu_access=user.get("menu_access")
     )
 
 # ==================== STORE ENDPOINTS ====================
