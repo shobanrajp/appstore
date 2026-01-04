@@ -245,6 +245,8 @@ const StorePlans = () => {
                     </div>
                 </DialogContent>
             </Dialog>
+            
+            <StoreFooter store={store} storeId={storeId} />
         </div>
     );
 };
