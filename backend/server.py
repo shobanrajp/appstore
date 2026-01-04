@@ -353,6 +353,50 @@ class MockPaymentResponse(BaseModel):
     razorpay_order_id: str
     created_at: str
 
+# Staff/Worker Management
+class StaffCreate(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+    phone: Optional[str] = None
+    menu_access: List[str] = []  # List of menu keys the staff can access
+
+class StaffUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    menu_access: Optional[List[str]] = None
+    is_active: Optional[bool] = None
+
+class StaffResponse(BaseModel):
+    id: str
+    email: str
+    name: str
+    phone: Optional[str] = None
+    store_id: str
+    menu_access: List[str] = []
+    is_active: bool
+    created_at: str
+
+class ActivityLog(BaseModel):
+    id: str
+    user_id: str
+    store_id: str
+    action: str
+    details: Optional[dict] = None
+    created_at: str
+
+# Customer (Website User) Management
+class CustomerResponse(BaseModel):
+    id: str
+    email: str
+    name: str
+    phone: Optional[str] = None
+    is_active: bool
+    created_at: str
+    order_count: int = 0
+    total_spent: float = 0
+    subscription_count: int = 0
+
 # ==================== AUTH HELPERS ====================
 
 def hash_password(password: str) -> str:
