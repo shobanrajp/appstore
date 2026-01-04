@@ -4,7 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { ShoppingCart, User, LogIn, Search, Menu } from 'lucide-react';
-import { Sheet, SheetContent, SheetTrigger } from './ui/sheet';
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from './ui/sheet';
+import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 
 const StoreHeader = ({ 
     store, 
