@@ -2761,6 +2761,208 @@ const StoreAdminDashboard = () => {
                     </form>
                 </DialogContent>
             </Dialog>
+
+            {/* Staff Activity Dialog */}
+            <Dialog open={staffActivityOpen} onOpenChange={setStaffActivityOpen}>
+                <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle className="font-serif">Activity Log - {selectedStaff?.name}</DialogTitle>
+                    </DialogHeader>
+                    {staffActivityData && (
+                        <div className="space-y-6">
+                            <div>
+                                <h3 className="font-semibold mb-3 flex items-center gap-2">
+                                    <Activity className="w-4 h-4" /> Recent Activity
+                                </h3>
+                                {staffActivityData.activity_logs?.length > 0 ? (
+                                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                                        {staffActivityData.activity_logs.map((log, idx) => (
+                                            <div key={idx} className="flex items-center justify-between p-2 bg-muted rounded text-sm">
+                                                <span className="capitalize">{log.action.replace(/_/g, ' ')}</span>
+                                                <span className="text-muted-foreground">{formatDateTime(log.created_at)}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-muted-foreground text-sm">No activity logged yet</p>
+                                )}
+                            </div>
+                            <div>
+                                <h3 className="font-semibold mb-3 flex items-center gap-2">
+                                    <CreditCard className="w-4 h-4" /> POS Transactions
+                                </h3>
+                                {staffActivityData.pos_transactions?.length > 0 ? (
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>ID</TableHead>
+                                                <TableHead>Amount</TableHead>
+                                                <TableHead>Payment</TableHead>
+                                                <TableHead>Date</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {staffActivityData.pos_transactions.slice(0, 10).map((tx) => (
+                                                <TableRow key={tx.id}>
+                                                    <TableCell className="font-mono text-xs">{tx.id.slice(0, 8)}...</TableCell>
+                                                    <TableCell>{formatCurrency(tx.total_amount, store.currency)}</TableCell>
+                                                    <TableCell className="capitalize">{tx.payment_method}</TableCell>
+                                                    <TableCell>{formatDateTime(tx.created_at)}</TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                ) : (
+                                    <p className="text-muted-foreground text-sm">No POS transactions by this staff member</p>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
+
+            {/* Customer Details Dialog */}
+            <Dialog open={customerDetailOpen} onOpenChange={setCustomerDetailOpen}>
+                <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle className="font-serif">Customer Details - {selectedCustomer?.name}</DialogTitle>
+                    </DialogHeader>
+                    {customerData && (
+                        <div className="space-y-6">
+                            <div className="grid grid-cols-2 gap-4">
+                                <Card>
+                                    <CardHeader className="pb-2">
+                                        <CardTitle className="text-sm">Customer Info</CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="space-y-2 text-sm">
+                                        <div><strong>Name:</strong> {customerData.customer?.name}</div>
+                                        <div><strong>Email:</strong> {customerData.customer?.email}</div>
+                                        <div><strong>Phone:</strong> {customerData.customer?.phone || '-'}</div>
+                                        <div><strong>Joined:</strong> {formatDate(customerData.customer?.created_at)}</div>
+                                    </CardContent>
+                                </Card>
+                                <Card>
+                                    <CardHeader className="pb-2">
+                                        <CardTitle className="text-sm">Summary</CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="space-y-2 text-sm">
+                                        <div><strong>Total Orders:</strong> {customerData.orders?.length || 0}</div>
+                                        <div><strong>Total Spent:</strong> {formatCurrency(customerData.orders?.reduce((sum, o) => sum + (o.total_amount || 0), 0) || 0, store.currency)}</div>
+                                        <div><strong>Subscriptions:</strong> {customerData.subscriptions?.length || 0}</div>
+                                        <div><strong>Payments Made:</strong> {customerData.payments?.length || 0}</div>
+                                    </CardContent>
+                                </Card>
+                            </div>
+
+                            <div>
+                                <h3 className="font-semibold mb-3">Orders</h3>
+                                {customerData.orders?.length > 0 ? (
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Order ID</TableHead>
+                                                <TableHead>Items</TableHead>
+                                                <TableHead>Total</TableHead>
+                                                <TableHead>Status</TableHead>
+                                                <TableHead>Date</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {customerData.orders.map((order) => (
+                                                <TableRow key={order.id}>
+                                                    <TableCell className="font-mono text-xs">{order.id}</TableCell>
+                                                    <TableCell>{order.items?.length || 0} items</TableCell>
+                                                    <TableCell>{formatCurrency(order.total_amount, store.currency)}</TableCell>
+                                                    <TableCell><Badge className={getStatusColor(order.status)}>{order.status}</Badge></TableCell>
+                                                    <TableCell>{formatDate(order.created_at)}</TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                ) : (
+                                    <p className="text-muted-foreground text-sm">No orders yet</p>
+                                )}
+                            </div>
+
+                            <div>
+                                <h3 className="font-semibold mb-3">Subscriptions</h3>
+                                {customerData.subscriptions?.length > 0 ? (
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Plan</TableHead>
+                                                <TableHead>Monthly Amount</TableHead>
+                                                <TableHead>Status</TableHead>
+                                                <TableHead>Start Date</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {customerData.subscriptions.map((sub) => (
+                                                <TableRow key={sub.id}>
+                                                    <TableCell>{sub.plan_name || 'Unknown Plan'}</TableCell>
+                                                    <TableCell>{formatCurrency(sub.monthly_amount, store.currency)}</TableCell>
+                                                    <TableCell><Badge className={getStatusColor(sub.status)}>{sub.status}</Badge></TableCell>
+                                                    <TableCell>{formatDate(sub.created_at)}</TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                ) : (
+                                    <p className="text-muted-foreground text-sm">No subscriptions yet</p>
+                                )}
+                            </div>
+
+                            <div>
+                                <h3 className="font-semibold mb-3">Payments</h3>
+                                {customerData.payments?.length > 0 ? (
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Amount</TableHead>
+                                                <TableHead>Status</TableHead>
+                                                <TableHead>Date</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {customerData.payments.slice(0, 10).map((payment) => (
+                                                <TableRow key={payment.id}>
+                                                    <TableCell>{formatCurrency(payment.amount, store.currency)}</TableCell>
+                                                    <TableCell><Badge className={getStatusColor(payment.status)}>{payment.status}</Badge></TableCell>
+                                                    <TableCell>{formatDate(payment.created_at)}</TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                ) : (
+                                    <p className="text-muted-foreground text-sm">No payments yet</p>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
+
+            {/* Customer Edit Dialog */}
+            <Dialog open={customerEditOpen} onOpenChange={setCustomerEditOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle className="font-serif">Edit Customer</DialogTitle>
+                    </DialogHeader>
+                    <form onSubmit={handleUpdateCustomer} className="space-y-4">
+                        <div className="space-y-2">
+                            <Label>Name</Label>
+                            <Input value={customerEditForm.name} onChange={(e) => setCustomerEditForm({ ...customerEditForm, name: e.target.value })} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Phone</Label>
+                            <Input value={customerEditForm.phone} onChange={(e) => setCustomerEditForm({ ...customerEditForm, phone: e.target.value })} />
+                        </div>
+                        <Button type="submit" className="w-full gold-gradient text-white">
+                            Update Customer
+                        </Button>
+                    </form>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };
