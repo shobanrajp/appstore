@@ -69,6 +69,7 @@ class UserResponse(BaseModel):
     store_id: Optional[str] = None
     is_active: bool
     created_at: str
+    menu_access: Optional[List[str]] = None
 
 class TokenResponse(BaseModel):
     access_token: str
