@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getStore, getProducts, getProduct } from '../lib/api';
+import { getStore, getProducts, getProduct, getInventory } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
-import { ShoppingCart, Plus, Minus, ArrowLeft, User, LogIn, ChevronRight } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, ArrowLeft, User, LogIn, ChevronRight, AlertTriangle } from 'lucide-react';
 import { formatCurrency } from '../lib/utils';
 
 const ProductDetail = () => {
@@ -16,6 +16,7 @@ const ProductDetail = () => {
     const [store, setStore] = useState(null);
     const [product, setProduct] = useState(null);
     const [allProducts, setAllProducts] = useState([]);
+    const [inventory, setInventory] = useState([]);
     const [recentlyViewed, setRecentlyViewed] = useState([]);
     const [quantity, setQuantity] = useState(1);
     const [loading, setLoading] = useState(true);
