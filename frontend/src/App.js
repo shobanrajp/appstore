@@ -77,6 +77,9 @@ function AppRoutes() {
             <Route path="/store/:storeId" element={<StoreFront />} />
             <Route path="/store/:storeId/product/:productId" element={<ProductDetail />} />
             <Route path="/store/:storeId/category/:category" element={<CategoryProducts />} />
+            <Route path="/store/:storeId/products" element={<StoreProducts />} />
+            <Route path="/store/:storeId/plans" element={<StorePlans />} />
+            <Route path="/store/:storeId/contact" element={<StoreContact />} />
             <Route path="/shop" element={<StoreFront />} />
 
             {/* Super Admin Routes */}
