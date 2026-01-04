@@ -366,6 +366,7 @@ class StaffUpdate(BaseModel):
     phone: Optional[str] = None
     menu_access: Optional[List[str]] = None
     is_active: Optional[bool] = None
+    password: Optional[str] = None
 
 class StaffResponse(BaseModel):
     id: str
