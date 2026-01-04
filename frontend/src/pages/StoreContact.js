@@ -138,6 +138,8 @@ const StoreContact = () => {
                     </div>
                 )}
             </main>
+            
+            <StoreFooter store={store} storeId={storeId} />
         </div>
     );
 };
