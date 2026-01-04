@@ -246,9 +246,9 @@ const CategoryProducts = () => {
                                 : `No products available in ${decodedCategory}`
                             }
                         </p>
-                        <Link to={`/store/${storeId}`}>
+                        <a href={`/store/${storeId}`} onClick={(e) => { e.preventDefault(); window.location.href = `/store/${storeId}`; }}>
                             <Button variant="outline">View All Products</Button>
-                        </Link>
+                        </a>
                     </div>
                 )}
             </main>
