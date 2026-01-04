@@ -327,6 +327,112 @@ const StoreAdminDashboard = () => {
         }
     };
 
+    // Staff handlers
+    const handleCreateStaff = async (e) => {
+        e.preventDefault();
+        try {
+            if (editingStaff) {
+                const updateData = { name: newStaff.name, phone: newStaff.phone, menu_access: newStaff.menu_access };
+                await updateStaff(store.id, editingStaff.id, updateData);
+                toast.success('Staff updated');
+                setEditingStaff(null);
+            } else {
+                await createStaff(store.id, newStaff);
+                toast.success('Staff created');
+            }
+            setStaffDialogOpen(false);
+            setNewStaff({ email: '', password: '', name: '', phone: '', menu_access: ['products', 'inventory', 'orders', 'pos'] });
+            loadData();
+        } catch (error) {
+            toast.error(error.response?.data?.detail || 'Failed to save staff');
+        }
+    };
+
+    const openEditStaff = (staffMember) => {
+        setEditingStaff(staffMember);
+        setNewStaff({
+            email: staffMember.email,
+            password: '',
+            name: staffMember.name,
+            phone: staffMember.phone || '',
+            menu_access: staffMember.menu_access || []
+        });
+        setStaffDialogOpen(true);
+    };
+
+    const handleDeleteStaff = async (staffId) => {
+        if (!window.confirm('Are you sure you want to delete this staff member?')) return;
+        try {
+            await deleteStaff(store.id, staffId);
+            toast.success('Staff deleted');
+            loadData();
+        } catch (error) {
+            toast.error('Failed to delete staff');
+        }
+    };
+
+    const handleViewStaffActivity = async (staffMember) => {
+        setSelectedStaff(staffMember);
+        try {
+            const res = await getStaffActivity(store.id, staffMember.id);
+            setStaffActivityData(res.data);
+            setStaffActivityOpen(true);
+        } catch (error) {
+            toast.error('Failed to load activity');
+        }
+    };
+
+    const toggleStaffAccess = (menuKey) => {
+        setNewStaff(prev => ({
+            ...prev,
+            menu_access: prev.menu_access.includes(menuKey)
+                ? prev.menu_access.filter(m => m !== menuKey)
+                : [...prev.menu_access, menuKey]
+        }));
+    };
+
+    // Customer handlers
+    const handleViewCustomerDetails = async (customer) => {
+        setSelectedCustomer(customer);
+        try {
+            const res = await getCustomerDetails(store.id, customer.id);
+            setCustomerData(res.data);
+            setCustomerDetailOpen(true);
+        } catch (error) {
+            toast.error('Failed to load customer details');
+        }
+    };
+
+    const openEditCustomer = (customer) => {
+        setSelectedCustomer(customer);
+        setCustomerEditForm({ name: customer.name || '', phone: customer.phone || '' });
+        setCustomerEditOpen(true);
+    };
+
+    const handleUpdateCustomer = async (e) => {
+        e.preventDefault();
+        try {
+            await updateCustomer(store.id, selectedCustomer.id, customerEditForm);
+            toast.success('Customer updated');
+            setCustomerEditOpen(false);
+            loadData();
+        } catch (error) {
+            toast.error('Failed to update customer');
+        }
+    };
+
+    const handleDeleteCustomer = async (customerId) => {
+        if (!window.confirm('Are you sure you want to delete this customer? This cannot be undone.')) return;
+        try {
+            await deleteCustomer(store.id, customerId);
+            toast.success('Customer deleted');
+            setCustomerDetailOpen(false);
+            loadData();
+        } catch (error) {
+            toast.error('Failed to delete customer');
+        }
+    };
+
     // Product handlers
     const handleCreateProduct = async (e) => {
         e.preventDefault();
