@@ -60,7 +60,7 @@ const StoreHeader = ({
     );
 
     return (
-        <header className="bg-primary text-primary-foreground sticky top-0 z-50" style={style}>
+        <header className="bg-primary text-primary-foreground sticky top-0 z-50" style={headerStyle}>
             <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
                 {/* Logo */}
                 <Link to={`/store/${storeId}`} className="flex-shrink-0">
