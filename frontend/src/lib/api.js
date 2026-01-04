@@ -96,6 +96,19 @@ export const getStoreReports = (storeId, startDate, endDate) => {
     return api.get(url);
 };
 
+// Staff Management
+export const getStoreStaff = (storeId) => api.get(`/stores/${storeId}/staff`);
+export const createStaff = (storeId, data) => api.post(`/stores/${storeId}/staff`, data);
+export const updateStaff = (storeId, staffId, data) => api.put(`/stores/${storeId}/staff/${staffId}`, data);
+export const deleteStaff = (storeId, staffId) => api.delete(`/stores/${storeId}/staff/${staffId}`);
+export const getStaffActivity = (storeId, staffId) => api.get(`/stores/${storeId}/staff/${staffId}/activity`);
+
+// Customer Management
+export const getStoreCustomers = (storeId) => api.get(`/stores/${storeId}/customers`);
+export const getCustomerDetails = (storeId, customerId) => api.get(`/stores/${storeId}/customers/${customerId}`);
+export const updateCustomer = (storeId, customerId, data) => api.put(`/stores/${storeId}/customers/${customerId}`, data);
+export const deleteCustomer = (storeId, customerId) => api.delete(`/stores/${storeId}/customers/${customerId}`);
+
 // Orders
 export const getOrders = (storeId) => api.get(`/stores/${storeId}/orders`);
 export const getMyOrders = () => api.get('/my-orders');
