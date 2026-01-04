@@ -10,7 +10,9 @@ import {
     getPOSTransactions, createPOSTransaction, updatePOSTransaction, deletePOSTransaction,
     getSubscriptionPlans, createSubscriptionPlan, updateSubscriptionPlan,
     getStoreSubscribers, getSubscriptionDetails, updateSubscriptionStatus, deleteSubscription,
-    updateStoreSettings, updateStore, getStoreReports
+    updateStoreSettings, updateStore, getStoreReports,
+    getStoreStaff, createStaff, updateStaff, deleteStaff, getStaffActivity,
+    getStoreCustomers, getCustomerDetails, updateCustomer, deleteCustomer
 } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -23,11 +25,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { ScrollArea } from '../components/ui/scroll-area';
+import { Switch } from '../components/ui/switch';
 import { toast } from 'sonner';
 import {
     Plus, Trash2, Package, ShoppingCart, Users, Settings, LogOut,
     Box, Truck, DollarSign, CreditCard, Edit2, LayoutDashboard, Palette, Eye, Building2,
-    BarChart3, Filter, Calendar
+    BarChart3, Filter, Calendar, UserCog, Contact, Activity, Shield
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatDateTime, getStatusColor } from '../lib/utils';
 
