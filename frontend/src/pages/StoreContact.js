@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useParams } from 'react-router-dom';
 import { getStore } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { toast } from 'sonner';
-import { ShoppingCart, User, LogIn, ArrowLeft, Phone, Mail, MapPin, Clock, MessageCircle } from 'lucide-react';
+import { Phone, Mail, MapPin, Clock, MessageCircle } from 'lucide-react';
+import StoreHeader from '../components/StoreHeader';
+import StoreFooter from '../components/StoreFooter';
 
 const StoreContact = () => {
     const { storeId } = useParams();
-    const { user } = useAuth();
     const [store, setStore] = useState(null);
     const [loading, setLoading] = useState(true);
     const [cart, setCart] = useState(() => {
