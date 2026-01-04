@@ -5,7 +5,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
-import { Plus, Minus, ChevronRight, AlertTriangle } from 'lucide-react';
+import { Plus, Minus, ChevronRight, AlertTriangle, ShoppingCart } from 'lucide-react';
 import { formatCurrency } from '../lib/utils';
 import StoreHeader from '../components/StoreHeader';
 import StoreFooter from '../components/StoreFooter';
