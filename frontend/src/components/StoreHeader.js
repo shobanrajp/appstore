@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { ShoppingCart, User, LogIn, Search, Menu } from 'lucide-react';
-import { Sheet, SheetContent, SheetTrigger } from './ui/sheet';
+import { Sheet, SheetContent, SheetTrigger, SheetClose } from './ui/sheet';
 
 const StoreHeader = ({ 
     store, 
@@ -44,15 +44,19 @@ const StoreHeader = ({
         { label: 'Contact', path: `/store/${storeId}/contact`, key: 'contact' },
     ];
 
+    const handleNavClick = (path) => {
+        navigate(path);
+    };
+
     return (
         <header className="bg-primary text-primary-foreground sticky top-0 z-50" style={headerStyle}>
             <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
                 {/* Logo */}
-                <Link to={`/store/${storeId}`} className="flex-shrink-0">
+                <div className="flex-shrink-0 cursor-pointer" onClick={() => handleNavClick(`/store/${storeId}`)}>
                     <h1 className="text-xl md:text-2xl font-serif hover:opacity-80 transition-opacity">
                         {store?.name || 'Store'}
                     </h1>
-                </Link>
+                </div>
 
                 {/* Global Search - Center (Desktop) */}
                 {showSearch && (
@@ -72,44 +76,53 @@ const StoreHeader = ({
                 {/* Desktop Navigation */}
                 <nav className="hidden md:flex gap-6 items-center">
                     {navItems.map((item) => (
-                        <Link 
+                        <span 
                             key={item.key} 
-                            to={item.path} 
+                            onClick={() => handleNavClick(item.path)}
                             className={`hover:opacity-80 transition-opacity cursor-pointer ${activeTab === item.key ? 'font-semibold' : ''}`}
                         >
                             {item.label}
-                        </Link>
+                        </span>
                     ))}
                 </nav>
 
                 {/* Right Actions */}
                 <div className="flex items-center gap-2">
                     {user ? (
-                        <Link to="/portal">
-                            <Button variant="ghost" size="sm" className="text-primary-foreground hover:bg-white/10">
-                                <User className="w-4 h-4 md:mr-2" />
-                                <span className="hidden md:inline">Account</span>
-                            </Button>
-                        </Link>
+                        <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="text-primary-foreground hover:bg-white/10"
+                            onClick={() => handleNavClick('/portal')}
+                        >
+                            <User className="w-4 h-4 md:mr-2" />
+                            <span className="hidden md:inline">Account</span>
+                        </Button>
                     ) : (
-                        <Link to="/login">
-                            <Button variant="ghost" size="sm" className="text-primary-foreground hover:bg-white/10">
-                                <LogIn className="w-4 h-4 md:mr-2" />
-                                <span className="hidden md:inline">Login</span>
-                            </Button>
-                        </Link>
+                        <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="text-primary-foreground hover:bg-white/10"
+                            onClick={() => handleNavClick('/login')}
+                        >
+                            <LogIn className="w-4 h-4 md:mr-2" />
+                            <span className="hidden md:inline">Login</span>
+                        </Button>
                     )}
                     
-                    <Link to={`/store/${storeId}`}>
-                        <Button variant="ghost" size="sm" className="text-primary-foreground hover:bg-white/10 relative">
-                            <ShoppingCart className="w-5 h-5" />
-                            {cartTotal > 0 && (
-                                <span className="absolute -top-1 -right-1 w-5 h-5 bg-gold text-white text-xs rounded-full flex items-center justify-center">
-                                    {cartTotal}
-                                </span>
-                            )}
-                        </Button>
-                    </Link>
+                    <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="text-primary-foreground hover:bg-white/10 relative"
+                        onClick={() => handleNavClick(`/store/${storeId}`)}
+                    >
+                        <ShoppingCart className="w-5 h-5" />
+                        {cartTotal > 0 && (
+                            <span className="absolute -top-1 -right-1 w-5 h-5 bg-gold text-white text-xs rounded-full flex items-center justify-center">
+                                {cartTotal}
+                            </span>
+                        )}
+                    </Button>
 
                     {/* Mobile Menu */}
                     <Sheet>
@@ -121,13 +134,14 @@ const StoreHeader = ({
                         <SheetContent side="right" className="w-[250px]">
                             <nav className="flex flex-col gap-4 mt-8">
                                 {navItems.map((item) => (
-                                    <Link 
-                                        key={item.key} 
-                                        to={item.path} 
-                                        className={`hover:opacity-80 transition-opacity block py-2 ${activeTab === item.key ? 'font-semibold' : ''}`}
-                                    >
-                                        {item.label}
-                                    </Link>
+                                    <SheetClose key={item.key} asChild>
+                                        <span 
+                                            onClick={() => handleNavClick(item.path)}
+                                            className={`hover:opacity-80 transition-opacity block py-2 cursor-pointer ${activeTab === item.key ? 'font-semibold' : ''}`}
+                                        >
+                                            {item.label}
+                                        </span>
+                                    </SheetClose>
                                 ))}
                             </nav>
                         </SheetContent>
