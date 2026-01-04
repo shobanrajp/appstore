@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import { getStore, getProducts, getInventory } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
@@ -8,13 +7,14 @@ import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
-import { ShoppingCart, User, Plus, LogIn, Search, ArrowLeft, Grid3X3, List } from 'lucide-react';
+import { Plus, Search, Grid3X3, List } from 'lucide-react';
 import { formatCurrency } from '../lib/utils';
+import StoreHeader from '../components/StoreHeader';
+import StoreFooter from '../components/StoreFooter';
 
 const StoreProducts = () => {
     const { storeId } = useParams();
-    const [searchParams, setSearchParams] = useSearchParams();
-    const { user } = useAuth();
+    const [searchParams] = useSearchParams();
     const [store, setStore] = useState(null);
     const [products, setProducts] = useState([]);
     const [inventory, setInventory] = useState([]);
