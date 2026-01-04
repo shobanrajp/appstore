@@ -221,42 +221,59 @@ const CategoryProducts = () => {
 
                 {/* Products Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                    {filteredProducts.map((product) => (
-                        <Link key={product.id} to={`/store/${storeId}/product/${product.id}`}>
-                            <Card className="luxury-card overflow-hidden group cursor-pointer h-full">
-                                <div className="h-56 bg-muted flex items-center justify-center overflow-hidden">
-                                    {product.images?.[0] ? (
-                                        <img 
-                                            src={product.images[0]} 
-                                            alt={product.name} 
-                                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                                        />
-                                    ) : (
-                                        <div className="w-full h-full gold-gradient opacity-20" />
-                                    )}
-                                </div>
-                                <CardContent className="p-4">
-                                    <h3 className="font-serif font-semibold text-lg">{product.name}</h3>
-                                    <Badge variant="outline" className="text-xs mt-1">{product.category}</Badge>
-                                    {product.weight && (
-                                        <p className="text-sm text-muted-foreground mt-1">{product.weight}g</p>
-                                    )}
-                                    <div className="flex items-center justify-between mt-3">
-                                        <span className="gold-text text-xl font-semibold">
-                                            {formatCurrency(product.price, store.currency)}
-                                        </span>
-                                        <Button
-                                            size="sm"
-                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); addToCart(product); }}
-                                            className="gold-gradient text-white"
-                                        >
-                                            <Plus className="w-4 h-4" />
-                                        </Button>
+                    {filteredProducts.map((product) => {
+                        const stock = getProductStock(product.id);
+                        const isOutOfStock = stock <= 0;
+                        const isLowStock = stock > 0 && stock < 10;
+                        
+                        return (
+                            <Link key={product.id} to={`/store/${storeId}/product/${product.id}`}>
+                                <Card className={`luxury-card overflow-hidden group cursor-pointer h-full ${isOutOfStock ? 'opacity-70' : ''}`}>
+                                    <div className="h-56 bg-muted flex items-center justify-center overflow-hidden relative">
+                                        {product.images?.[0] ? (
+                                            <img 
+                                                src={product.images[0]} 
+                                                alt={product.name} 
+                                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                            />
+                                        ) : (
+                                            <div className="w-full h-full gold-gradient opacity-20" />
+                                        )}
+                                        {isOutOfStock && (
+                                            <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                                                <Badge variant="destructive" className="text-sm">Out of Stock</Badge>
+                                            </div>
+                                        )}
+                                        {isLowStock && !isOutOfStock && (
+                                            <Badge variant="secondary" className="absolute top-2 right-2 text-xs bg-orange-500 text-white">
+                                                Only {stock} left
+                                            </Badge>
+                                        )}
                                     </div>
-                                </CardContent>
-                            </Card>
-                        </Link>
-                    ))}
+                                    <CardContent className="p-4">
+                                        <h3 className="font-serif font-semibold text-lg">{product.name}</h3>
+                                        <Badge variant="outline" className="text-xs mt-1">{product.category}</Badge>
+                                        {product.weight && (
+                                            <p className="text-sm text-muted-foreground mt-1">{product.weight}g</p>
+                                        )}
+                                        <div className="flex items-center justify-between mt-3">
+                                            <span className="gold-text text-xl font-semibold">
+                                                {formatCurrency(product.price, store.currency)}
+                                            </span>
+                                            <Button
+                                                size="sm"
+                                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (!isOutOfStock) addToCart(product); }}
+                                                className={isOutOfStock ? 'bg-gray-400 cursor-not-allowed' : 'gold-gradient text-white'}
+                                                disabled={isOutOfStock}
+                                            >
+                                                <Plus className="w-4 h-4" />
+                                            </Button>
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            </Link>
+                        );
+                    })}
                 </div>
 
                 {filteredProducts.length === 0 && (
