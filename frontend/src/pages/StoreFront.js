@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link, useSearchParams } from 'react-router-dom';
+import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getStore, getProducts, getSubscriptionPlans, getPageConfig, createOrder, subscribeToPlan, createPaymentOrder, completePayment, getAddresses, createAddress } from '../lib/api';
+import { getStore, getProducts, getSubscriptionPlans, getPageConfig, createOrder, subscribeToPlan, createPaymentOrder, completePayment, getAddresses, createAddress, getInventory } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -10,12 +10,18 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
-import { ShoppingCart, User, Plus, Minus, X, CreditCard, LogIn, Search } from 'lucide-react';
+import { ShoppingCart, User, Plus, Minus, X, CreditCard, LogIn, Search, MessageCircle, Phone, Mail, MapPin, AlertTriangle } from 'lucide-react';
 import { formatCurrency } from '../lib/utils';
 
 // Dynamic Component Renderer - renders components based on page config
-const DynamicComponent = ({ component, products, filteredProducts, plans, store, addToCart, onSubscribe, user, categories, selectedCategory, onCategorySelect, searchTerm, onSearchChange, storeId }) => {
+const DynamicComponent = ({ component, products, filteredProducts, plans, store, addToCart, onSubscribe, user, categories, selectedCategory, onCategorySelect, searchTerm, onSearchChange, storeId, inventory, globalSearchTerm, onGlobalSearch, onNavigate, recentlyViewedPlans }) => {
     const { type, props = {} } = component;
+
+    // Helper to get stock for a product
+    const getProductStock = (productId) => {
+        const inv = inventory.find(i => i.product_id === productId);
+        return inv ? inv.quantity : 0;
+    };
 
     // Build style object from props
     const getStyleFromProps = () => {
