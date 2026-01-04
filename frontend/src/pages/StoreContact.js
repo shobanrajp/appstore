@@ -50,55 +50,10 @@ const StoreContact = () => {
     }
 
     return (
-        <div className="min-h-screen bg-background">
-            {/* Header */}
-            <header className="bg-primary text-primary-foreground sticky top-0 z-50">
-                <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                        <Link to={`/store/${storeId}`}>
-                            <Button variant="ghost" size="sm" className="text-primary-foreground hover:bg-white/10">
-                                <ArrowLeft className="w-4 h-4 mr-2" /> Back
-                            </Button>
-                        </Link>
-                        <Link to={`/store/${storeId}`}>
-                            <h1 className="text-xl font-serif">{store?.name}</h1>
-                        </Link>
-                    </div>
-                    <nav className="hidden md:flex gap-6 items-center">
-                        <Link to={`/store/${storeId}`} className="hover:opacity-80">Home</Link>
-                        <Link to={`/store/${storeId}/products`} className="hover:opacity-80">Products</Link>
-                        <Link to={`/store/${storeId}/plans`} className="hover:opacity-80">Plans</Link>
-                        <span className="font-semibold">Contact</span>
-                    </nav>
-                    <div className="flex items-center gap-2">
-                        {user ? (
-                            <Link to="/portal">
-                                <Button variant="ghost" className="text-primary-foreground hover:bg-white/10">
-                                    <User className="w-4 h-4 mr-2" /> Account
-                                </Button>
-                            </Link>
-                        ) : (
-                            <Link to="/login">
-                                <Button variant="ghost" className="text-primary-foreground hover:bg-white/10">
-                                    <LogIn className="w-4 h-4 mr-2" /> Login
-                                </Button>
-                            </Link>
-                        )}
-                        <Link to={`/store/${storeId}`}>
-                            <Button variant="ghost" className="text-primary-foreground hover:bg-white/10 relative">
-                                <ShoppingCart className="w-5 h-5" />
-                                {cartTotal > 0 && (
-                                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-gold text-white text-xs rounded-full flex items-center justify-center">
-                                        {cartTotal}
-                                    </span>
-                                )}
-                            </Button>
-                        </Link>
-                    </div>
-                </div>
-            </header>
+        <div className="min-h-screen bg-background flex flex-col">
+            <StoreHeader store={store} storeId={storeId} cartTotal={cartTotal} activeTab="contact" />
 
-            <main className="max-w-4xl mx-auto px-4 py-12">
+            <main className="max-w-4xl mx-auto px-4 py-12 flex-1">
                 <h2 className="text-4xl font-serif text-center mb-4">Contact Us</h2>
                 <p className="text-center text-muted-foreground mb-12">We'd love to hear from you. Reach out to us through any of the following channels.</p>
 
