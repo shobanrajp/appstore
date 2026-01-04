@@ -855,6 +855,24 @@ const StoreAdminDashboard = () => {
                             <BarChart3 className="w-4 h-4 mr-2" /> Reporting
                         </Button>
                         <div className="border-t my-4" />
+                        <p className="text-xs text-muted-foreground px-2 mb-2 uppercase tracking-wide">Management</p>
+                        <Button
+                            variant={activeTab === 'staff' ? 'secondary' : 'ghost'}
+                            className="w-full justify-start"
+                            onClick={() => setActiveTab('staff')}
+                            data-testid="nav-staff"
+                        >
+                            <UserCog className="w-4 h-4 mr-2" /> Staff Members
+                        </Button>
+                        <Button
+                            variant={activeTab === 'customers' ? 'secondary' : 'ghost'}
+                            className="w-full justify-start"
+                            onClick={() => setActiveTab('customers')}
+                            data-testid="nav-customers"
+                        >
+                            <Contact className="w-4 h-4 mr-2" /> Website Customers
+                        </Button>
+                        <div className="border-t my-4" />
                         <Link to={`/page-editor/${store.id}`}>
                             <Button variant="ghost" className="w-full justify-start" data-testid="nav-page-editor">
                                 <Palette className="w-4 h-4 mr-2" /> Page Editor
