@@ -254,6 +254,8 @@ const StoreProducts = () => {
                     </div>
                 )}
             </main>
+            
+            <StoreFooter store={store} storeId={storeId} />
         </div>
     );
 };
