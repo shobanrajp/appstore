@@ -138,6 +138,9 @@ const StoreHeader = ({
                             </Button>
                         </SheetTrigger>
                         <SheetContent side="right" className="w-[250px]">
+                            <VisuallyHidden>
+                                <SheetTitle>Navigation Menu</SheetTitle>
+                            </VisuallyHidden>
                             <nav className="flex flex-col gap-4 mt-8">
                                 {navItems.map((item) => (
                                     <a 
