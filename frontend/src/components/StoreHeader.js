@@ -131,30 +131,47 @@ const StoreHeader = ({
                     </Button>
 
                     {/* Mobile Menu */}
-                    <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-                        <SheetTrigger asChild>
-                            <Button variant="ghost" size="sm" className="md:hidden text-primary-foreground hover:bg-white/10">
-                                <Menu className="w-5 h-5" />
-                            </Button>
-                        </SheetTrigger>
-                        <SheetContent side="right" className="w-[250px]">
-                            <VisuallyHidden>
-                                <SheetTitle>Navigation Menu</SheetTitle>
-                            </VisuallyHidden>
-                            <nav className="flex flex-col gap-4 mt-8">
-                                {navItems.map((item) => (
-                                    <a 
-                                        key={item.key} 
-                                        href={item.path}
-                                        onClick={(e) => handleNavClick(item.path, e)}
-                                        className={`hover:opacity-80 transition-opacity block py-2 cursor-pointer ${activeTab === item.key ? 'font-semibold' : ''}`}
+                    <div className="md:hidden">
+                        <button 
+                            onClick={() => setMobileMenuOpen(true)}
+                            className="inline-flex items-center justify-center rounded-md text-sm font-medium h-9 px-3 text-primary-foreground hover:bg-white/10"
+                        >
+                            <Menu className="w-5 h-5" />
+                        </button>
+                        {mobileMenuOpen && (
+                            <>
+                                {/* Overlay */}
+                                <div 
+                                    className="fixed inset-0 z-50 bg-black/80"
+                                    onClick={() => setMobileMenuOpen(false)}
+                                />
+                                {/* Menu Panel */}
+                                <div className="fixed inset-y-0 right-0 z-50 w-[250px] bg-background p-6 shadow-lg">
+                                    <button 
+                                        onClick={() => setMobileMenuOpen(false)}
+                                        className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100"
                                     >
-                                        {item.label}
-                                    </a>
-                                ))}
-                            </nav>
-                        </SheetContent>
-                    </Sheet>
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                                        </svg>
+                                    </button>
+                                    <nav className="flex flex-col gap-4 mt-8">
+                                        {navItems.map((item) => (
+                                            <a 
+                                                key={item.key} 
+                                                href={item.path}
+                                                onClick={(e) => handleNavClick(item.path, e)}
+                                                className={`hover:opacity-80 transition-opacity block py-2 cursor-pointer ${activeTab === item.key ? 'font-semibold' : ''}`}
+                                            >
+                                                {item.label}
+                                            </a>
+                                        ))}
+                                    </nav>
+                                </div>
+                            </>
+                        )}
+                    </div>
                 </div>
             </div>
 
