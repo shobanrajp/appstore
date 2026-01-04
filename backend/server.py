@@ -1031,7 +1031,7 @@ async def create_staff(store_id: str, staff_data: StaffCreate, user: dict = Depe
     staff_doc = {
         "id": str(uuid.uuid4()),
         "email": staff_data.email,
-        "hashed_password": hash_password(staff_data.password),
+        "password_hash": hash_password(staff_data.password),
         "name": staff_data.name,
         "phone": staff_data.phone,
         "role": UserRole.STORE_USER,
@@ -1044,9 +1044,12 @@ async def create_staff(store_id: str, staff_data: StaffCreate, user: dict = Depe
     await db.users.insert_one(staff_doc)
     
     # Log activity
-    await log_activity(user["id"], store_id, "staff_created", {"staff_id": staff_doc["id"], "staff_name": staff_data.name})
+    try:
+        await log_activity(user["id"], store_id, "staff_created", {"staff_id": staff_doc["id"], "staff_name": staff_data.name})
+    except Exception:
+        pass  # Don't fail if logging fails
     
-    del staff_doc["hashed_password"]
+    del staff_doc["password_hash"]
     return staff_doc
 
 @api_router.put("/stores/{store_id}/staff/{staff_id}")
@@ -1054,7 +1057,18 @@ async def update_staff(store_id: str, staff_id: str, staff_data: StaffUpdate, us
     if user["role"] != UserRole.SUPER_ADMIN and user.get("store_id") != store_id:
         raise HTTPException(status_code=403, detail="Cannot update staff for other stores")
     
-    update_data = {k: v for k, v in staff_data.model_dump().items() if v is not None}
+    update_data = {}
+    if staff_data.name is not None:
+        update_data["name"] = staff_data.name
+    if staff_data.phone is not None:
+        update_data["phone"] = staff_data.phone
+    if staff_data.menu_access is not None:
+        update_data["menu_access"] = staff_data.menu_access
+    if staff_data.is_active is not None:
+        update_data["is_active"] = staff_data.is_active
+    if staff_data.password is not None and staff_data.password.strip():
+        update_data["password_hash"] = hash_password(staff_data.password)
+    
     if not update_data:
         raise HTTPException(status_code=400, detail="No data to update")
     
@@ -1063,13 +1077,16 @@ async def update_staff(store_id: str, staff_id: str, staff_data: StaffUpdate, us
         {"$set": update_data}
     )
     
-    if result.modified_count == 0:
+    if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Staff not found")
     
     # Log activity
-    await log_activity(user["id"], store_id, "staff_updated", {"staff_id": staff_id, "updates": list(update_data.keys())})
+    try:
+        await log_activity(user["id"], store_id, "staff_updated", {"staff_id": staff_id, "updates": list(update_data.keys())})
+    except Exception:
+        pass
     
-    staff = await db.users.find_one({"id": staff_id}, {"_id": 0, "hashed_password": 0})
+    staff = await db.users.find_one({"id": staff_id}, {"_id": 0, "password_hash": 0})
     return staff
 
 @api_router.delete("/stores/{store_id}/staff/{staff_id}")
