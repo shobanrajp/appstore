@@ -146,50 +146,8 @@ const ProductDetail = () => {
     }
 
     return (
-        <div className="min-h-screen bg-background">
-            {/* Header */}
-            <header className="bg-primary text-primary-foreground sticky top-0 z-50">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                        <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            onClick={() => navigate(`/store/${storeId}`)}
-                            className="text-primary-foreground hover:bg-white/10"
-                        >
-                            <ArrowLeft className="w-4 h-4 mr-2" /> Back
-                        </Button>
-                        <Link to={`/store/${storeId}`}>
-                            <h1 className="text-xl font-serif">{store.name}</h1>
-                        </Link>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        {user ? (
-                            <Link to="/portal">
-                                <Button variant="ghost" className="text-primary-foreground hover:bg-white/10">
-                                    <User className="w-4 h-4 mr-2" /> Account
-                                </Button>
-                            </Link>
-                        ) : (
-                            <Link to="/login">
-                                <Button variant="ghost" className="text-primary-foreground hover:bg-white/10">
-                                    <LogIn className="w-4 h-4 mr-2" /> Login
-                                </Button>
-                            </Link>
-                        )}
-                        <Link to={`/store/${storeId}`}>
-                            <Button variant="ghost" className="text-primary-foreground hover:bg-white/10 relative">
-                                <ShoppingCart className="w-5 h-5" />
-                                {cartTotal > 0 && (
-                                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-gold text-white text-xs rounded-full flex items-center justify-center">
-                                        {cartTotal}
-                                    </span>
-                                )}
-                            </Button>
-                        </Link>
-                    </div>
-                </div>
-            </header>
+        <div className="min-h-screen bg-background flex flex-col">
+            <StoreHeader store={store} storeId={storeId} cartTotal={cartTotal} activeTab="products" />
 
             {/* Breadcrumb */}
             <div className="bg-muted/50 border-b">
