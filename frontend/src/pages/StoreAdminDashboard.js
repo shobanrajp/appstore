@@ -797,113 +797,90 @@ const StoreAdminDashboard = () => {
                 <div className="p-6 border-b">
                     <h1 className="text-xl font-serif font-semibold truncate">{store.name}</h1>
                     <p className="text-sm text-muted-foreground truncate">{user?.email}</p>
+                    {user?.role === 'store_user' && (
+                        <Badge variant="outline" className="mt-2 text-xs">Staff</Badge>
+                    )}
                 </div>
                 <ScrollArea className="flex-1">
                     <nav className="p-4 space-y-2">
-                        <Button
-                            variant={activeTab === 'products' ? 'secondary' : 'ghost'}
-                            className="w-full justify-start"
-                            onClick={() => setActiveTab('products')}
-                            data-testid="nav-products"
-                        >
-                            <Package className="w-4 h-4 mr-2" /> Products
-                        </Button>
-                        <Button
-                            variant={activeTab === 'inventory' ? 'secondary' : 'ghost'}
-                            className="w-full justify-start"
-                            onClick={() => setActiveTab('inventory')}
-                            data-testid="nav-inventory"
-                        >
-                            <Box className="w-4 h-4 mr-2" /> Inventory
-                        </Button>
-                        <Button
-                            variant={activeTab === 'orders' ? 'secondary' : 'ghost'}
-                            className="w-full justify-start"
-                            onClick={() => setActiveTab('orders')}
-                            data-testid="nav-orders"
-                        >
-                            <ShoppingCart className="w-4 h-4 mr-2" /> Orders
-                        </Button>
-                        <Button
-                            variant={activeTab === 'pos' ? 'secondary' : 'ghost'}
-                            className="w-full justify-start"
-                            onClick={() => setActiveTab('pos')}
-                            data-testid="nav-pos"
-                        >
-                            <CreditCard className="w-4 h-4 mr-2" /> POS
-                        </Button>
-                        <Button
-                            variant={activeTab === 'vendors' ? 'secondary' : 'ghost'}
-                            className="w-full justify-start"
-                            onClick={() => setActiveTab('vendors')}
-                            data-testid="nav-vendors"
-                        >
-                            <Truck className="w-4 h-4 mr-2" /> Vendors
-                        </Button>
-                        <Button
-                            variant={activeTab === 'purchase-orders' ? 'secondary' : 'ghost'}
-                            className="w-full justify-start"
-                            onClick={() => setActiveTab('purchase-orders')}
-                            data-testid="nav-po"
-                        >
-                            <DollarSign className="w-4 h-4 mr-2" /> Purchase Orders
-                        </Button>
-                        <Button
-                            variant={activeTab === 'plans' ? 'secondary' : 'ghost'}
-                            className="w-full justify-start"
-                            onClick={() => setActiveTab('plans')}
-                            data-testid="nav-plans"
-                        >
-                            <DollarSign className="w-4 h-4 mr-2" /> Subscription Plans
-                        </Button>
-                        <Button
-                            variant={activeTab === 'reporting' ? 'secondary' : 'ghost'}
-                            className="w-full justify-start"
-                            onClick={() => { setActiveTab('reporting'); loadReport(); }}
-                            data-testid="nav-reporting"
-                        >
-                            <BarChart3 className="w-4 h-4 mr-2" /> Reporting
-                        </Button>
-                        <div className="border-t my-4" />
-                        <p className="text-xs text-muted-foreground px-2 mb-2 uppercase tracking-wide">Management</p>
-                        <Button
-                            variant={activeTab === 'staff' ? 'secondary' : 'ghost'}
-                            className="w-full justify-start"
-                            onClick={() => setActiveTab('staff')}
-                            data-testid="nav-staff"
-                        >
-                            <UserCog className="w-4 h-4 mr-2" /> Staff Members
-                        </Button>
-                        <Button
-                            variant={activeTab === 'customers' ? 'secondary' : 'ghost'}
-                            className="w-full justify-start"
-                            onClick={() => setActiveTab('customers')}
-                            data-testid="nav-customers"
-                        >
-                            <Contact className="w-4 h-4 mr-2" /> Website Customers
-                        </Button>
-                        <div className="border-t my-4" />
-                        <Link to={`/page-editor/${store.id}`}>
-                            <Button variant="ghost" className="w-full justify-start" data-testid="nav-page-editor">
-                                <Palette className="w-4 h-4 mr-2" /> Page Editor
-                            </Button>
-                        </Link>
-                        <Button
-                            variant="ghost"
-                            className="w-full justify-start"
-                            onClick={openStoreEditDialog}
-                            data-testid="nav-store-info"
-                        >
-                            <Building2 className="w-4 h-4 mr-2" /> Store Info
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            className="w-full justify-start"
-                            onClick={() => setSettingsDialogOpen(true)}
-                            data-testid="nav-settings"
-                        >
-                            <Settings className="w-4 h-4 mr-2" /> Settings
-                        </Button>
+                        {/* Menu items with access control */}
+                        {(() => {
+                            const isAdmin = user?.role === 'super_admin' || user?.role === 'store_admin';
+                            const userMenuAccess = user?.menu_access || [];
+                            
+                            const menuItems = [
+                                { key: 'products', label: 'Products', icon: Package, testId: 'nav-products' },
+                                { key: 'inventory', label: 'Inventory', icon: Box, testId: 'nav-inventory' },
+                                { key: 'orders', label: 'Orders', icon: ShoppingCart, testId: 'nav-orders' },
+                                { key: 'pos', label: 'POS', icon: CreditCard, testId: 'nav-pos' },
+                                { key: 'vendors', label: 'Vendors', icon: Truck, testId: 'nav-vendors' },
+                                { key: 'purchase-orders', label: 'Purchase Orders', icon: DollarSign, testId: 'nav-po' },
+                                { key: 'plans', label: 'Subscription Plans', icon: DollarSign, testId: 'nav-plans' },
+                                { key: 'reporting', label: 'Reporting', icon: BarChart3, testId: 'nav-reporting', onClick: () => { setActiveTab('reporting'); loadReport(); } },
+                            ];
+                            
+                            const filteredMenuItems = menuItems.filter(item => 
+                                isAdmin || userMenuAccess.includes(item.key)
+                            );
+                            
+                            return filteredMenuItems.map(({ key, label, icon: Icon, testId, onClick }) => (
+                                <Button
+                                    key={key}
+                                    variant={activeTab === key ? 'secondary' : 'ghost'}
+                                    className="w-full justify-start"
+                                    onClick={onClick || (() => setActiveTab(key))}
+                                    data-testid={testId}
+                                >
+                                    <Icon className="w-4 h-4 mr-2" /> {label}
+                                </Button>
+                            ));
+                        })()}
+                        
+                        {/* Admin-only Management Section */}
+                        {(user?.role === 'super_admin' || user?.role === 'store_admin') && (
+                            <>
+                                <div className="border-t my-4" />
+                                <p className="text-xs text-muted-foreground px-2 mb-2 uppercase tracking-wide">Management</p>
+                                <Button
+                                    variant={activeTab === 'staff' ? 'secondary' : 'ghost'}
+                                    className="w-full justify-start"
+                                    onClick={() => setActiveTab('staff')}
+                                    data-testid="nav-staff"
+                                >
+                                    <UserCog className="w-4 h-4 mr-2" /> Staff Members
+                                </Button>
+                                <Button
+                                    variant={activeTab === 'customers' ? 'secondary' : 'ghost'}
+                                    className="w-full justify-start"
+                                    onClick={() => setActiveTab('customers')}
+                                    data-testid="nav-customers"
+                                >
+                                    <Contact className="w-4 h-4 mr-2" /> Website Customers
+                                </Button>
+                                <div className="border-t my-4" />
+                                <Link to={`/page-editor/${store.id}`}>
+                                    <Button variant="ghost" className="w-full justify-start" data-testid="nav-page-editor">
+                                        <Palette className="w-4 h-4 mr-2" /> Page Editor
+                                    </Button>
+                                </Link>
+                                <Button
+                                    variant="ghost"
+                                    className="w-full justify-start"
+                                    onClick={openStoreEditDialog}
+                                    data-testid="nav-store-info"
+                                >
+                                    <Building2 className="w-4 h-4 mr-2" /> Store Info
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    className="w-full justify-start"
+                                    onClick={() => setSettingsDialogOpen(true)}
+                                    data-testid="nav-settings"
+                                >
+                                    <Settings className="w-4 h-4 mr-2" /> Settings
+                                </Button>
+                            </>
+                        )}
                     </nav>
                 </ScrollArea>
                 <div className="p-4 border-t">
