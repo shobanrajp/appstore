@@ -1,8 +1,26 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Phone, Mail, MapPin, MessageCircle } from 'lucide-react';
 
 const StoreFooter = ({ store, storeId, style = {} }) => {
+    // Get stored footer style from localStorage (set by StoreFront from Page Editor config)
+    const [footerStyle, setFooterStyle] = useState(style);
+    
+    useEffect(() => {
+        if (Object.keys(style).length === 0) {
+            const storedStyle = localStorage.getItem(`footer_style_${storeId}`);
+            if (storedStyle) {
+                try {
+                    setFooterStyle(JSON.parse(storedStyle));
+                } catch (e) {}
+            }
+        } else {
+            // Store the style for other pages to use
+            localStorage.setItem(`footer_style_${storeId}`, JSON.stringify(style));
+            setFooterStyle(style);
+        }
+    }, [storeId, style]);
+
     const getWhatsAppLink = () => {
         if (!store?.contact_phone) return null;
         const phone = store.contact_phone.replace(/[^0-9]/g, '');
@@ -13,7 +31,7 @@ const StoreFooter = ({ store, storeId, style = {} }) => {
     const whatsAppLink = getWhatsAppLink();
 
     return (
-        <footer className="bg-primary text-primary-foreground py-12" style={style}>
+        <footer className="bg-primary text-primary-foreground py-12" style={footerStyle}>
             <div className="max-w-7xl mx-auto px-4">
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
                     {/* Store Info */}
