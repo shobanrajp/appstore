@@ -167,45 +167,62 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                         <h2 className="text-4xl font-serif text-center mb-8">{props.title || 'Our Collection'}</h2>
                         
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                            {displayProducts.map((product) => (
-                                <Link key={product.id} to={`/store/${storeId}/product/${product.id}`}>
-                                    <Card className="luxury-card overflow-hidden group cursor-pointer" data-testid={`product-card-${product.id}`}>
-                                        <div className="h-56 bg-muted flex items-center justify-center overflow-hidden">
-                                            {product.images?.[0] ? (
-                                                <img
-                                                    src={product.images[0]}
-                                                    alt={product.name}
-                                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                                                />
-                                            ) : (
-                                                <div className="w-full h-full gold-gradient opacity-20" />
-                                            )}
-                                        </div>
-                                        <CardContent className="p-4">
-                                            <h3 className="font-serif font-semibold text-lg">{product.name}</h3>
-                                            {product.category && (
-                                                <Badge variant="outline" className="text-xs mt-1">{product.category}</Badge>
-                                            )}
-                                            {product.weight && (
-                                                <p className="text-sm text-muted-foreground">{product.weight}g</p>
-                                            )}
-                                            <div className="flex items-center justify-between mt-3">
-                                                <span className="gold-text text-xl font-semibold">
-                                                    {formatCurrency(product.price, store?.currency)}
-                                                </span>
-                                                <Button
-                                                    size="sm"
-                                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); addToCart(product); }}
-                                                    className="gold-gradient text-white"
-                                                    data-testid={`add-to-cart-${product.id}`}
-                                                >
-                                                    <Plus className="w-4 h-4" />
-                                                </Button>
+                            {displayProducts.map((product) => {
+                                const stock = getProductStock(product.id);
+                                const isOutOfStock = stock <= 0;
+                                const isLowStock = stock > 0 && stock < 10;
+                                
+                                return (
+                                    <Link key={product.id} to={`/store/${storeId}/product/${product.id}`}>
+                                        <Card className={`luxury-card overflow-hidden group cursor-pointer ${isOutOfStock ? 'opacity-70' : ''}`} data-testid={`product-card-${product.id}`}>
+                                            <div className="h-56 bg-muted flex items-center justify-center overflow-hidden relative">
+                                                {product.images?.[0] ? (
+                                                    <img
+                                                        src={product.images[0]}
+                                                        alt={product.name}
+                                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                                    />
+                                                ) : (
+                                                    <div className="w-full h-full gold-gradient opacity-20" />
+                                                )}
+                                                {isOutOfStock && (
+                                                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                                                        <Badge variant="destructive" className="text-sm">Out of Stock</Badge>
+                                                    </div>
+                                                )}
+                                                {isLowStock && !isOutOfStock && (
+                                                    <Badge variant="secondary" className="absolute top-2 right-2 text-xs bg-orange-500 text-white">
+                                                        Only {stock} left
+                                                    </Badge>
+                                                )}
                                             </div>
-                                        </CardContent>
-                                    </Card>
-                                </Link>
-                            ))}
+                                            <CardContent className="p-4">
+                                                <h3 className="font-serif font-semibold text-lg">{product.name}</h3>
+                                                {product.category && (
+                                                    <Badge variant="outline" className="text-xs mt-1">{product.category}</Badge>
+                                                )}
+                                                {product.weight && (
+                                                    <p className="text-sm text-muted-foreground">{product.weight}g</p>
+                                                )}
+                                                <div className="flex items-center justify-between mt-3">
+                                                    <span className="gold-text text-xl font-semibold">
+                                                        {formatCurrency(product.price, store?.currency)}
+                                                    </span>
+                                                    <Button
+                                                        size="sm"
+                                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (!isOutOfStock) addToCart(product); }}
+                                                        className={isOutOfStock ? 'bg-gray-400 cursor-not-allowed' : 'gold-gradient text-white'}
+                                                        disabled={isOutOfStock}
+                                                        data-testid={`add-to-cart-${product.id}`}
+                                                    >
+                                                        <Plus className="w-4 h-4" />
+                                                    </Button>
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    </Link>
+                                );
+                            })}
                             {displayProducts.length === 0 && (
                                 <div className="col-span-full text-center py-12 text-muted-foreground">
                                     {searchTerm || selectedCategory ? 'No products match your search.' : 'No products available yet.'}
