@@ -13,6 +13,9 @@ import PageEditor from './pages/PageEditor';
 import StoreFront from './pages/StoreFront';
 import ProductDetail from './pages/ProductDetail';
 import CategoryProducts from './pages/CategoryProducts';
+import StoreProducts from './pages/StoreProducts';
+import StorePlans from './pages/StorePlans';
+import StoreContact from './pages/StoreContact';
 import CustomerPortal from './pages/CustomerPortal';
 
 // Protected Route Component
