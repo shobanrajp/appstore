@@ -48,14 +48,16 @@ const ProductDetail = () => {
 
     const loadData = async () => {
         try {
-            const [storeRes, productRes, productsRes] = await Promise.all([
+            const [storeRes, productRes, productsRes, inventoryRes] = await Promise.all([
                 getStore(storeId),
                 getProduct(storeId, productId),
-                getProducts(storeId)
+                getProducts(storeId),
+                getInventory(storeId).catch(() => ({ data: [] }))
             ]);
             setStore(storeRes.data);
             setProduct(productRes.data);
             setAllProducts(productsRes.data);
+            setInventory(inventoryRes.data || []);
 
             // Load recently viewed products
             const recentKey = `recent_${storeId}`;
@@ -73,9 +75,27 @@ const ProductDetail = () => {
             setLoading(false);
         }
     };
+    
+    const getProductStock = (prodId) => {
+        const inv = inventory.find(i => i.product_id === prodId);
+        return inv ? inv.quantity : 0;
+    };
 
     const addToCart = () => {
+        const stock = getProductStock(product.id);
+        if (stock <= 0) {
+            toast.error('This product is out of stock');
+            return;
+        }
+        
         const existing = cart.find(item => item.product_id === product.id);
+        const currentQtyInCart = existing ? existing.quantity : 0;
+        
+        if (currentQtyInCart + quantity > stock) {
+            toast.error(`Only ${stock} items available in stock`);
+            return;
+        }
+        
         let newCart;
         if (existing) {
             newCart = cart.map(item =>
