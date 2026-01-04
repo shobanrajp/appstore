@@ -1112,7 +1112,7 @@ async def get_staff_activity(store_id: str, staff_id: str, user: dict = Depends(
 async def log_activity(user_id: str, store_id: str, action: str, details: dict = None):
     """Helper function to log user activity"""
     log_doc = {
-        "id": str(uuid4()),
+        "id": str(uuid.uuid4()),
         "user_id": user_id,
         "store_id": store_id,
         "action": action,
