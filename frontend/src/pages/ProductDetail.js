@@ -177,7 +177,7 @@ const ProductDetail = () => {
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Link to={`/store/${storeId}`} className="hover:text-foreground">Home</Link>
                         <ChevronRight className="w-4 h-4" />
-                        <Link to={`/store/${storeId}?category=${product.category}`} className="hover:text-foreground">
+                        <Link to={`/store/${storeId}/category/${encodeURIComponent(product.category || 'All')}`} className="hover:text-foreground">
                             {product.category || 'Products'}
                         </Link>
                         <ChevronRight className="w-4 h-4" />
