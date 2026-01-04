@@ -349,10 +349,12 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
 
 const StoreFront = () => {
     const { storeId } = useParams();
+    const navigate = useNavigate();
     const { user } = useAuth();
     const [store, setStore] = useState(null);
     const [products, setProducts] = useState([]);
     const [plans, setPlans] = useState([]);
+    const [inventory, setInventory] = useState([]);
     const [pageConfig, setPageConfig] = useState(null);
     const [loading, setLoading] = useState(true);
     const [cart, setCart] = useState([]);
@@ -372,6 +374,10 @@ const StoreFront = () => {
     // Search and filter states
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('');
+    const [globalSearchTerm, setGlobalSearchTerm] = useState('');
+    
+    // Recently viewed plans (for Plans page)
+    const [recentlyViewedPlans, setRecentlyViewedPlans] = useState([]);
     
     // Derive unique categories from products
     const categories = [...new Set(products.filter(p => p.category).map(p => p.category))];
@@ -384,6 +390,12 @@ const StoreFront = () => {
         const matchesCategory = !selectedCategory || product.category === selectedCategory;
         return matchesSearch && matchesCategory;
     });
+    
+    // Helper to get stock for a product
+    const getProductStock = (productId) => {
+        const inv = inventory.find(i => i.product_id === productId);
+        return inv ? inv.quantity : 0;
+    };
 
     useEffect(() => {
         loadData();
@@ -394,17 +406,27 @@ const StoreFront = () => {
             loadAddresses();
         }
     }, [user]);
+    
+    useEffect(() => {
+        // Load recently viewed plans from localStorage
+        const recentKey = `recent_plans_${storeId}`;
+        const recentIds = JSON.parse(localStorage.getItem(recentKey) || '[]');
+        const recentPlansList = recentIds.map(id => plans.find(p => p.id === id)).filter(Boolean);
+        setRecentlyViewedPlans(recentPlansList);
+    }, [plans, storeId]);
 
     const loadData = async () => {
         try {
-            const [storeRes, productsRes, plansRes] = await Promise.all([
+            const [storeRes, productsRes, plansRes, inventoryRes] = await Promise.all([
                 getStore(storeId),
                 getProducts(storeId),
-                getSubscriptionPlans(storeId)
+                getSubscriptionPlans(storeId),
+                getInventory(storeId).catch(() => ({ data: [] }))
             ]);
             setStore(storeRes.data);
             setProducts(productsRes.data);
             setPlans(plansRes.data);
+            setInventory(inventoryRes.data || []);
             
             // Save last visited store for CustomerPortal navigation
             localStorage.setItem('lastVisitedStore', storeId);
