@@ -274,36 +274,62 @@ const ProductDetail = () => {
                         )}
 
                         <div className="border-t pt-6 space-y-4">
-                            <div className="flex items-center gap-4">
-                                <span className="text-sm font-medium">Quantity:</span>
-                                <div className="flex items-center gap-2">
-                                    <Button 
-                                        variant="outline" 
-                                        size="sm"
-                                        onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                                        disabled={quantity <= 1}
-                                    >
-                                        <Minus className="w-4 h-4" />
-                                    </Button>
-                                    <span className="w-12 text-center font-medium">{quantity}</span>
-                                    <Button 
-                                        variant="outline" 
-                                        size="sm"
-                                        onClick={() => setQuantity(quantity + 1)}
-                                    >
-                                        <Plus className="w-4 h-4" />
-                                    </Button>
-                                </div>
-                            </div>
+                            {/* Stock Status */}
+                            {(() => {
+                                const stock = getProductStock(product.id);
+                                const isOutOfStock = stock <= 0;
+                                const isLowStock = stock > 0 && stock < 10;
+                                
+                                return (
+                                    <>
+                                        {isOutOfStock && (
+                                            <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700">
+                                                <AlertTriangle className="w-5 h-5" />
+                                                <span className="font-medium">Out of Stock</span>
+                                            </div>
+                                        )}
+                                        {isLowStock && (
+                                            <div className="flex items-center gap-2 p-3 bg-orange-50 border border-orange-200 rounded-lg text-orange-700">
+                                                <AlertTriangle className="w-5 h-5" />
+                                                <span className="font-medium">Only {stock} left in stock - Order soon!</span>
+                                            </div>
+                                        )}
+                                        
+                                        <div className="flex items-center gap-4">
+                                            <span className="text-sm font-medium">Quantity:</span>
+                                            <div className="flex items-center gap-2">
+                                                <Button 
+                                                    variant="outline" 
+                                                    size="sm"
+                                                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                                                    disabled={quantity <= 1 || isOutOfStock}
+                                                >
+                                                    <Minus className="w-4 h-4" />
+                                                </Button>
+                                                <span className="w-12 text-center font-medium">{quantity}</span>
+                                                <Button 
+                                                    variant="outline" 
+                                                    size="sm"
+                                                    onClick={() => setQuantity(Math.min(stock || 99, quantity + 1))}
+                                                    disabled={isOutOfStock || quantity >= stock}
+                                                >
+                                                    <Plus className="w-4 h-4" />
+                                                </Button>
+                                            </div>
+                                        </div>
 
-                            <Button 
-                                className="w-full h-14 text-lg gold-gradient text-white"
-                                onClick={addToCart}
-                                data-testid="add-to-cart-btn"
-                            >
-                                <ShoppingCart className="w-5 h-5 mr-2" />
-                                Add to Cart - {formatCurrency(product.price * quantity, store.currency)}
-                            </Button>
+                                        <Button 
+                                            className={`w-full h-14 text-lg ${isOutOfStock ? 'bg-gray-400 cursor-not-allowed' : 'gold-gradient text-white'}`}
+                                            onClick={addToCart}
+                                            disabled={isOutOfStock}
+                                            data-testid="add-to-cart-btn"
+                                        >
+                                            <ShoppingCart className="w-5 h-5 mr-2" />
+                                            {isOutOfStock ? 'Out of Stock' : `Add to Cart - ${formatCurrency(product.price * quantity, store.currency)}`}
+                                        </Button>
+                                    </>
+                                );
+                            })()}
                         </div>
 
                         <div className="border-t pt-6">
