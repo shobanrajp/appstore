@@ -2173,7 +2173,7 @@ const StoreAdminDashboard = () => {
                                     <h2 className="text-2xl font-serif font-semibold">Staff Members</h2>
                                     <p className="text-muted-foreground">Manage internal workers and their access permissions</p>
                                 </div>
-                                <Dialog open={staffDialogOpen} onOpenChange={(open) => { setStaffDialogOpen(open); if (!open) { setEditingStaff(null); setNewStaff({ email: '', password: '', name: '', phone: '', menu_access: ['products', 'inventory', 'orders', 'pos'] }); } }}>
+                                <Dialog open={staffDialogOpen} onOpenChange={(open) => { setStaffDialogOpen(open); if (!open) { setEditingStaff(null); setNewStaff({ email: '', password: '', name: '', phone: '', menu_access: ['products', 'inventory', 'orders', 'pos'], is_active: true }); } }}>
                                     <DialogTrigger asChild>
                                         <Button className="gold-gradient text-white" data-testid="add-staff-btn">
                                             <Plus className="w-4 h-4 mr-2" /> Add Staff
