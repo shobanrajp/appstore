@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getStore, getProducts } from '../lib/api';
+import { getStore, getProducts, getInventory } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -16,6 +16,7 @@ const CategoryProducts = () => {
     const { user } = useAuth();
     const [store, setStore] = useState(null);
     const [products, setProducts] = useState([]);
+    const [inventory, setInventory] = useState([]);
     const [allCategories, setAllCategories] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -34,11 +35,13 @@ const CategoryProducts = () => {
 
     const loadData = async () => {
         try {
-            const [storeRes, productsRes] = await Promise.all([
+            const [storeRes, productsRes, inventoryRes] = await Promise.all([
                 getStore(storeId),
-                getProducts(storeId)
+                getProducts(storeId),
+                getInventory(storeId).catch(() => ({ data: [] }))
             ]);
             setStore(storeRes.data);
+            setInventory(inventoryRes.data || []);
             
             // Get all unique categories
             const categories = [...new Set(productsRes.data.filter(p => p.category).map(p => p.category))];
@@ -49,15 +52,28 @@ const CategoryProducts = () => {
             const filteredProducts = productsRes.data.filter(p => p.category === decodedCategory);
             setProducts(filteredProducts);
         } catch (error) {
-            console.error(error);
             toast.error('Failed to load products');
         } finally {
             setLoading(false);
         }
     };
+    
+    const getProductStock = (productId) => {
+        const inv = inventory.find(i => i.product_id === productId);
+        return inv ? inv.quantity : 0;
+    };
 
     const addToCart = (product) => {
+        const stock = getProductStock(product.id);
+        if (stock <= 0) {
+            toast.error(`${product.name} is out of stock`);
+            return;
+        }
         const existing = cart.find(item => item.product_id === product.id);
+        if (existing && existing.quantity >= stock) {
+            toast.error(`Only ${stock} items available`);
+            return;
+        }
         let newCart;
         if (existing) {
             newCart = cart.map(item =>
