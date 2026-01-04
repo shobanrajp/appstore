@@ -1,18 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useParams, Link } from 'react-router-dom';
 import { getStore, getProducts, getProduct, getInventory } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
-import { ShoppingCart, Plus, Minus, ArrowLeft, User, LogIn, ChevronRight, AlertTriangle } from 'lucide-react';
+import { Plus, Minus, ChevronRight, AlertTriangle } from 'lucide-react';
 import { formatCurrency } from '../lib/utils';
+import StoreHeader from '../components/StoreHeader';
+import StoreFooter from '../components/StoreFooter';
 
 const ProductDetail = () => {
     const { storeId, productId } = useParams();
-    const navigate = useNavigate();
-    const { user } = useAuth();
     const [store, setStore] = useState(null);
     const [product, setProduct] = useState(null);
     const [allProducts, setAllProducts] = useState([]);
