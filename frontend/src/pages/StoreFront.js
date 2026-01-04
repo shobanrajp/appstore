@@ -461,7 +461,21 @@ const StoreFront = () => {
     };
 
     const addToCart = (product) => {
+        // Check inventory before adding to cart
+        const stock = getProductStock(product.id);
+        if (stock <= 0) {
+            toast.error(`${product.name} is out of stock`);
+            return;
+        }
+        
         const existing = cart.find(item => item.product_id === product.id);
+        const currentQtyInCart = existing ? existing.quantity : 0;
+        
+        if (currentQtyInCart + 1 > stock) {
+            toast.error(`Only ${stock} items available in stock`);
+            return;
+        }
+        
         if (existing) {
             setCart(cart.map(item =>
                 item.product_id === product.id ? { ...item, quantity: item.quantity + 1 } : item
@@ -473,9 +487,14 @@ const StoreFront = () => {
     };
 
     const updateQuantity = (productId, delta) => {
+        const stock = getProductStock(productId);
         setCart(cart.map(item => {
             if (item.product_id === productId) {
                 const newQty = item.quantity + delta;
+                if (newQty > stock) {
+                    toast.error(`Only ${stock} items available in stock`);
+                    return item;
+                }
                 return newQty > 0 ? { ...item, quantity: newQty } : item;
             }
             return item;
