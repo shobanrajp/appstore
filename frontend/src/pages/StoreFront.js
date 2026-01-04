@@ -66,12 +66,31 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
         case 'header':
             return (
                 <header className="bg-primary text-primary-foreground p-4 sticky top-0 z-40" style={wrapperStyle}>
-                    <div className="max-w-7xl mx-auto flex items-center justify-between">
-                        <h1 className="text-2xl font-serif">{props.title || store?.name || 'Store'}</h1>
-                        <nav className="hidden md:flex gap-6">
-                            {(props.menuItems || ['Home', 'Products', 'Plans', 'Contact']).map((item, i) => (
-                                <span key={i} className="hover:opacity-80 cursor-pointer">{item}</span>
-                            ))}
+                    <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+                        <Link to={`/store/${storeId}`}>
+                            <h1 className="text-2xl font-serif hover:opacity-80">{props.title || store?.name || 'Store'}</h1>
+                        </Link>
+                        
+                        {/* Global Search Bar - Center */}
+                        {props.showSearchBar !== false && (
+                            <div className="hidden md:flex flex-1 max-w-md mx-4">
+                                <div className="relative w-full">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 opacity-60" />
+                                    <Input
+                                        placeholder="Search products & plans..."
+                                        value={globalSearchTerm || ''}
+                                        onChange={(e) => onGlobalSearch(e.target.value)}
+                                        className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/60 focus:bg-white/20"
+                                    />
+                                </div>
+                            </div>
+                        )}
+                        
+                        <nav className="hidden md:flex gap-6 items-center">
+                            <Link to={`/store/${storeId}`} className="hover:opacity-80 cursor-pointer">Home</Link>
+                            <Link to={`/store/${storeId}/products`} className="hover:opacity-80 cursor-pointer">Products</Link>
+                            <Link to={`/store/${storeId}/plans`} className="hover:opacity-80 cursor-pointer">Plans</Link>
+                            <Link to={`/store/${storeId}/contact`} className="hover:opacity-80 cursor-pointer">Contact</Link>
                         </nav>
                     </div>
                 </header>
