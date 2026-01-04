@@ -64,6 +64,10 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
 
     switch (type) {
         case 'header':
+            // Save header style to localStorage for other pages
+            if (typeof window !== 'undefined' && Object.keys(wrapperStyle).length > 0) {
+                localStorage.setItem(`header_style_${storeId}`, JSON.stringify(wrapperStyle));
+            }
             return (
                 <header className="bg-primary text-primary-foreground p-4 sticky top-0 z-40" style={wrapperStyle}>
                     <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
@@ -96,6 +100,10 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                 </header>
             );
         case 'footer':
+            // Save footer style to localStorage for other pages
+            if (typeof window !== 'undefined' && Object.keys(wrapperStyle).length > 0) {
+                localStorage.setItem(`footer_style_${storeId}`, JSON.stringify(wrapperStyle));
+            }
             return (
                 <footer className="bg-primary text-primary-foreground py-12" style={wrapperStyle}>
                     <div className="max-w-7xl mx-auto px-4 text-center">
