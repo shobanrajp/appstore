@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { ShoppingCart, User, LogIn, Search, Menu } from 'lucide-react';
-import { Sheet, SheetContent, SheetTrigger, SheetClose } from './ui/sheet';
+import { Sheet, SheetContent, SheetTrigger } from './ui/sheet';
 
 const StoreHeader = ({ 
     store, 
@@ -18,6 +18,7 @@ const StoreHeader = ({
 }) => {
     const { user } = useAuth();
     const navigate = useNavigate();
+    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     
     // Get stored header style from localStorage (set by StoreFront from Page Editor config)
     const [headerStyle, setHeaderStyle] = useState(style);
@@ -44,15 +45,18 @@ const StoreHeader = ({
         { label: 'Contact', path: `/store/${storeId}/contact`, key: 'contact' },
     ];
 
-    const handleNavClick = (path) => {
-        navigate(path);
+    const handleNavClick = (path, e) => {
+        if (e) e.preventDefault();
+        setMobileMenuOpen(false);
+        // Use window.location for reliable navigation
+        window.location.href = path;
     };
 
     return (
         <header className="bg-primary text-primary-foreground sticky top-0 z-50" style={headerStyle}>
             <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
                 {/* Logo */}
-                <div className="flex-shrink-0 cursor-pointer" onClick={() => handleNavClick(`/store/${storeId}`)}>
+                <div className="flex-shrink-0 cursor-pointer" onClick={(e) => handleNavClick(`/store/${storeId}`, e)}>
                     <h1 className="text-xl md:text-2xl font-serif hover:opacity-80 transition-opacity">
                         {store?.name || 'Store'}
                     </h1>
@@ -76,13 +80,14 @@ const StoreHeader = ({
                 {/* Desktop Navigation */}
                 <nav className="hidden md:flex gap-6 items-center">
                     {navItems.map((item) => (
-                        <span 
+                        <a 
                             key={item.key} 
-                            onClick={() => handleNavClick(item.path)}
+                            href={item.path}
+                            onClick={(e) => handleNavClick(item.path, e)}
                             className={`hover:opacity-80 transition-opacity cursor-pointer ${activeTab === item.key ? 'font-semibold' : ''}`}
                         >
                             {item.label}
-                        </span>
+                        </a>
                     ))}
                 </nav>
 
@@ -93,7 +98,7 @@ const StoreHeader = ({
                             variant="ghost" 
                             size="sm" 
                             className="text-primary-foreground hover:bg-white/10"
-                            onClick={() => handleNavClick('/portal')}
+                            onClick={(e) => handleNavClick('/portal', e)}
                         >
                             <User className="w-4 h-4 md:mr-2" />
                             <span className="hidden md:inline">Account</span>
@@ -103,7 +108,7 @@ const StoreHeader = ({
                             variant="ghost" 
                             size="sm" 
                             className="text-primary-foreground hover:bg-white/10"
-                            onClick={() => handleNavClick('/login')}
+                            onClick={(e) => handleNavClick('/login', e)}
                         >
                             <LogIn className="w-4 h-4 md:mr-2" />
                             <span className="hidden md:inline">Login</span>
@@ -114,7 +119,7 @@ const StoreHeader = ({
                         variant="ghost" 
                         size="sm" 
                         className="text-primary-foreground hover:bg-white/10 relative"
-                        onClick={() => handleNavClick(`/store/${storeId}`)}
+                        onClick={(e) => handleNavClick(`/store/${storeId}`, e)}
                     >
                         <ShoppingCart className="w-5 h-5" />
                         {cartTotal > 0 && (
@@ -125,7 +130,7 @@ const StoreHeader = ({
                     </Button>
 
                     {/* Mobile Menu */}
-                    <Sheet>
+                    <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
                         <SheetTrigger asChild>
                             <Button variant="ghost" size="sm" className="md:hidden text-primary-foreground hover:bg-white/10">
                                 <Menu className="w-5 h-5" />
@@ -134,14 +139,14 @@ const StoreHeader = ({
                         <SheetContent side="right" className="w-[250px]">
                             <nav className="flex flex-col gap-4 mt-8">
                                 {navItems.map((item) => (
-                                    <SheetClose key={item.key} asChild>
-                                        <span 
-                                            onClick={() => handleNavClick(item.path)}
-                                            className={`hover:opacity-80 transition-opacity block py-2 cursor-pointer ${activeTab === item.key ? 'font-semibold' : ''}`}
-                                        >
-                                            {item.label}
-                                        </span>
-                                    </SheetClose>
+                                    <a 
+                                        key={item.key} 
+                                        href={item.path}
+                                        onClick={(e) => handleNavClick(item.path, e)}
+                                        className={`hover:opacity-80 transition-opacity block py-2 cursor-pointer ${activeTab === item.key ? 'font-semibold' : ''}`}
+                                    >
+                                        {item.label}
+                                    </a>
                                 ))}
                             </nav>
                         </SheetContent>
