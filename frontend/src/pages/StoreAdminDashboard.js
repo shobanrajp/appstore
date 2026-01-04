@@ -2155,6 +2155,203 @@ const StoreAdminDashboard = () => {
                         </div>
                     )}
 
+                    {/* Staff Members Tab */}
+                    {activeTab === 'staff' && (
+                        <div className="space-y-6">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-2xl font-serif font-semibold">Staff Members</h2>
+                                    <p className="text-muted-foreground">Manage internal workers and their access permissions</p>
+                                </div>
+                                <Dialog open={staffDialogOpen} onOpenChange={(open) => { setStaffDialogOpen(open); if (!open) { setEditingStaff(null); setNewStaff({ email: '', password: '', name: '', phone: '', menu_access: ['products', 'inventory', 'orders', 'pos'] }); } }}>
+                                    <DialogTrigger asChild>
+                                        <Button className="gold-gradient text-white" data-testid="add-staff-btn">
+                                            <Plus className="w-4 h-4 mr-2" /> Add Staff
+                                        </Button>
+                                    </DialogTrigger>
+                                    <DialogContent className="max-w-lg">
+                                        <DialogHeader>
+                                            <DialogTitle className="font-serif">{editingStaff ? 'Edit Staff Member' : 'Add Staff Member'}</DialogTitle>
+                                        </DialogHeader>
+                                        <form onSubmit={handleCreateStaff} className="space-y-4">
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label>Name *</Label>
+                                                    <Input value={newStaff.name} onChange={(e) => setNewStaff({ ...newStaff, name: e.target.value })} required />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Phone</Label>
+                                                    <Input value={newStaff.phone} onChange={(e) => setNewStaff({ ...newStaff, phone: e.target.value })} />
+                                                </div>
+                                            </div>
+                                            {!editingStaff && (
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div className="space-y-2">
+                                                        <Label>Email *</Label>
+                                                        <Input type="email" value={newStaff.email} onChange={(e) => setNewStaff({ ...newStaff, email: e.target.value })} required />
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label>Password *</Label>
+                                                        <Input type="password" value={newStaff.password} onChange={(e) => setNewStaff({ ...newStaff, password: e.target.value })} required />
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <div className="space-y-2">
+                                                <Label>Menu Access</Label>
+                                                <p className="text-xs text-muted-foreground mb-2">Select which sections this staff member can access</p>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    {[
+                                                        { key: 'products', label: 'Products', icon: Package },
+                                                        { key: 'inventory', label: 'Inventory', icon: Box },
+                                                        { key: 'orders', label: 'Orders', icon: ShoppingCart },
+                                                        { key: 'pos', label: 'POS', icon: CreditCard },
+                                                        { key: 'vendors', label: 'Vendors', icon: Truck },
+                                                        { key: 'purchase-orders', label: 'Purchase Orders', icon: Truck },
+                                                        { key: 'plans', label: 'Subscription Plans', icon: DollarSign },
+                                                        { key: 'reporting', label: 'Reporting', icon: BarChart3 },
+                                                    ].map(({ key, label, icon: Icon }) => (
+                                                        <div key={key} className="flex items-center gap-2 p-2 border rounded-lg">
+                                                            <Switch
+                                                                checked={newStaff.menu_access.includes(key)}
+                                                                onCheckedChange={() => toggleStaffAccess(key)}
+                                                            />
+                                                            <Icon className="w-4 h-4 text-muted-foreground" />
+                                                            <span className="text-sm">{label}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                            <Button type="submit" className="w-full gold-gradient text-white">
+                                                {editingStaff ? 'Update Staff' : 'Add Staff'}
+                                            </Button>
+                                        </form>
+                                    </DialogContent>
+                                </Dialog>
+                            </div>
+
+                            <Card>
+                                <CardContent className="p-0">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Name</TableHead>
+                                                <TableHead>Email</TableHead>
+                                                <TableHead>Phone</TableHead>
+                                                <TableHead>Access</TableHead>
+                                                <TableHead>Status</TableHead>
+                                                <TableHead className="text-right">Actions</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {staff.map((s) => (
+                                                <TableRow key={s.id}>
+                                                    <TableCell className="font-medium">{s.name}</TableCell>
+                                                    <TableCell>{s.email}</TableCell>
+                                                    <TableCell>{s.phone || '-'}</TableCell>
+                                                    <TableCell>
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {(s.menu_access || []).slice(0, 3).map((m) => (
+                                                                <Badge key={m} variant="outline" className="text-xs">{m}</Badge>
+                                                            ))}
+                                                            {(s.menu_access || []).length > 3 && (
+                                                                <Badge variant="outline" className="text-xs">+{s.menu_access.length - 3}</Badge>
+                                                            )}
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge className={s.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
+                                                            {s.is_active ? 'Active' : 'Inactive'}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        <Button variant="ghost" size="sm" onClick={() => handleViewStaffActivity(s)}>
+                                                            <Activity className="w-4 h-4" />
+                                                        </Button>
+                                                        <Button variant="ghost" size="sm" onClick={() => openEditStaff(s)}>
+                                                            <Edit2 className="w-4 h-4" />
+                                                        </Button>
+                                                        <Button variant="ghost" size="sm" onClick={() => handleDeleteStaff(s.id)}>
+                                                            <Trash2 className="w-4 h-4 text-destructive" />
+                                                        </Button>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                            {staff.length === 0 && (
+                                                <TableRow>
+                                                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                                                        No staff members yet. Add your first staff member to get started.
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </CardContent>
+                            </Card>
+                        </div>
+                    )}
+
+                    {/* Website Customers Tab */}
+                    {activeTab === 'customers' && (
+                        <div className="space-y-6">
+                            <div>
+                                <h2 className="text-2xl font-serif font-semibold">Website Customers</h2>
+                                <p className="text-muted-foreground">View and manage customers who have placed orders or subscribed</p>
+                            </div>
+
+                            <Card>
+                                <CardContent className="p-0">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Name</TableHead>
+                                                <TableHead>Email</TableHead>
+                                                <TableHead>Orders</TableHead>
+                                                <TableHead>Total Spent</TableHead>
+                                                <TableHead>Subscriptions</TableHead>
+                                                <TableHead>Status</TableHead>
+                                                <TableHead className="text-right">Actions</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {customers.map((c) => (
+                                                <TableRow key={c.id}>
+                                                    <TableCell className="font-medium">{c.name}</TableCell>
+                                                    <TableCell>{c.email}</TableCell>
+                                                    <TableCell>{c.order_count || 0}</TableCell>
+                                                    <TableCell>{formatCurrency(c.total_spent || 0, store.currency)}</TableCell>
+                                                    <TableCell>{c.subscription_count || 0}</TableCell>
+                                                    <TableCell>
+                                                        <Badge className={c.is_active !== false ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
+                                                            {c.is_active !== false ? 'Active' : 'Inactive'}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        <Button variant="ghost" size="sm" onClick={() => handleViewCustomerDetails(c)}>
+                                                            <Eye className="w-4 h-4" />
+                                                        </Button>
+                                                        <Button variant="ghost" size="sm" onClick={() => openEditCustomer(c)}>
+                                                            <Edit2 className="w-4 h-4" />
+                                                        </Button>
+                                                        <Button variant="ghost" size="sm" onClick={() => handleDeleteCustomer(c.id)}>
+                                                            <Trash2 className="w-4 h-4 text-destructive" />
+                                                        </Button>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                            {customers.length === 0 && (
+                                                <TableRow>
+                                                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                                                        No customers yet. Customers will appear here once they place orders or subscribe.
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </CardContent>
+                            </Card>
+                        </div>
+                    )}
+
                     {/* Subscription Plans Tab */}
                     {activeTab === 'plans' && (
                         <div className="space-y-6">
