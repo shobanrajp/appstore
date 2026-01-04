@@ -677,6 +677,11 @@ const StoreFront = () => {
                                 searchTerm={searchTerm}
                                 onSearchChange={setSearchTerm}
                                 storeId={storeId}
+                                inventory={inventory}
+                                globalSearchTerm={globalSearchTerm}
+                                onGlobalSearch={setGlobalSearchTerm}
+                                onNavigate={navigate}
+                                recentlyViewedPlans={recentlyViewedPlans}
                             />
                         ))}
                 </>
