@@ -251,13 +251,7 @@ const CategoryProducts = () => {
                 )}
             </main>
 
-            {/* Footer */}
-            <footer className="bg-primary text-primary-foreground py-8 mt-16">
-                <div className="max-w-7xl mx-auto px-4 text-center">
-                    <h2 className="text-xl font-serif mb-2">{store.name}</h2>
-                    <p className="text-sm opacity-60">© 2025 {store.name}. All rights reserved.</p>
-                </div>
-            </footer>
+            <StoreFooter store={store} storeId={storeId} />
         </div>
     );
 };
