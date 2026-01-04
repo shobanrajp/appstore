@@ -2194,7 +2194,7 @@ const StoreAdminDashboard = () => {
                                                     <Input value={newStaff.phone} onChange={(e) => setNewStaff({ ...newStaff, phone: e.target.value })} />
                                                 </div>
                                             </div>
-                                            {!editingStaff && (
+                                            {!editingStaff ? (
                                                 <div className="grid grid-cols-2 gap-4">
                                                     <div className="space-y-2">
                                                         <Label>Email *</Label>
@@ -2203,6 +2203,26 @@ const StoreAdminDashboard = () => {
                                                     <div className="space-y-2">
                                                         <Label>Password *</Label>
                                                         <Input type="password" value={newStaff.password} onChange={(e) => setNewStaff({ ...newStaff, password: e.target.value })} required />
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div className="space-y-2">
+                                                        <Label>New Password</Label>
+                                                        <Input type="password" value={newStaff.password} onChange={(e) => setNewStaff({ ...newStaff, password: e.target.value })} placeholder="Leave blank to keep current" />
+                                                        <p className="text-xs text-muted-foreground">Leave blank to keep current password</p>
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label>Status</Label>
+                                                        <div className="flex items-center gap-3 p-3 border rounded-lg">
+                                                            <Switch
+                                                                checked={newStaff.is_active}
+                                                                onCheckedChange={(checked) => setNewStaff({ ...newStaff, is_active: checked })}
+                                                            />
+                                                            <span className={newStaff.is_active ? 'text-green-600' : 'text-red-600'}>
+                                                                {newStaff.is_active ? 'Active' : 'Inactive'}
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             )}
