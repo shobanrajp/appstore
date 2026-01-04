@@ -1003,6 +1003,239 @@ async def get_store_reports(store_id: str, start_date: str = None, end_date: str
         }
     }
 
+# ==================== STAFF MANAGEMENT ENDPOINTS ====================
+
+@api_router.get("/stores/{store_id}/staff")
+async def get_store_staff(store_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] != UserRole.SUPER_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot view staff for other stores")
+    
+    staff = await db.users.find(
+        {"store_id": store_id, "role": UserRole.STORE_USER},
+        {"_id": 0, "hashed_password": 0}
+    ).to_list(1000)
+    
+    return staff
+
+@api_router.post("/stores/{store_id}/staff")
+async def create_staff(store_id: str, staff_data: StaffCreate, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] != UserRole.SUPER_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot create staff for other stores")
+    
+    # Check if email already exists
+    existing = await db.users.find_one({"email": staff_data.email})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    now = datetime.now(timezone.utc).isoformat()
+    staff_doc = {
+        "id": str(uuid4()),
+        "email": staff_data.email,
+        "hashed_password": hash_password(staff_data.password),
+        "name": staff_data.name,
+        "phone": staff_data.phone,
+        "role": UserRole.STORE_USER,
+        "store_id": store_id,
+        "menu_access": staff_data.menu_access or ["products", "inventory", "orders", "pos"],
+        "is_active": True,
+        "created_at": now
+    }
+    
+    await db.users.insert_one(staff_doc)
+    
+    # Log activity
+    await log_activity(user["id"], store_id, "staff_created", {"staff_id": staff_doc["id"], "staff_name": staff_data.name})
+    
+    del staff_doc["hashed_password"]
+    return staff_doc
+
+@api_router.put("/stores/{store_id}/staff/{staff_id}")
+async def update_staff(store_id: str, staff_id: str, staff_data: StaffUpdate, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] != UserRole.SUPER_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot update staff for other stores")
+    
+    update_data = {k: v for k, v in staff_data.model_dump().items() if v is not None}
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No data to update")
+    
+    result = await db.users.update_one(
+        {"id": staff_id, "store_id": store_id, "role": UserRole.STORE_USER},
+        {"$set": update_data}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Staff not found")
+    
+    # Log activity
+    await log_activity(user["id"], store_id, "staff_updated", {"staff_id": staff_id, "updates": list(update_data.keys())})
+    
+    staff = await db.users.find_one({"id": staff_id}, {"_id": 0, "hashed_password": 0})
+    return staff
+
+@api_router.delete("/stores/{store_id}/staff/{staff_id}")
+async def delete_staff(store_id: str, staff_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] != UserRole.SUPER_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot delete staff for other stores")
+    
+    result = await db.users.delete_one({"id": staff_id, "store_id": store_id, "role": UserRole.STORE_USER})
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Staff not found")
+    
+    # Log activity
+    await log_activity(user["id"], store_id, "staff_deleted", {"staff_id": staff_id})
+    
+    return {"message": "Staff deleted successfully"}
+
+@api_router.get("/stores/{store_id}/staff/{staff_id}/activity")
+async def get_staff_activity(store_id: str, staff_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] != UserRole.SUPER_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot view activity for other stores")
+    
+    # Get activity logs for the staff member
+    activities = await db.activity_logs.find(
+        {"user_id": staff_id, "store_id": store_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    # Get POS transactions by staff
+    pos_transactions = await db.pos_transactions.find(
+        {"store_id": store_id, "created_by": staff_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    return {
+        "activity_logs": activities,
+        "pos_transactions": pos_transactions
+    }
+
+async def log_activity(user_id: str, store_id: str, action: str, details: dict = None):
+    """Helper function to log user activity"""
+    log_doc = {
+        "id": str(uuid4()),
+        "user_id": user_id,
+        "store_id": store_id,
+        "action": action,
+        "details": details or {},
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.activity_logs.insert_one(log_doc)
+
+# ==================== CUSTOMER MANAGEMENT ENDPOINTS ====================
+
+@api_router.get("/stores/{store_id}/customers")
+async def get_store_customers(store_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] != UserRole.SUPER_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot view customers for other stores")
+    
+    # Get all unique customer IDs from orders and subscriptions for this store
+    orders = await db.orders.find({"store_id": store_id}, {"_id": 0, "user_id": 1, "total_amount": 1}).to_list(10000)
+    subscriptions = await db.user_subscriptions.find({"store_id": store_id}, {"_id": 0, "user_id": 1}).to_list(10000)
+    
+    customer_ids = set()
+    for o in orders:
+        if o.get("user_id"):
+            customer_ids.add(o["user_id"])
+    for s in subscriptions:
+        if s.get("user_id"):
+            customer_ids.add(s["user_id"])
+    
+    # Get customer details
+    customers = []
+    for customer_id in customer_ids:
+        customer = await db.users.find_one({"id": customer_id}, {"_id": 0, "hashed_password": 0})
+        if customer:
+            # Calculate stats
+            user_orders = [o for o in orders if o.get("user_id") == customer_id]
+            user_subscriptions = [s for s in subscriptions if s.get("user_id") == customer_id]
+            
+            customer["order_count"] = len(user_orders)
+            customer["total_spent"] = sum(o.get("total_amount", 0) for o in user_orders)
+            customer["subscription_count"] = len(user_subscriptions)
+            customers.append(customer)
+    
+    return customers
+
+@api_router.get("/stores/{store_id}/customers/{customer_id}")
+async def get_customer_details(store_id: str, customer_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] != UserRole.SUPER_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot view customer for other stores")
+    
+    customer = await db.users.find_one({"id": customer_id}, {"_id": 0, "hashed_password": 0})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    
+    # Get orders
+    orders = await db.orders.find(
+        {"store_id": store_id, "user_id": customer_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    # Get subscriptions
+    subscriptions = await db.user_subscriptions.find(
+        {"store_id": store_id, "user_id": customer_id},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Get subscription plans info
+    plan_ids = [s.get("plan_id") for s in subscriptions if s.get("plan_id")]
+    plans = await db.subscription_plans.find({"id": {"$in": plan_ids}}, {"_id": 0}).to_list(100)
+    plan_map = {p["id"]: p for p in plans}
+    
+    for sub in subscriptions:
+        if sub.get("plan_id") and sub["plan_id"] in plan_map:
+            sub["plan_name"] = plan_map[sub["plan_id"]].get("name", "Unknown Plan")
+    
+    # Get payments
+    payments = await db.payments.find(
+        {"user_id": customer_id},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    return {
+        "customer": customer,
+        "orders": orders,
+        "subscriptions": subscriptions,
+        "payments": payments
+    }
+
+@api_router.put("/stores/{store_id}/customers/{customer_id}")
+async def update_customer(store_id: str, customer_id: str, update_data: dict, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] != UserRole.SUPER_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot update customer for other stores")
+    
+    # Only allow updating certain fields
+    allowed_fields = ["name", "phone", "is_active"]
+    filtered_data = {k: v for k, v in update_data.items() if k in allowed_fields and v is not None}
+    
+    if not filtered_data:
+        raise HTTPException(status_code=400, detail="No valid data to update")
+    
+    result = await db.users.update_one({"id": customer_id}, {"$set": filtered_data})
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    
+    return {"message": "Customer updated successfully"}
+
+@api_router.delete("/stores/{store_id}/customers/{customer_id}")
+async def delete_customer(store_id: str, customer_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] != UserRole.SUPER_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot delete customer for other stores")
+    
+    # Check if customer exists
+    customer = await db.users.find_one({"id": customer_id})
+    if not customer:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    
+    # Delete user and related data
+    await db.users.delete_one({"id": customer_id})
+    
+    # Log activity
+    await log_activity(user["id"], store_id, "customer_deleted", {"customer_id": customer_id})
+    
+    return {"message": "Customer deleted successfully"}
+
 # ==================== ORDER ENDPOINTS ====================
 
 async def get_next_order_id():
