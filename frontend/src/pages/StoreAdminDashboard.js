@@ -48,7 +48,15 @@ const StoreAdminDashboard = () => {
     const [staff, setStaff] = useState([]);
     const [customers, setCustomers] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState('products');
+    // Set initial tab based on user's menu access
+    const getInitialTab = () => {
+        if (user?.role === 'super_admin' || user?.role === 'store_admin') {
+            return 'products';
+        }
+        const menuAccess = user?.menu_access || [];
+        return menuAccess.length > 0 ? menuAccess[0] : 'products';
+    };
+    const [activeTab, setActiveTab] = useState(getInitialTab());
 
     // Dialog states
     const [productDialogOpen, setProductDialogOpen] = useState(false);
