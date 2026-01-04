@@ -45,6 +45,8 @@ const StoreAdminDashboard = () => {
     const [purchaseOrders, setPurchaseOrders] = useState([]);
     const [posTransactions, setPosTransactions] = useState([]);
     const [subscriptionPlans, setSubscriptionPlans] = useState([]);
+    const [staff, setStaff] = useState([]);
+    const [customers, setCustomers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('products');
 
@@ -61,6 +63,21 @@ const StoreAdminDashboard = () => {
     const [selectedOrder, setSelectedOrder] = useState(null);
     const [orderTrackingInfo, setOrderTrackingInfo] = useState({ tracking_number: '', carrier_name: '', carrier_url: '' });
     const [storeEditForm, setStoreEditForm] = useState({ name: '', description: '', contact_email: '', contact_phone: '', address: '' });
+    
+    // Staff management states
+    const [staffDialogOpen, setStaffDialogOpen] = useState(false);
+    const [editingStaff, setEditingStaff] = useState(null);
+    const [newStaff, setNewStaff] = useState({ email: '', password: '', name: '', phone: '', menu_access: ['products', 'inventory', 'orders', 'pos'] });
+    const [staffActivityOpen, setStaffActivityOpen] = useState(false);
+    const [selectedStaff, setSelectedStaff] = useState(null);
+    const [staffActivityData, setStaffActivityData] = useState(null);
+    
+    // Customer management states
+    const [customerDetailOpen, setCustomerDetailOpen] = useState(false);
+    const [selectedCustomer, setSelectedCustomer] = useState(null);
+    const [customerData, setCustomerData] = useState(null);
+    const [customerEditOpen, setCustomerEditOpen] = useState(false);
+    const [customerEditForm, setCustomerEditForm] = useState({ name: '', phone: '' });
 
     // Form states
     const [newProduct, setNewProduct] = useState({ name: '', description: '', price: '', category: '', sku: '', weight: '', images: [''] });
