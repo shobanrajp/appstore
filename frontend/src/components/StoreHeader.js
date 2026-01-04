@@ -44,21 +44,6 @@ const StoreHeader = ({
         { label: 'Contact', path: `/store/${storeId}/contact`, key: 'contact' },
     ];
 
-    const NavLinks = ({ mobile = false }) => (
-        <>
-            {navItems.map((item) => (
-                <Link 
-                    key={item.key} 
-                    to={item.path} 
-                    className={`hover:opacity-80 transition-opacity ${activeTab === item.key ? 'font-semibold' : ''} ${mobile ? 'block py-2' : ''}`}
-                    onClick={mobile ? () => document.body.click() : undefined}
-                >
-                    {item.label}
-                </Link>
-            ))}
-        </>
-    );
-
     return (
         <header className="bg-primary text-primary-foreground sticky top-0 z-50" style={headerStyle}>
             <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
@@ -86,7 +71,15 @@ const StoreHeader = ({
 
                 {/* Desktop Navigation */}
                 <nav className="hidden md:flex gap-6 items-center">
-                    <NavLinks />
+                    {navItems.map((item) => (
+                        <Link 
+                            key={item.key} 
+                            to={item.path} 
+                            className={`hover:opacity-80 transition-opacity cursor-pointer ${activeTab === item.key ? 'font-semibold' : ''}`}
+                        >
+                            {item.label}
+                        </Link>
+                    ))}
                 </nav>
 
                 {/* Right Actions */}
@@ -127,7 +120,15 @@ const StoreHeader = ({
                         </SheetTrigger>
                         <SheetContent side="right" className="w-[250px]">
                             <nav className="flex flex-col gap-4 mt-8">
-                                <NavLinks mobile />
+                                {navItems.map((item) => (
+                                    <Link 
+                                        key={item.key} 
+                                        to={item.path} 
+                                        className={`hover:opacity-80 transition-opacity block py-2 ${activeTab === item.key ? 'font-semibold' : ''}`}
+                                    >
+                                        {item.label}
+                                    </Link>
+                                ))}
                             </nav>
                         </SheetContent>
                     </Sheet>
