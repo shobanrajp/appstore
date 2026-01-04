@@ -332,7 +332,16 @@ const StoreAdminDashboard = () => {
         e.preventDefault();
         try {
             if (editingStaff) {
-                const updateData = { name: newStaff.name, phone: newStaff.phone, menu_access: newStaff.menu_access };
+                const updateData = { 
+                    name: newStaff.name, 
+                    phone: newStaff.phone, 
+                    menu_access: newStaff.menu_access,
+                    is_active: newStaff.is_active
+                };
+                // Only include password if it's been changed
+                if (newStaff.password && newStaff.password.trim()) {
+                    updateData.password = newStaff.password;
+                }
                 await updateStaff(store.id, editingStaff.id, updateData);
                 toast.success('Staff updated');
                 setEditingStaff(null);
@@ -341,7 +350,7 @@ const StoreAdminDashboard = () => {
                 toast.success('Staff created');
             }
             setStaffDialogOpen(false);
-            setNewStaff({ email: '', password: '', name: '', phone: '', menu_access: ['products', 'inventory', 'orders', 'pos'] });
+            setNewStaff({ email: '', password: '', name: '', phone: '', menu_access: ['products', 'inventory', 'orders', 'pos'], is_active: true });
             loadData();
         } catch (error) {
             toast.error(error.response?.data?.detail || 'Failed to save staff');
@@ -355,7 +364,8 @@ const StoreAdminDashboard = () => {
             password: '',
             name: staffMember.name,
             phone: staffMember.phone || '',
-            menu_access: staffMember.menu_access || []
+            menu_access: staffMember.menu_access || [],
+            is_active: staffMember.is_active !== false
         });
         setStaffDialogOpen(true);
     };
