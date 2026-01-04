@@ -67,7 +67,7 @@ const StoreAdminDashboard = () => {
     // Staff management states
     const [staffDialogOpen, setStaffDialogOpen] = useState(false);
     const [editingStaff, setEditingStaff] = useState(null);
-    const [newStaff, setNewStaff] = useState({ email: '', password: '', name: '', phone: '', menu_access: ['products', 'inventory', 'orders', 'pos'] });
+    const [newStaff, setNewStaff] = useState({ email: '', password: '', name: '', phone: '', menu_access: ['products', 'inventory', 'orders', 'pos'], is_active: true });
     const [staffActivityOpen, setStaffActivityOpen] = useState(false);
     const [selectedStaff, setSelectedStaff] = useState(null);
     const [staffActivityData, setStaffActivityData] = useState(null);
