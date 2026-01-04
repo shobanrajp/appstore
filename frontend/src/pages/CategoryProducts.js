@@ -137,22 +137,24 @@ const CategoryProducts = () => {
             {/* Category Navigation */}
             <nav className="bg-card border-b py-3">
                 <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-center gap-4 md:gap-8 px-4">
-                    <Link 
-                        to={`/store/${storeId}`}
+                    <a 
+                        href={`/store/${storeId}`}
+                        onClick={(e) => { e.preventDefault(); window.location.href = `/store/${storeId}`; }}
                         className="hover:text-gold cursor-pointer transition-colors text-sm md:text-base"
                     >
                         All Products
-                    </Link>
+                    </a>
                     {allCategories.map((cat, i) => (
-                        <Link 
+                        <a 
                             key={i}
-                            to={`/store/${storeId}/category/${encodeURIComponent(cat)}`}
+                            href={`/store/${storeId}/category/${encodeURIComponent(cat)}`}
+                            onClick={(e) => { e.preventDefault(); window.location.href = `/store/${storeId}/category/${encodeURIComponent(cat)}`; }}
                             className={`hover:text-gold cursor-pointer transition-colors text-sm md:text-base ${
                                 cat === decodedCategory ? 'text-gold font-semibold' : ''
                             }`}
                         >
                             {cat}
-                        </Link>
+                        </a>
                     ))}
                 </div>
             </nav>
