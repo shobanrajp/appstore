@@ -14,6 +14,8 @@ import StoreFooter from '../components/StoreFooter';
 
 const CategoryProducts = () => {
     const { storeId, category } = useParams();
+    const navigate = useNavigate();
+    const { user } = useAuth();
     const [store, setStore] = useState(null);
     const [products, setProducts] = useState([]);
     const [inventory, setInventory] = useState([]);
