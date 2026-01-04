@@ -144,10 +144,10 @@ const StoreHeader = ({
                                     onClick={() => setMobileMenuOpen(false)}
                                 />
                                 {/* Menu Panel */}
-                                <div className="fixed inset-y-0 right-0 z-50 w-[250px] bg-background p-6 shadow-lg">
+                                <div className="fixed inset-y-0 right-0 z-50 w-[250px] bg-background p-6 shadow-lg text-foreground">
                                     <button 
                                         onClick={() => setMobileMenuOpen(false)}
-                                        className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100"
+                                        className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 text-foreground"
                                     >
                                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                             <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -160,7 +160,7 @@ const StoreHeader = ({
                                                 key={item.key} 
                                                 href={item.path}
                                                 onClick={(e) => handleNavClick(item.path, e)}
-                                                className={`hover:opacity-80 transition-opacity block py-2 cursor-pointer ${activeTab === item.key ? 'font-semibold' : ''}`}
+                                                className={`hover:opacity-80 transition-opacity block py-2 cursor-pointer text-foreground ${activeTab === item.key ? 'font-semibold' : ''}`}
                                             >
                                                 {item.label}
                                             </a>
