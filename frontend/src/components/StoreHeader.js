@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Button } from './ui/button';
@@ -18,6 +18,24 @@ const StoreHeader = ({
 }) => {
     const { user } = useAuth();
     const navigate = useNavigate();
+    
+    // Get stored header style from localStorage (set by StoreFront from Page Editor config)
+    const [headerStyle, setHeaderStyle] = useState(style);
+    
+    useEffect(() => {
+        if (Object.keys(style).length === 0) {
+            const storedStyle = localStorage.getItem(`header_style_${storeId}`);
+            if (storedStyle) {
+                try {
+                    setHeaderStyle(JSON.parse(storedStyle));
+                } catch (e) {}
+            }
+        } else {
+            // Store the style for other pages to use
+            localStorage.setItem(`header_style_${storeId}`, JSON.stringify(style));
+            setHeaderStyle(style);
+        }
+    }, [storeId, style]);
 
     const navItems = [
         { label: 'Home', path: `/store/${storeId}`, key: 'home' },
