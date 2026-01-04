@@ -153,11 +153,21 @@ const ProductDetail = () => {
             <div className="bg-muted/50 border-b">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Link to={`/store/${storeId}`} className="hover:text-foreground">Home</Link>
+                        <a 
+                            href={`/store/${storeId}`} 
+                            onClick={(e) => { e.preventDefault(); window.location.href = `/store/${storeId}`; }}
+                            className="hover:text-foreground cursor-pointer"
+                        >
+                            Home
+                        </a>
                         <ChevronRight className="w-4 h-4" />
-                        <Link to={`/store/${storeId}/category/${encodeURIComponent(product.category || 'All')}`} className="hover:text-foreground">
+                        <a 
+                            href={`/store/${storeId}/category/${encodeURIComponent(product.category || 'All')}`}
+                            onClick={(e) => { e.preventDefault(); window.location.href = `/store/${storeId}/category/${encodeURIComponent(product.category || 'All')}`; }}
+                            className="hover:text-foreground cursor-pointer"
+                        >
                             {product.category || 'Products'}
-                        </Link>
+                        </a>
                         <ChevronRight className="w-4 h-4" />
                         <span className="text-foreground">{product.name}</span>
                     </div>
