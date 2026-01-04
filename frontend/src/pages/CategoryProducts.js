@@ -121,9 +121,9 @@ const CategoryProducts = () => {
                 <Card>
                     <CardContent className="p-8 text-center">
                         <h2 className="text-xl font-serif mb-4">Store Not Found</h2>
-                        <Link to="/">
+                        <a href="/" onClick={(e) => { e.preventDefault(); window.location.href = '/'; }}>
                             <Button>Go Home</Button>
-                        </Link>
+                        </a>
                     </CardContent>
                 </Card>
             </div>
