@@ -131,7 +131,7 @@ const StoreAdminDashboard = () => {
             setCurrency(userStore.currency);
 
             const storeId = userStore.id;
-            const [productsRes, inventoryRes, ordersRes, vendorsRes, posRes, posTransRes, plansRes, subscribersRes] = await Promise.all([
+            const [productsRes, inventoryRes, ordersRes, vendorsRes, posRes, posTransRes, plansRes, subscribersRes, staffRes, customersRes] = await Promise.all([
                 getProducts(storeId, null, false),
                 getInventory(storeId),
                 getOrders(storeId),
@@ -139,7 +139,9 @@ const StoreAdminDashboard = () => {
                 getPurchaseOrders(storeId),
                 getPOSTransactions(storeId),
                 getSubscriptionPlans(storeId),
-                getStoreSubscribers(storeId).catch(() => ({ data: [] }))
+                getStoreSubscribers(storeId).catch(() => ({ data: [] })),
+                getStoreStaff(storeId).catch(() => ({ data: [] })),
+                getStoreCustomers(storeId).catch(() => ({ data: [] }))
             ]);
 
             setProducts(productsRes.data);
@@ -150,6 +152,8 @@ const StoreAdminDashboard = () => {
             setPosTransactions(posTransRes.data);
             setSubscriptionPlans(plansRes.data);
             setSubscribers(subscribersRes.data || []);
+            setStaff(staffRes.data || []);
+            setCustomers(customersRes.data || []);
         } catch (error) {
             console.error(error);
             toast.error('Failed to load data');
