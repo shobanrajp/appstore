@@ -9,6 +9,7 @@ import { Plus, Minus, ChevronRight, AlertTriangle, ShoppingCart } from 'lucide-r
 import { formatCurrency } from '../lib/utils';
 import StoreHeader from '../components/StoreHeader';
 import StoreFooter from '../components/StoreFooter';
+import { useCart } from '../context/CartContext';
 
 const ProductDetail = () => {
     const { storeId, productId } = useParams();
@@ -20,19 +21,13 @@ const ProductDetail = () => {
     const [quantity, setQuantity] = useState(1);
     const [loading, setLoading] = useState(true);
     const [selectedImageIndex, setSelectedImageIndex] = useState(0);
-    const [cart, setCart] = useState(() => {
-        const saved = localStorage.getItem(`cart_${storeId}`);
-        return saved ? JSON.parse(saved) : [];
-    });
+    const { cart, setCart, addToCart: contextAddToCart, cartCount } = useCart(storeId);
 
     useEffect(() => {
         loadData();
     }, [storeId, productId]);
 
-    useEffect(() => {
-        // Save cart to localStorage
-        localStorage.setItem(`cart_${storeId}`, JSON.stringify(cart));
-    }, [cart, storeId]);
+    // cart state and persistence provided by CartContext
 
     useEffect(() => {
         // Add to recently viewed
@@ -75,10 +70,23 @@ const ProductDetail = () => {
         }
     };
     
-    const getProductStock = (prodId) => {
-        const inv = inventory.find(i => i.product_id === prodId);
-        return inv ? inv.quantity : 0;
+    const getInventoryEntry = (prodId) => {
+        if (!inventory) return { quantity: 0, min_stock_level: 0 };
+        if (!Array.isArray(inventory) && typeof inventory === 'object') {
+            const inv = inventory[prodId] || inventory[prodId.toString()];
+            if (!inv) return { quantity: 0, min_stock_level: 0 };
+            return { quantity: Number(inv.quantity ?? 0), min_stock_level: Number(inv.min_stock_level ?? 5) };
+        }
+        const inv = inventory.find(i =>
+            i.product_id === prodId ||
+            i.productId === prodId ||
+            (i.product && (i.product.id === prodId || i.product._id === prodId))
+        );
+        if (!inv) return { quantity: 0, min_stock_level: 0 };
+        return { quantity: Number(inv.quantity ?? 0), min_stock_level: Number(inv.min_stock_level ?? 5) };
     };
+
+    const getProductStock = (prodId) => getInventoryEntry(prodId).quantity;
 
     const addToCart = () => {
         const stock = getProductStock(product.id);
@@ -86,36 +94,21 @@ const ProductDetail = () => {
             toast.error('This product is out of stock');
             return;
         }
-        
+
         const existing = cart.find(item => item.product_id === product.id);
         const currentQtyInCart = existing ? existing.quantity : 0;
-        
+
         if (currentQtyInCart + quantity > stock) {
             toast.error(`Only ${stock} items available in stock`);
             return;
         }
-        
-        let newCart;
-        if (existing) {
-            newCart = cart.map(item =>
-                item.product_id === product.id 
-                    ? { ...item, quantity: item.quantity + quantity } 
-                    : item
-            );
-        } else {
-            newCart = [...cart, { 
-                product_id: product.id, 
-                product_name: product.name, 
-                quantity: quantity, 
-                price: product.price,
-                image: product.images?.[0]
-            }];
-        }
-        setCart(newCart);
+
+        // delegate to CartContext
+        contextAddToCart(product, quantity);
         toast.success(`${product.name} added to cart`);
     };
 
-    const cartTotal = cart.reduce((sum, item) => sum + item.quantity, 0);
+    const cartTotal = cartCount;
 
     // Get featured products (excluding current product)
     const featuredProducts = allProducts
@@ -243,10 +236,12 @@ const ProductDetail = () => {
                         <div className="border-t pt-6 space-y-4">
                             {/* Stock Status */}
                             {(() => {
-                                const stock = getProductStock(product.id);
+                                const inv = getInventoryEntry(product.id);
+                                const stock = inv.quantity;
+                                const minLevel = inv.min_stock_level;
                                 const isOutOfStock = stock <= 0;
-                                const isLowStock = stock > 0 && stock < 10;
-                                
+                                const isLowStock = stock > 0 && (stock < 10 || (minLevel > 0 && stock <= minLevel));
+
                                 return (
                                     <>
                                         {isOutOfStock && (
@@ -261,7 +256,7 @@ const ProductDetail = () => {
                                                 <span className="font-medium">Only {stock} left in stock - Order soon!</span>
                                             </div>
                                         )}
-                                        
+
                                         <div className="flex items-center gap-4">
                                             <span className="text-sm font-medium">Quantity:</span>
                                             <div className="flex items-center gap-2">

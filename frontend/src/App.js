@@ -1,6 +1,8 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { CartProvider } from './context/CartContext';
+import CartDrawer from './components/CartDrawer';
 import { Toaster } from './components/ui/sonner';
 
 // Pages
@@ -126,13 +128,28 @@ function AppRoutes() {
     );
 }
 
+// Logs route changes to help diagnose navigation/render issues
+const RouteChangeLogger = () => {
+    const location = useLocation();
+    React.useEffect(() => {
+        // eslint-disable-next-line no-console
+        console.log('[Router]', location.pathname + location.search);
+    }, [location.pathname, location.search]);
+    return null;
+};
+
 function App() {
     return (
         <AuthProvider>
-            <BrowserRouter>
-                <AppRoutes />
-                <Toaster position="top-right" richColors />
-            </BrowserRouter>
+            <CartProvider>
+                <BrowserRouter>
+                    <RouteChangeLogger />
+                    <AppRoutes />
+                    <Toaster position="top-right" richColors />
+                    {/* Global cart drawer available on all routes */}
+                    <CartDrawer />
+                </BrowserRouter>
+            </CartProvider>
         </AuthProvider>
     );
 }

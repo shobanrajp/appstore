@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, Link, useSearchParams } from 'react-router-dom';
-import { getStore, getProducts, getInventory } from '../lib/api';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useParams, Link, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
+import { getStore, getProducts, getInventory, getSubscriptionPlans } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -11,53 +11,99 @@ import { Plus, Search, Grid3X3, List } from 'lucide-react';
 import { formatCurrency } from '../lib/utils';
 import StoreHeader from '../components/StoreHeader';
 import StoreFooter from '../components/StoreFooter';
+import { useCart } from '../context/CartContext';
 
 const StoreProducts = () => {
     const { storeId } = useParams();
     const [searchParams] = useSearchParams();
+    const location = useLocation();
     const [store, setStore] = useState(null);
     const [products, setProducts] = useState([]);
+    const [plans, setPlans] = useState([]);
     const [inventory, setInventory] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
+    // Note: do NOT depend on the `searchParams` object; use `location.search`
+    // because `searchParams` identity can change each render causing loops.
     const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || '');
     const [sortBy, setSortBy] = useState('name');
     const [viewMode, setViewMode] = useState('grid');
-    const [cart, setCart] = useState(() => {
-        const saved = localStorage.getItem(`cart_${storeId}`);
-        return saved ? JSON.parse(saved) : [];
-    });
+    const navigate = useNavigate();
+    const { cart, setCart, addToCart: contextAddToCart, cartCount } = useCart(storeId);
 
     const categories = [...new Set(products.filter(p => p.category).map(p => p.category))];
 
-    useEffect(() => {
-        loadData();
-    }, [storeId]);
-
-    useEffect(() => {
-        localStorage.setItem(`cart_${storeId}`, JSON.stringify(cart));
-    }, [cart, storeId]);
-
-    const loadData = async () => {
+    // Define loadData before effects to avoid temporal dead zone
+    const loadData = useCallback(async () => {
         try {
-            const [storeRes, productsRes, inventoryRes] = await Promise.all([
+            const [storeRes, productsRes, plansRes, inventoryRes] = await Promise.all([
                 getStore(storeId),
                 getProducts(storeId),
+                getSubscriptionPlans(storeId).catch(() => ({ data: [] })),
                 getInventory(storeId).catch(() => ({ data: [] }))
             ]);
             setStore(storeRes.data);
             setProducts(productsRes.data);
+            setPlans(plansRes.data || []);
             setInventory(inventoryRes.data || []);
         } catch (error) {
             toast.error('Failed to load products');
         } finally {
             setLoading(false);
         }
-    };
+    }, [storeId]);
+
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
+
+    // Ensure component updates when the URL/search params change (SPA navigation)
+    useEffect(() => {
+        try {
+            const params = new URLSearchParams(location.search || window.location.search);
+            const s = params.get('search') || '';
+            setSearchTerm(s);
+        } catch (e) {}
+    }, [location.search]);
+
+    
+    
+    
+
+    // Filter subscription plans by searchTerm as well
+    const filteredPlans = plans
+        .filter(p => p.is_active !== false)
+        .filter(p => !searchTerm || p.name.toLowerCase().includes(searchTerm.toLowerCase()) || (p.description && p.description.toLowerCase().includes(searchTerm.toLowerCase())))
+        .sort((a, b) => a.name.localeCompare(b.name));
 
     const getProductStock = (productId) => {
-        const inv = inventory.find(i => i.product_id === productId);
-        return inv ? inv.quantity : 0;
+        if (!inventory) return 0;
+        if (!Array.isArray(inventory) && typeof inventory === 'object') {
+            const inv = inventory[productId] || inventory[productId.toString()];
+            return inv ? Number(inv.quantity ?? 0) : 0;
+        }
+        const inv = inventory.find(i =>
+            i.product_id === productId ||
+            i.productId === productId ||
+            (i.product && (i.product.id === productId || i.product._id === productId))
+        );
+        return inv ? Number(inv.quantity ?? 0) : 0;
+    };
+
+    const getInventoryEntry = (productId) => {
+        if (!inventory) return { quantity: 0, min_stock_level: 0 };
+        if (!Array.isArray(inventory) && typeof inventory === 'object') {
+            const inv = inventory[productId] || inventory[productId.toString()];
+            if (!inv) return { quantity: 0, min_stock_level: 0 };
+            return { quantity: Number(inv.quantity ?? 0), min_stock_level: Number(inv.min_stock_level ?? 5) };
+        }
+        const inv = inventory.find(i =>
+            i.product_id === productId ||
+            i.productId === productId ||
+            (i.product && (i.product.id === productId || i.product._id === productId))
+        );
+        if (!inv) return { quantity: 0, min_stock_level: 0 };
+        return { quantity: Number(inv.quantity ?? 0), min_stock_level: Number(inv.min_stock_level ?? 5) };
     };
 
     const addToCart = (product) => {
@@ -71,13 +117,8 @@ const StoreProducts = () => {
             toast.error(`Only ${stock} items available`);
             return;
         }
-        if (existing) {
-            setCart(cart.map(item =>
-                item.product_id === product.id ? { ...item, quantity: item.quantity + 1 } : item
-            ));
-        } else {
-            setCart([...cart, { product_id: product.id, product_name: product.name, quantity: 1, price: product.price, image: product.images?.[0] }]);
-        }
+        // delegate persistence and updates to CartContext
+        contextAddToCart(product, 1);
         toast.success(`${product.name} added to cart`);
     };
 
@@ -92,7 +133,7 @@ const StoreProducts = () => {
             return 0;
         });
 
-    const cartTotal = cart.reduce((sum, item) => sum + item.quantity, 0);
+    const cartTotal = cartCount;
 
     if (loading) {
         return (
@@ -111,7 +152,7 @@ const StoreProducts = () => {
                 <div className="max-w-7xl mx-auto px-4 py-4">
                     <div className="flex flex-wrap items-center gap-4">
                         <div className="flex-1 min-w-[200px] max-w-md">
-                            <div className="relative">
+                            <div className="relative" style={{ minWidth: 240 }}>
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                                 <Input
                                     placeholder="Search products..."
@@ -154,24 +195,63 @@ const StoreProducts = () => {
                 </div>
             </div>
 
+            {/* Plans (matching search) */}
+            {filteredPlans && filteredPlans.length > 0 && (
+                <main className="max-w-7xl mx-auto px-4 py-8">
+                    <h2 className="text-2xl font-serif mb-4">Subscription Plans</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                        {filteredPlans.map(plan => (
+                            <Card key={plan.id} className="luxury-card">
+                                <CardContent className="p-4">
+                                    <h3 className="font-serif font-semibold text-lg">{plan.name}</h3>
+                                    <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{plan.description}</p>
+                                    <div className="flex items-center justify-between mt-4">
+                                        <div className="text-gold font-semibold">{formatCurrency(plan.min_amount || 0, store?.currency)}+</div>
+                                        <Link
+                                            to={`/store/${storeId}/plans`}
+                                            onClick={(e) => {
+                                                // preserve new-tab behavior
+                                                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || (e.button && e.button !== 0)) return;
+                                                e.preventDefault();
+                                                const target = `/store/${storeId}/plans`;
+                                                try {
+                                                    navigate(target);
+                                                } catch (err) {
+                                                    window.location.href = target;
+                                                    return;
+                                                }
+                                            }}
+                                        >
+                                            <Button size="sm" className="gold-gradient text-white">View Plans</Button>
+                                        </Link>
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        ))}
+                    </div>
+                </main>
+            )}
+
             {/* Products */}
             <main className="max-w-7xl mx-auto px-4 py-8">
                 <div className="mb-4 text-muted-foreground">
                     {filteredProducts.length} product{filteredProducts.length !== 1 ? 's' : ''} found
                 </div>
                 
-                <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6' : 'space-y-4'}>
+                <div className={viewMode === 'grid' ? 'grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4' : 'space-y-4'}>
                     {filteredProducts.map((product) => {
-                        const stock = getProductStock(product.id);
+                        const inv = getInventoryEntry(product.id);
+                        const stock = inv.quantity;
+                        const minLevel = inv.min_stock_level;
                         const isOutOfStock = stock <= 0;
-                        const isLowStock = stock > 0 && stock < 10;
+                        const isLowStock = stock > 0 && (stock < 10 || (minLevel > 0 && stock <= minLevel));
                         
                         if (viewMode === 'list') {
-                            return (
-                                <Link key={product.id} to={`/store/${storeId}/product/${product.id}`}>
+                                return (
+                                    <Link key={product.id} to={`/store/${storeId}/product/${product.id}`}>
                                     <Card className={`hover:shadow-md transition-shadow ${isOutOfStock ? 'opacity-70' : ''}`}>
                                         <CardContent className="p-4 flex gap-4">
-                                            <div className="w-24 h-24 bg-muted rounded overflow-hidden flex-shrink-0 relative">
+                                            <div className="w-20 h-20 sm:w-24 sm:h-24 bg-muted rounded overflow-hidden flex-shrink-0 relative">
                                                 {product.images?.[0] ? (
                                                     <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover" />
                                                 ) : (
@@ -206,10 +286,10 @@ const StoreProducts = () => {
                             );
                         }
                         
-                        return (
+                                return (
                             <Link key={product.id} to={`/store/${storeId}/product/${product.id}`}>
                                 <Card className={`luxury-card overflow-hidden group cursor-pointer ${isOutOfStock ? 'opacity-70' : ''}`}>
-                                    <div className="h-56 bg-muted flex items-center justify-center overflow-hidden relative">
+                                    <div className="h-40 sm:h-48 lg:h-56 bg-muted flex items-center justify-center overflow-hidden relative">
                                         {product.images?.[0] ? (
                                             <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                                         ) : (

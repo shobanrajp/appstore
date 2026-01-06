@@ -107,6 +107,7 @@ class ProductCreate(BaseModel):
     is_active: bool = True
     weight: Optional[float] = None
     metal_type: Optional[str] = None
+    featured: bool = False
 
 class ProductResponse(BaseModel):
     id: str
@@ -120,6 +121,7 @@ class ProductResponse(BaseModel):
     is_active: bool
     weight: Optional[float] = None
     metal_type: Optional[str] = None
+    featured: bool = False
     created_at: str
 
 class InventoryCreate(BaseModel):
@@ -681,14 +683,29 @@ async def create_product(store_id: str, product_data: ProductCreate, user: dict 
     return ProductResponse(**{k: v for k, v in product_doc.items() if k != "_id"})
 
 @api_router.get("/stores/{store_id}/products", response_model=List[ProductResponse])
-async def get_products(store_id: str, category: Optional[str] = None, active_only: bool = True):
+async def get_products(
+    store_id: str,
+    category: Optional[str] = None,
+    active_only: bool = True,
+    featured: Optional[bool] = None,
+    limit: int = 100
+):
     query = {"store_id": store_id}
     if active_only:
         query["is_active"] = True
     if category:
         query["category"] = category
-    
-    products = await db.products.find(query, {"_id": 0}).to_list(1000)
+    if featured is not None:
+        query["featured"] = bool(featured)
+
+    # Clamp limit to a safe maximum (100)
+    try:
+        limit_val = int(limit)
+    except Exception:
+        limit_val = 100
+    limit_val = max(1, min(100, limit_val))
+
+    products = await db.products.find(query, {"_id": 0}).to_list(limit_val)
     return [ProductResponse(**p) for p in products]
 
 @api_router.get("/stores/{store_id}/products/{product_id}", response_model=ProductResponse)
@@ -736,10 +753,8 @@ async def create_inventory(store_id: str, inv_data: InventoryCreate, user: dict 
     return InventoryResponse(**{k: v for k, v in inv_doc.items() if k != "_id"})
 
 @api_router.get("/stores/{store_id}/inventory", response_model=List[InventoryResponse])
-async def get_inventory(store_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))):
-    if user["role"] in [UserRole.STORE_ADMIN, UserRole.STORE_USER] and user.get("store_id") != store_id:
-        raise HTTPException(status_code=403, detail="Cannot view inventory for other stores")
-    
+async def get_inventory(store_id: str):
+    # Public endpoint - anyone can view inventory levels for product availability
     inventory = await db.inventory.find({"store_id": store_id}, {"_id": 0}).to_list(1000)
     return [InventoryResponse(**inv) for inv in inventory]
 

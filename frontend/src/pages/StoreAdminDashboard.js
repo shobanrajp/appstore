@@ -459,7 +459,8 @@ const StoreAdminDashboard = () => {
                 ...newProduct,
                 price: parseFloat(newProduct.price),
                 weight: newProduct.weight ? parseFloat(newProduct.weight) : null,
-                images: newProduct.images.filter(img => img.trim() !== '')
+                images: newProduct.images.filter(img => img.trim() !== ''),
+                featured: !!newProduct.featured
             };
             
             if (editingProduct) {
@@ -487,7 +488,8 @@ const StoreAdminDashboard = () => {
             category: product.category || '',
             sku: product.sku || '',
             weight: product.weight?.toString() || '',
-            images: product.images?.length > 0 ? product.images : ['']
+            images: product.images?.length > 0 ? product.images : [''],
+            featured: !!product.featured
         });
         setProductDialogOpen(true);
     };
@@ -981,6 +983,16 @@ const StoreAdminDashboard = () => {
                                                 />
                                             </div>
                                             <div className="space-y-2">
+                                                <Label>Featured</Label>
+                                                <div className="flex items-center">
+                                                    <Switch
+                                                        checked={!!newProduct.featured}
+                                                        onCheckedChange={(v) => setNewProduct({ ...newProduct, featured: !!v })}
+                                                    />
+                                                    <span className="ml-2 text-sm text-muted-foreground">Mark product as featured</span>
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2">
                                                 <div className="flex items-center justify-between">
                                                     <Label>Product Images</Label>
                                                     <Button type="button" variant="outline" size="sm" onClick={addImageField}>
@@ -1058,10 +1070,11 @@ const StoreAdminDashboard = () => {
                                                 <TableHead>Name</TableHead>
                                                 <TableHead>SKU</TableHead>
                                                 <TableHead>Category</TableHead>
-                                                <TableHead>Price</TableHead>
-                                                <TableHead>Weight</TableHead>
-                                                <TableHead>Status</TableHead>
-                                                <TableHead className="text-right">Actions</TableHead>
+                                                        <TableHead>Price</TableHead>
+                                                        <TableHead>Weight</TableHead>
+                                                        <TableHead>Featured</TableHead>
+                                                        <TableHead>Status</TableHead>
+                                                        <TableHead className="text-right">Actions</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -1079,6 +1092,13 @@ const StoreAdminDashboard = () => {
                                                     <TableCell>{product.category || '-'}</TableCell>
                                                     <TableCell>{formatCurrency(product.price, store.currency)}</TableCell>
                                                     <TableCell>{product.weight ? `${product.weight}g` : '-'}</TableCell>
+                                                    <TableCell>
+                                                        {product.featured ? (
+                                                            <Badge className="bg-gold text-white text-xs">Featured</Badge>
+                                                        ) : (
+                                                            <span className="text-sm text-muted-foreground">-</span>
+                                                        )}
+                                                    </TableCell>
                                                     <TableCell>
                                                         <Badge variant={product.is_active ? 'default' : 'secondary'}>
                                                             {product.is_active ? 'Active' : 'Inactive'}

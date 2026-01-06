@@ -11,6 +11,7 @@ import { Plus, Search, ArrowLeft, User, LogIn, ShoppingCart } from 'lucide-react
 import { formatCurrency } from '../lib/utils';
 import StoreHeader from '../components/StoreHeader';
 import StoreFooter from '../components/StoreFooter';
+import { useCart } from '../context/CartContext';
 
 const CategoryProducts = () => {
     const { storeId, category } = useParams();
@@ -22,47 +23,54 @@ const CategoryProducts = () => {
     const [allCategories, setAllCategories] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
-    const [cart, setCart] = useState(() => {
-        const saved = localStorage.getItem(`cart_${storeId}`);
-        return saved ? JSON.parse(saved) : [];
-    });
+    const { cart, setCart, addToCart: contextAddToCart, cartCount } = useCart(storeId);
 
     useEffect(() => {
+        const loadData = async () => {
+            try {
+                const [storeRes, productsRes, inventoryRes] = await Promise.all([
+                    getStore(storeId),
+                    getProducts(storeId),
+                    getInventory(storeId).catch(() => ({ data: [] }))
+                ]);
+                setStore(storeRes.data);
+                // normalize inventory into a map by product_id for reliable lookups
+                const invArray = inventoryRes.data || [];
+                const invMap = invArray.reduce((m, i) => {
+                    m[i.product_id] = i;
+                    return m;
+                }, {});
+                setInventory(invMap);
+                
+                // Get all unique categories
+                const categories = [...new Set(productsRes.data.filter(p => p.category).map(p => p.category))];
+                setAllCategories(categories);
+                
+                // Filter products by category
+                const decodedCategory = decodeURIComponent(category);
+                const filteredProducts = productsRes.data.filter(p => p.category === decodedCategory);
+                setProducts(filteredProducts);
+            } catch (error) {
+                toast.error('Failed to load products');
+            } finally {
+                setLoading(false);
+            }
+        };
+    
         loadData();
     }, [storeId, category]);
 
-    useEffect(() => {
-        localStorage.setItem(`cart_${storeId}`, JSON.stringify(cart));
-    }, [cart, storeId]);
+    // cart is provided by CartContext
 
-    const loadData = async () => {
-        try {
-            const [storeRes, productsRes, inventoryRes] = await Promise.all([
-                getStore(storeId),
-                getProducts(storeId),
-                getInventory(storeId).catch(() => ({ data: [] }))
-            ]);
-            setStore(storeRes.data);
-            setInventory(inventoryRes.data || []);
-            
-            // Get all unique categories
-            const categories = [...new Set(productsRes.data.filter(p => p.category).map(p => p.category))];
-            setAllCategories(categories);
-            
-            // Filter products by category
-            const decodedCategory = decodeURIComponent(category);
-            const filteredProducts = productsRes.data.filter(p => p.category === decodedCategory);
-            setProducts(filteredProducts);
-        } catch (error) {
-            toast.error('Failed to load products');
-        } finally {
-            setLoading(false);
-        }
+    // returns numeric stock quantity
+    const getProductStock = (productId) => {
+        const inv = inventory[productId];
+        return inv ? inv.quantity : 0;
     };
     
-    const getProductStock = (productId) => {
-        const inv = inventory.find(i => i.product_id === productId);
-        return inv ? inv.quantity : 0;
+    // helper to get inventory entry (quantity + min_stock_level)
+    const getInventoryEntry = (productId) => {
+        return inventory[productId] || null;
     };
 
     const addToCart = (product) => {
@@ -71,32 +79,12 @@ const CategoryProducts = () => {
             toast.error(`${product.name} is out of stock`);
             return;
         }
-        const existing = cart.find(item => item.product_id === product.id);
-        if (existing && existing.quantity >= stock) {
-            toast.error(`Only ${stock} items available`);
-            return;
-        }
-        let newCart;
-        if (existing) {
-            newCart = cart.map(item =>
-                item.product_id === product.id 
-                    ? { ...item, quantity: item.quantity + 1 } 
-                    : item
-            );
-        } else {
-            newCart = [...cart, { 
-                product_id: product.id, 
-                product_name: product.name, 
-                quantity: 1, 
-                price: product.price,
-                image: product.images?.[0]
-            }];
-        }
-        setCart(newCart);
+        // let context handle cart updates/persistence
+        contextAddToCart(product, 1);
         toast.success(`${product.name} added to cart`);
     };
 
-    const cartTotal = cart.reduce((sum, item) => sum + item.quantity, 0);
+    const cartTotal = cartCount;
 
     // Filter products by search term
     const filteredProducts = products.filter(product => {
@@ -182,16 +170,18 @@ const CategoryProducts = () => {
                 </div>
 
                 {/* Products Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     {filteredProducts.map((product) => {
-                        const stock = getProductStock(product.id);
+                        const inv = getInventoryEntry(product.id);
+                        const stock = inv ? inv.quantity : 0;
+                        const minLevel = inv ? (inv.min_stock_level ?? 5) : 0;
                         const isOutOfStock = stock <= 0;
-                        const isLowStock = stock > 0 && stock < 10;
+                        const isLowStock = stock > 0 && (stock < 10 || (minLevel > 0 && stock <= minLevel));
                         
                         return (
                             <Link key={product.id} to={`/store/${storeId}/product/${product.id}`}>
                                 <Card className={`luxury-card overflow-hidden group cursor-pointer h-full ${isOutOfStock ? 'opacity-70' : ''}`}>
-                                    <div className="h-56 bg-muted flex items-center justify-center overflow-hidden relative">
+                                    <div className="h-40 sm:h-48 lg:h-56 bg-muted flex items-center justify-center overflow-hidden relative">
                                         {product.images?.[0] ? (
                                             <img 
                                                 src={product.images[0]} 

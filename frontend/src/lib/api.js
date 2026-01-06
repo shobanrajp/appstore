@@ -52,10 +52,13 @@ export const deleteUser = (id) => api.delete(`/users/${id}`);
 export const updateProfile = (name) => api.put(`/profile?name=${encodeURIComponent(name)}`);
 
 // Products
-export const getProducts = (storeId, category, activeOnly = true) => {
-    let url = `/stores/${storeId}/products?active_only=${activeOnly}`;
-    if (category) url += `&category=${category}`;
-    return api.get(url);
+export const getProducts = (storeId, category, activeOnly = true, featured = null, limit = null) => {
+    const params = new URLSearchParams();
+    params.set('active_only', String(activeOnly));
+    if (category) params.set('category', category);
+    if (featured !== null && featured !== undefined) params.set('featured', String(!!featured));
+    if (limit !== null && limit !== undefined) params.set('limit', String(limit));
+    return api.get(`/stores/${storeId}/products?${params.toString()}`);
 };
 export const getProduct = (storeId, productId) => api.get(`/stores/${storeId}/products/${productId}`);
 export const createProduct = (storeId, data) => api.post(`/stores/${storeId}/products`, data);

@@ -4,20 +4,23 @@ import { useAuth } from '../context/AuthContext';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { ShoppingCart, User, LogIn, Search, Menu } from 'lucide-react';
+import { useCartContext } from '../context/CartContext';
 
 const StoreHeader = ({ 
     store, 
     storeId, 
     cartTotal = 0, 
     activeTab = '', 
-    showSearch = false,
-    searchTerm = '',
-    onSearchChange = () => {},
+    showSearch = true,
+    searchTerm = undefined,
+    onSearchChange = undefined,
     style = {}
 }) => {
     const { user } = useAuth();
     const navigate = useNavigate();
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const { setCartOpen } = useCartContext();
+    const [localSearch, setLocalSearch] = useState(searchTerm || '');
     
     // Get stored header style from localStorage (set by StoreFront from Page Editor config)
     const [headerStyle, setHeaderStyle] = useState(style);
@@ -36,6 +39,30 @@ const StoreHeader = ({
             setHeaderStyle(style);
         }
     }, [storeId, style]);
+
+    useEffect(() => {
+        // keep localSearch in sync when parent provides a controlled searchTerm
+        if (typeof searchTerm === 'string') setLocalSearch(searchTerm);
+    }, [searchTerm]);
+
+    const triggerSearch = (value) => {
+        if (typeof onSearchChange === 'function') {
+            try { onSearchChange(value); } catch (e) {}
+        } else {
+            // client-side navigate to products page with query param
+            try {
+                navigate(`/store/${storeId}/products?search=${encodeURIComponent(value)}`);
+            } catch (e) {
+                window.location.href = `/store/${storeId}/products?search=${encodeURIComponent(value)}`;
+            }
+        }
+    };
+
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            triggerSearch(localSearch);
+        }
+    };
 
     const navItems = [
         { label: 'Home', path: `/store/${storeId}`, key: 'home' },
@@ -68,10 +95,18 @@ const StoreHeader = ({
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 opacity-60" />
                             <Input
                                 placeholder="Search products & plans..."
-                                value={searchTerm}
-                                onChange={(e) => onSearchChange(e.target.value)}
+                                value={localSearch}
+                                onChange={(e) => setLocalSearch(e.target.value)}
+                                onKeyDown={handleKeyDown}
                                 className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/60 focus:bg-white/20"
                             />
+                            <button
+                                aria-label="Search"
+                                onClick={() => triggerSearch(localSearch)}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-white/70 hover:text-white"
+                            >
+                                <Search className="w-4 h-4" />
+                            </button>
                         </div>
                     </div>
                 )}
@@ -118,7 +153,7 @@ const StoreHeader = ({
                         variant="ghost" 
                         size="sm" 
                         className="text-primary-foreground hover:bg-white/10 relative"
-                        onClick={(e) => handleNavClick(`/store/${storeId}`, e)}
+                        onClick={(e) => { e.preventDefault(); setCartOpen(true); }}
                     >
                         <ShoppingCart className="w-5 h-5" />
                         {cartTotal > 0 && (
@@ -180,10 +215,18 @@ const StoreHeader = ({
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 opacity-60" />
                         <Input
                             placeholder="Search products & plans..."
-                            value={searchTerm}
-                            onChange={(e) => onSearchChange(e.target.value)}
+                            value={localSearch}
+                            onChange={(e) => setLocalSearch(e.target.value)}
+                            onKeyDown={handleKeyDown}
                             className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/60"
                         />
+                        <button
+                            aria-label="Search"
+                            onClick={() => triggerSearch(localSearch)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-white/70 hover:text-white"
+                        >
+                            <Search className="w-4 h-4" />
+                        </button>
                     </div>
                 </div>
             )}

@@ -173,19 +173,75 @@ const ComponentPreview = ({ component, products, plans }) => {
         return style;
     };
 
+    // Map high-level visual effects and entrance animations to classes/styles
+    const getEffectAttributes = (props = {}) => {
+        const effect = props.effect || 'none';
+        const animation = props.animation || 'none';
+        let className = '';
+        const style = {};
+
+        switch (effect) {
+            case 'elevated':
+                className += ' shadow-2xl rounded-xl overflow-hidden transform-gpu hover:-translate-y-2 hover:shadow-[0_25px_60px_rgba(0,0,0,0.18)] transition-transform duration-500';
+                break;
+            case 'glass':
+                className += ' backdrop-blur-md bg-white/20 border border-white/10 rounded-xl overflow-hidden';
+                break;
+            case 'glow':
+                className += ' rounded-lg';
+                style.boxShadow = '0 12px 30px rgba(212,175,55,0.12), 0 4px 10px rgba(0,0,0,0.06)';
+                break;
+            case 'tilt':
+                className += ' transform-gpu hover:rotate-1 hover:scale-102 transition-transform duration-500';
+                break;
+            case 'none':
+            default:
+                break;
+        }
+
+        // Simple entrance animations using Tailwind where available
+        switch (animation) {
+            case 'pulse':
+                className += ' animate-pulse';
+                break;
+            case 'pop':
+                className += ' transition-transform duration-500 ease-out hover:scale-105';
+                break;
+            case 'slide':
+                className += ' transition-transform duration-700 ease-out transform translate-y-0';
+                break;
+            case 'none':
+            default:
+                break;
+        }
+
+        return { className: className.trim(), style };
+    };
+
     const wrapperStyle = getStyleFromProps();
+    const effectAttrs = getEffectAttributes(props);
 
     switch (type) {
         case 'header':
             return (
-                <header className="bg-primary text-primary-foreground p-4" style={wrapperStyle}>
+                <header className={`bg-primary text-primary-foreground p-4 ${effectAttrs.className}`} style={{ ...wrapperStyle, ...effectAttrs.style }}>
                     <div className="max-w-7xl mx-auto flex items-center justify-between">
                         <h1 className="text-2xl font-serif">{props.title || 'Store Name'}</h1>
-                        <nav className="flex gap-4">
-                            {(props.menuItems || ['Home', 'Products', 'Plans', 'Contact']).map((item, i) => (
-                                <span key={i} className="hover:opacity-80 cursor-pointer">{item}</span>
-                            ))}
-                        </nav>
+                        <div className="flex items-center gap-4">
+                            {props.showSearch && (
+                                <div className="hidden md:block">
+                                    <div className="relative">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                        <Input placeholder="Search products..." className="pl-10" readOnly />
+                                    </div>
+                                </div>
+                            )}
+                            <nav className="flex gap-4">
+                                {(props.menuItems || ['Home', 'Products', 'Plans', 'Contact']).map((item, i) => (
+                                    <span key={i} className="hover:opacity-80 cursor-pointer">{item}</span>
+                                ))}
+                            </nav>
+                        </div>
                     </div>
                 </header>
             );
@@ -200,10 +256,11 @@ const ComponentPreview = ({ component, products, plans }) => {
         case 'hero':
             return (
                 <div 
-                    className="relative h-80 bg-cover bg-center flex items-center justify-center"
+                    className={`relative h-80 bg-cover bg-center flex items-center justify-center ${effectAttrs.className}`}
                     style={{ 
                         backgroundImage: props.backgroundImage ? `url(${props.backgroundImage})` : 'linear-gradient(135deg, #D4AF37 0%, #F2D06B 50%, #B5942F 100%)',
-                        ...wrapperStyle 
+                        ...wrapperStyle,
+                        ...effectAttrs.style
                     }}
                 >
                     <div className="absolute inset-0 bg-black/40" />
@@ -237,7 +294,7 @@ const ComponentPreview = ({ component, products, plans }) => {
             );
         case 'card':
             return (
-                <Card className="max-w-sm mx-auto my-4 luxury-card" style={wrapperStyle}>
+                <Card className={`max-w-sm mx-auto my-4 luxury-card ${effectAttrs.className}`} style={{ ...wrapperStyle, ...effectAttrs.style }}>
                     <CardHeader>
                         <CardTitle className="font-serif">{props.title || 'Card Title'}</CardTitle>
                     </CardHeader>
@@ -250,12 +307,15 @@ const ComponentPreview = ({ component, products, plans }) => {
             return <div className={`h-${props.height || 8}`} style={wrapperStyle} />;
         case 'products':
             return (
-                <div className="py-8 px-4" style={wrapperStyle}>
+                <div className={`py-8 px-4 ${effectAttrs.className}`} style={{ ...wrapperStyle, ...effectAttrs.style }}>
                     <h2 className="text-3xl font-serif text-center mb-8">{props.title || 'Featured Products'}</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6 max-w-7xl mx-auto">
-                        {products.slice(0, props.limit || 4).map((product) => (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 max-w-7xl mx-auto">
+                        {(() => {
+                            const limit = Math.min(props.limit || 4, 100);
+                            const filtered = props.featuredOnly ? products.filter(p => p.featured) : products;
+                            return filtered.slice(0, limit).map((product) => (
                             <Card key={product.id} className="luxury-card overflow-hidden">
-                                <div className="h-48 bg-muted flex items-center justify-center">
+                                <div className="h-32 md:h-48 bg-muted flex items-center justify-center">
                                     {product.images?.[0] ? (
                                         <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover" />
                                     ) : (
@@ -267,7 +327,8 @@ const ComponentPreview = ({ component, products, plans }) => {
                                     <p className="gold-text font-semibold">₹{product.price.toLocaleString()}</p>
                                 </CardContent>
                             </Card>
-                        ))}
+                            ));
+                        })()}
                         {products.length === 0 && (
                             <div className="col-span-full text-center py-12 text-muted-foreground">
                                 No products to display. Add products in the Store Management portal.
@@ -286,7 +347,7 @@ const ComponentPreview = ({ component, products, plans }) => {
             );
         case 'subscription_plans':
             return (
-                <div className="py-12 px-4 bg-muted/30" style={wrapperStyle}>
+                <div className={`py-12 px-4 bg-muted/30 ${effectAttrs.className}`} style={{ ...wrapperStyle, ...effectAttrs.style }}>
                     <h2 className="text-3xl font-serif text-center mb-8">{props.title || 'Gold Savings Plans'}</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
                         {plans.map((plan) => (
@@ -319,7 +380,7 @@ const ComponentPreview = ({ component, products, plans }) => {
             const productCategories = [...new Set(products.filter(p => p.category).map(p => p.category))];
             const displayCategories = productCategories.length > 0 ? productCategories : ['No categories yet'];
             return (
-                <nav className="bg-card border-y py-2" style={wrapperStyle}>
+                <nav className={`bg-card border-y py-2 ${effectAttrs.className}`} style={{ ...wrapperStyle, ...effectAttrs.style }}>
                     <div className="max-w-7xl mx-auto flex items-center justify-center gap-8">
                         {displayCategories.map((cat, i) => (
                             <span key={i} className="hover:gold-text cursor-pointer transition-colors">{cat}</span>
@@ -658,6 +719,19 @@ const PageEditor = () => {
                                     </div>
                                 )}
 
+                                {selectedComponent.type === 'header' && (
+                                    <div className="space-y-2">
+                                        <Label>Show Search</Label>
+                                        <div className="flex items-center">
+                                            <Switch
+                                                checked={!!selectedComponent.props?.showSearch}
+                                                onCheckedChange={(v) => updateComponentProps('showSearch', !!v)}
+                                            />
+                                            <span className="ml-2 text-sm text-muted-foreground">Displays search bar in header</span>
+                                        </div>
+                                    </div>
+                                )}
+
                                 {selectedComponent.type === 'hero' && (
                                     <>
                                         <div className="space-y-2">
@@ -730,6 +804,33 @@ const PageEditor = () => {
                                                 ))}
                                             </SelectContent>
                                         </Select>
+                                    </div>
+                                )}
+
+                                {selectedComponent.type === 'products' && (
+                                    <div className="space-y-2">
+                                        <Label>Featured Only</Label>
+                                        <div className="flex items-center">
+                                            <Switch
+                                                checked={!!selectedComponent.props?.featuredOnly}
+                                                onCheckedChange={(v) => updateComponentProps('featuredOnly', !!v)}
+                                            />
+                                            <span className="ml-2 text-sm text-muted-foreground">Show only products marked as featured</span>
+                                        </div>
+
+                                        <Label>Max Items (1-100)</Label>
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            max={100}
+                                            value={selectedComponent.props?.limit || 4}
+                                            onChange={(e) => {
+                                                const raw = parseInt(e.target.value) || 1;
+                                                const clamped = Math.max(1, Math.min(100, raw));
+                                                updateComponentProps('limit', clamped);
+                                            }}
+                                            className="w-full p-2 border rounded-md"
+                                        />
                                     </div>
                                 )}
 
@@ -917,6 +1018,43 @@ const PageEditor = () => {
                                                     <SelectItem value="md">Medium</SelectItem>
                                                     <SelectItem value="lg">Large</SelectItem>
                                                     <SelectItem value="xl">Extra Large</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>Visual Effect</Label>
+                                            <Select
+                                                value={selectedComponent.props?.effect || 'none'}
+                                                onValueChange={(v) => updateComponentProps('effect', v)}
+                                            >
+                                                <SelectTrigger>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="none">None</SelectItem>
+                                                    <SelectItem value="elevated">Elevated / Floating</SelectItem>
+                                                    <SelectItem value="glass">Glass / Frosted</SelectItem>
+                                                    <SelectItem value="glow">Subtle Glow</SelectItem>
+                                                    <SelectItem value="tilt">Tilt / Interactive</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>Entrance Animation</Label>
+                                            <Select
+                                                value={selectedComponent.props?.animation || 'none'}
+                                                onValueChange={(v) => updateComponentProps('animation', v)}
+                                            >
+                                                <SelectTrigger>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="none">None</SelectItem>
+                                                    <SelectItem value="pulse">Pulse</SelectItem>
+                                                    <SelectItem value="pop">Pop / Scale</SelectItem>
+                                                    <SelectItem value="slide">Slide In</SelectItem>
                                                 </SelectContent>
                                             </Select>
                                         </div>

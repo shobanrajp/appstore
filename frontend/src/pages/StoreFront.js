@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useParams, Link, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getStore, getProducts, getSubscriptionPlans, getPageConfig, createOrder, subscribeToPlan, createPaymentOrder, completePayment, getAddresses, createAddress, getInventory } from '../lib/api';
 import { Button } from '../components/ui/button';
@@ -12,15 +12,114 @@ import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
 import { ShoppingCart, User, Plus, Minus, X, CreditCard, LogIn, Search, MessageCircle, Phone, Mail, MapPin, AlertTriangle } from 'lucide-react';
 import { formatCurrency } from '../lib/utils';
+import { useCart } from '../context/CartContext';
 
 // Dynamic Component Renderer - renders components based on page config
 const DynamicComponent = ({ component, products, filteredProducts, plans, store, addToCart, onSubscribe, user, categories, selectedCategory, onCategorySelect, searchTerm, onSearchChange, storeId, inventory, globalSearchTerm, onGlobalSearch, onNavigate, recentlyViewedPlans }) => {
     const { type, props = {} } = component;
+    const [localSearch, setLocalSearch] = useState(globalSearchTerm || '');
+    const [suggestions, setSuggestions] = useState([]);
+    const [highlightIndex, setHighlightIndex] = useState(-1);
+    const suggestionsRef = useRef(null);
+
+    useEffect(() => {
+        if (globalSearchTerm !== undefined) setLocalSearch(globalSearchTerm || '');
+    }, [globalSearchTerm]);
+
+    const triggerSearch = (value) => {
+        if (typeof onGlobalSearch === 'function') {
+            try { onGlobalSearch(value); } catch (e) {}
+        }
+        try {
+            if (typeof onNavigate === 'function') {
+                onNavigate(`/store/${storeId}/products?search=${encodeURIComponent(value)}`);
+                return;
+            }
+        } catch (e) {}
+        window.location.href = `/store/${storeId}/products?search=${encodeURIComponent(value)}`;
+    };
+
+    const handleKeyDownSearch = (e) => {
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setHighlightIndex(i => Math.min(i + 1, suggestions.length - 1));
+            return;
+        }
+        if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setHighlightIndex(i => Math.max(i - 1, 0));
+            return;
+        }
+        if (e.key === 'Enter') {
+            if (highlightIndex >= 0 && suggestions[highlightIndex]) {
+                const s = suggestions[highlightIndex];
+                if (s.type === 'product') {
+                    try { if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/product/${s.id}`); else window.location.href = `/store/${storeId}/product/${s.id}`; } catch (err) { window.location.href = `/store/${storeId}/product/${s.id}`; }
+                } else {
+                    try { if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/plans`); else window.location.href = `/store/${storeId}/plans`; } catch (err) { window.location.href = `/store/${storeId}/plans`; }
+                }
+                return;
+            }
+            triggerSearch(localSearch);
+        }
+    };
+
+    // Debounced suggestions from available products and plans
+    useEffect(() => {
+        const t = setTimeout(() => {
+            const q = (localSearch || '').trim().toLowerCase();
+            if (!q) {
+                setSuggestions([]);
+                setHighlightIndex(-1);
+                return;
+            }
+            const prodMatches = (products || [])
+                .filter(p => (p.name || '').toLowerCase().includes(q) || (p.description || '').toLowerCase().includes(q))
+                .slice(0, 6)
+                .map(p => ({ type: 'product', id: p.id, title: p.name, subtitle: p.category }));
+            const planMatches = (plans || [])
+                .filter(pl => (pl.name || '').toLowerCase().includes(q) || (pl.description || '').toLowerCase().includes(q))
+                .slice(0, 4)
+                .map(pl => ({ type: 'plan', id: pl.id, title: pl.name, subtitle: `${formatCurrency(pl.min_amount || 0, store?.currency)}+` }));
+            setSuggestions([...prodMatches, ...planMatches].slice(0, 8));
+            setHighlightIndex(-1);
+        }, 160);
+        return () => clearTimeout(t);
+    }, [localSearch, products, plans, store]);
 
     // Helper to get stock for a product
     const getProductStock = (productId) => {
-        const inv = inventory.find(i => i.product_id === productId);
-        return inv ? inv.quantity : 0;
+        if (!inventory) return 0;
+        // If inventory stored as a map/object keyed by product_id
+        if (!Array.isArray(inventory) && typeof inventory === 'object') {
+            const inv = inventory[productId] || inventory[productId.toString()];
+            if (inv) return Number(inv.quantity ?? 0);
+            return 0;
+        }
+        // Array fallback with tolerant key matching
+        const inv = inventory.find(i =>
+            i.product_id === productId ||
+            i.productId === productId ||
+            (i.product && (i.product.id === productId || i.product._id === productId))
+        );
+        return inv ? Number(inv.quantity ?? 0) : 0;
+    };
+
+    // Helper to get full inventory entry (quantity + min_stock_level)
+    const getInventoryEntry = (productId) => {
+        if (!inventory) return { quantity: 0, min_stock_level: 0 };
+        if (!Array.isArray(inventory) && typeof inventory === 'object') {
+            const inv = inventory[productId] || inventory[productId.toString()];
+            if (!inv) return { quantity: 0, min_stock_level: 0 };
+            return { quantity: Number(inv.quantity ?? 0), min_stock_level: Number(inv.min_stock_level ?? 5) };
+        }
+        const inv = inventory.find(i =>
+            i.product_id === productId ||
+            i.productId === productId ||
+            (i.product && (i.product.id === productId || i.product._id === productId))
+        );
+        if (!inv) return { quantity: 0, min_stock_level: 0 };
+        return { quantity: Number(inv.quantity ?? 0), min_stock_level: Number(inv.min_stock_level ?? 5) };
     };
 
     // Build style object from props
@@ -76,16 +175,49 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                         </Link>
                         
                         {/* Global Search Bar - Center */}
-                        {props.showSearchBar !== false && (
+                        {props.showSearch !== false && (
                             <div className="hidden md:flex flex-1 max-w-md mx-4">
                                 <div className="relative w-full">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 opacity-60" />
                                     <Input
                                         placeholder="Search products & plans..."
-                                        value={globalSearchTerm || ''}
-                                        onChange={(e) => onGlobalSearch(e.target.value)}
+                                        value={localSearch}
+                                        onChange={(e) => { setLocalSearch(e.target.value); setHighlightIndex(-1); }}
+                                        onKeyDown={handleKeyDownSearch}
                                         className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/60 focus:bg-white/20"
                                     />
+                                    <button
+                                        aria-label="Search"
+                                        onClick={() => triggerSearch(localSearch)}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 text-white/70 hover:text-white"
+                                    >
+                                        <Search className="w-4 h-4" />
+                                    </button>
+                                    {/* Suggestions dropdown */}
+                                    {suggestions.length > 0 && (
+                                        <div ref={suggestionsRef} className="absolute left-0 right-0 mt-1 bg-white/95 text-foreground border rounded shadow-lg z-50 max-h-64 overflow-auto">
+                                            {suggestions.map((s, idx) => (
+                                                <div
+                                                    key={`${s.type}-${s.id}`}
+                                                    role="button"
+                                                    tabIndex={0}
+                                                    onMouseDown={(e) => e.preventDefault()}
+                                                    onClick={() => {
+                                                        if (s.type === 'product') {
+                                                            try { if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/product/${s.id}`); else window.location.href = `/store/${storeId}/product/${s.id}`; } catch (err) { window.location.href = `/store/${storeId}/product/${s.id}`; }
+                                                        } else {
+                                                            try { if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/plans`); else window.location.href = `/store/${storeId}/plans`; } catch (err) { window.location.href = `/store/${storeId}/plans`; }
+                                                        }
+                                                    }}
+                                                    onMouseEnter={() => setHighlightIndex(idx)}
+                                                    className={`px-3 py-2 cursor-pointer ${highlightIndex === idx ? 'bg-muted/80' : 'hover:bg-muted'}`}
+                                                >
+                                                    <div className="text-sm font-medium">{s.title}</div>
+                                                    {s.subtitle && <div className="text-xs text-muted-foreground">{s.subtitle}</div>}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -168,78 +300,141 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
         case 'divider':
             return <div style={{ height: `${props.height || 32}px`, ...wrapperStyle }} />;
         case 'products':
-            const displayProducts = (filteredProducts || products).slice(0, props.limit || 8);
-            return (
-                <section className="py-16 px-4" style={wrapperStyle}>
-                    <div className="max-w-7xl mx-auto">
-                        <h2 className="text-4xl font-serif text-center mb-8">{props.title || 'Our Collection'}</h2>
-                        
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                            {displayProducts.map((product) => {
-                                const stock = getProductStock(product.id);
-                                const isOutOfStock = stock <= 0;
-                                const isLowStock = stock > 0 && stock < 10;
-                                
-                                return (
-                                    <Link key={product.id} to={`/store/${storeId}/product/${product.id}`}>
-                                        <Card className={`luxury-card overflow-hidden group cursor-pointer ${isOutOfStock ? 'opacity-70' : ''}`} data-testid={`product-card-${product.id}`}>
-                                            <div className="h-56 bg-muted flex items-center justify-center overflow-hidden relative">
-                                                {product.images?.[0] ? (
-                                                    <img
-                                                        src={product.images[0]}
-                                                        alt={product.name}
-                                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                                                    />
-                                                ) : (
-                                                    <div className="w-full h-full gold-gradient opacity-20" />
-                                                )}
-                                                {isOutOfStock && (
-                                                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                                                        <Badge variant="destructive" className="text-sm">Out of Stock</Badge>
+            {
+                const productLimit = Math.min(props.limit || 8, 100);
+                // Start from server-filtered list or full products
+                let productSource = filteredProducts || products;
+                // If a global search term is provided (from header), apply it here as well
+                if (globalSearchTerm) {
+                    const q = globalSearchTerm.toLowerCase();
+                    productSource = (productSource || []).filter(p =>
+                        p.name.toLowerCase().includes(q) || (p.description && p.description.toLowerCase().includes(q))
+                    );
+                }
+                if (props.featuredOnly) productSource = productSource.filter(p => p.featured);
+                const displayProducts = (productSource || []).slice(0, productLimit);
+
+                // Also filter plans when a global search exists so the landing page shows plan matches
+                let planMatches = [];
+                if (globalSearchTerm && Array.isArray(plans)) {
+                    const q = globalSearchTerm.toLowerCase();
+                    planMatches = plans.filter(pl => pl.is_active !== false && (pl.name.toLowerCase().includes(q) || (pl.description && pl.description.toLowerCase().includes(q))));
+                }
+
+                return (
+                    <section className="py-16 px-4" style={wrapperStyle}>
+                        <div className="max-w-7xl mx-auto">
+                            <h2 className="text-4xl font-serif text-center mb-8">{props.title || 'Our Collection'}</h2>
+
+                            {planMatches.length > 0 && (
+                                <div className="mb-8">
+                                    <h3 className="text-2xl font-serif mb-4">Subscription Plans</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                                        {planMatches.map(plan => (
+                                            <Card key={plan.id} className="luxury-card">
+                                                <CardContent className="p-4">
+                                                    <h3 className="font-serif font-semibold text-lg">{plan.name}</h3>
+                                                    <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{plan.description}</p>
+                                                    <div className="flex items-center justify-between mt-4">
+                                                        <div className="text-gold font-semibold">{formatCurrency(plan.min_amount || 0, store?.currency)}+</div>
+                                                        <button onClick={() => {
+                                                            const target = `/store/${storeId}/plans`;
+                                                            try {
+                                                                if (typeof onNavigate === 'function') {
+                                                                    onNavigate(target);
+                                                                    return;
+                                                                }
+                                                            } catch (e) {}
+                                                            try { window.location.href = target; } catch (e) {}
+                                                        }} className="gold-gradient text-white px-3 py-1 rounded">View Plans</button>
                                                     </div>
-                                                )}
-                                                {isLowStock && !isOutOfStock && (
-                                                    <Badge variant="secondary" className="absolute top-2 right-2 text-xs bg-orange-500 text-white">
-                                                        Only {stock} left
-                                                    </Badge>
-                                                )}
-                                            </div>
-                                            <CardContent className="p-4">
-                                                <h3 className="font-serif font-semibold text-lg">{product.name}</h3>
-                                                {product.category && (
-                                                    <Badge variant="outline" className="text-xs mt-1">{product.category}</Badge>
-                                                )}
-                                                {product.weight && (
-                                                    <p className="text-sm text-muted-foreground">{product.weight}g</p>
-                                                )}
-                                                <div className="flex items-center justify-between mt-3">
-                                                    <span className="gold-text text-xl font-semibold">
-                                                        {formatCurrency(product.price, store?.currency)}
-                                                    </span>
-                                                    <Button
-                                                        size="sm"
-                                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (!isOutOfStock) addToCart(product); }}
-                                                        className={isOutOfStock ? 'bg-gray-400 cursor-not-allowed' : 'gold-gradient text-white'}
-                                                        disabled={isOutOfStock}
-                                                        data-testid={`add-to-cart-${product.id}`}
-                                                    >
-                                                        <Plus className="w-4 h-4" />
-                                                    </Button>
-                                                </div>
-                                            </CardContent>
-                                        </Card>
-                                    </Link>
-                                );
-                            })}
-                            {displayProducts.length === 0 && (
-                                <div className="col-span-full text-center py-12 text-muted-foreground">
-                                    {searchTerm || selectedCategory ? 'No products match your search.' : 'No products available yet.'}
+                                                </CardContent>
+                                            </Card>
+                                        ))}
+                                    </div>
                                 </div>
                             )}
+
+                            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                {displayProducts.map((product) => {
+                                    const inv = getInventoryEntry(product.id);
+                                    const stock = inv.quantity;
+                                    const minLevel = inv.min_stock_level;
+                                    const isOutOfStock = stock <= 0;
+                                    const isLowStock = stock > 0 && (stock < 10 || (minLevel > 0 && stock <= minLevel));
+
+                                    const handleCardClick = (e) => {
+                                        const target = `/store/${storeId}/product/${product.id}`;
+                                        try {
+                                            if (typeof onNavigate === 'function') {
+                                                onNavigate(target);
+                                                return;
+                                            }
+                                        } catch (e) {}
+                                        try { window.location.href = target; } catch (e) {}
+                                    };
+
+                                    return (
+                                        <div key={product.id} onClick={handleCardClick}>
+                                            <Card className={`luxury-card overflow-hidden group cursor-pointer ${isOutOfStock ? 'opacity-70' : ''}`} data-testid={`product-card-${product.id}`}>
+                                                <div className="h-40 sm:h-48 lg:h-56 bg-muted flex items-center justify-center overflow-hidden relative">
+                                                    {product.images?.[0] ? (
+                                                        <img
+                                                            src={product.images[0]}
+                                                            alt={product.name}
+                                                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                                        />
+                                                    ) : (
+                                                        <div className="w-full h-full gold-gradient opacity-20" />
+                                                    )}
+                                                    {isOutOfStock && (
+                                                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                                                            <Badge variant="destructive" className="text-sm">Out of Stock</Badge>
+                                                        </div>
+                                                    )}
+                                                    {isLowStock && !isOutOfStock && (
+                                                        <Badge variant="secondary" className="absolute top-2 right-2 text-xs bg-orange-500 text-white">
+                                                            Only {stock} left
+                                                        </Badge>
+                                                    )}
+                                                </div>
+                                                <CardContent className="p-4">
+                                                    <h3 className="font-serif font-semibold text-lg">{product.name}</h3>
+                                                    {product.category && (
+                                                        <Badge variant="outline" className="text-xs mt-1">{product.category}</Badge>
+                                                    )}
+                                                    {product.weight && (
+                                                        <p className="text-sm text-muted-foreground">{product.weight}g</p>
+                                                    )}
+                                                    <div className="flex items-center justify-between mt-3">
+                                                        <span className="gold-text text-xl font-semibold">
+                                                            {formatCurrency(product.price, store?.currency)}
+                                                        </span>
+                                                        <Button
+                                                            size="sm"
+                                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (!isOutOfStock) addToCart(product); }}
+                                                            className={isOutOfStock ? 'bg-gray-400 cursor-not-allowed' : 'gold-gradient text-white'}
+                                                            disabled={isOutOfStock}
+                                                            data-testid={`add-to-cart-${product.id}`}
+                                                        >
+                                                            <Plus className="w-4 h-4" />
+                                                        </Button>
+                                                    </div>
+                                                </CardContent>
+                                            </Card>
+                                        </div>
+                                    );
+                                })}
+                                {displayProducts.length === 0 && (
+                                    <div className="col-span-full text-center py-12 text-muted-foreground">
+                                        {searchTerm || selectedCategory ? 'No products match your search.' : 'No products available yet.'}
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                    </div>
-                </section>
-            );
+                    </section>
+                );
+            }
         case 'scrolling_text':
             return (
                 <div className="bg-gold text-white py-3 overflow-hidden" style={wrapperStyle}>
@@ -358,6 +553,7 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
 const StoreFront = () => {
     const { storeId } = useParams();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const { user } = useAuth();
     const [store, setStore] = useState(null);
     const [products, setProducts] = useState([]);
@@ -365,8 +561,9 @@ const StoreFront = () => {
     const [inventory, setInventory] = useState([]);
     const [pageConfig, setPageConfig] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [cart, setCart] = useState([]);
-    const [cartOpen, setCartOpen] = useState(false);
+    const { cart, setCart, addToCart: contextAddToCart, cartCount, cartTotal } = useCart(storeId);
+    // cart UI state is provided by CartContext
+    const { cartOpen, setCartOpen } = useCart(storeId);
     const [checkoutOpen, setCheckoutOpen] = useState(false);
     const [addresses, setAddresses] = useState([]);
     const [selectedAddress, setSelectedAddress] = useState('');
@@ -383,6 +580,7 @@ const StoreFront = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('');
     const [globalSearchTerm, setGlobalSearchTerm] = useState('');
+    const location = useLocation();
     
     // Recently viewed plans (for Plans page)
     const [recentlyViewedPlans, setRecentlyViewedPlans] = useState([]);
@@ -399,31 +597,28 @@ const StoreFront = () => {
         return matchesSearch && matchesCategory;
     });
     
-    // Helper to get stock for a product
-    const getProductStock = (productId) => {
-        const inv = inventory.find(i => i.product_id === productId);
-        return inv ? inv.quantity : 0;
+    // Helper to get full inventory entry (quantity + min_stock_level)
+    const getInventoryEntry = (productId) => {
+        if (!inventory) return { quantity: 0, min_stock_level: 0 };
+        if (!Array.isArray(inventory) && typeof inventory === 'object') {
+            const inv = inventory[productId] || inventory[productId.toString()];
+            if (!inv) return { quantity: 0, min_stock_level: 0 };
+            return { quantity: Number(inv.quantity ?? 0), min_stock_level: Number(inv.min_stock_level ?? 5) };
+        }
+        const inv = inventory.find(i =>
+            i.product_id === productId ||
+            i.productId === productId ||
+            (i.product && (i.product.id === productId || i.product._id === productId))
+        );
+        if (!inv) return { quantity: 0, min_stock_level: 0 };
+        return { quantity: Number(inv.quantity ?? 0), min_stock_level: Number(inv.min_stock_level ?? 5) };
     };
 
-    useEffect(() => {
-        loadData();
-    }, [storeId]);
+    // Helper to get numeric stock for a product
+    const getProductStock = (productId) => getInventoryEntry(productId).quantity;
 
-    useEffect(() => {
-        if (user) {
-            loadAddresses();
-        }
-    }, [user]);
-    
-    useEffect(() => {
-        // Load recently viewed plans from localStorage
-        const recentKey = `recent_plans_${storeId}`;
-        const recentIds = JSON.parse(localStorage.getItem(recentKey) || '[]');
-        const recentPlansList = recentIds.map(id => plans.find(p => p.id === id)).filter(Boolean);
-        setRecentlyViewedPlans(recentPlansList);
-    }, [plans, storeId]);
-
-    const loadData = async () => {
+    // Define loadData before effects to avoid temporal dead zone issues
+    const loadData = useCallback(async () => {
         try {
             const [storeRes, productsRes, plansRes, inventoryRes] = await Promise.all([
                 getStore(storeId),
@@ -443,6 +638,18 @@ const StoreFront = () => {
                 const configRes = await getPageConfig(storeId, 'home');
                 if (configRes.data && configRes.data.components && configRes.data.components.length > 0) {
                     setPageConfig(configRes.data);
+
+                    // If any products component requests featured-only, re-fetch products with server-side filter and capped limit
+                    try {
+                        const productComps = (configRes.data.components || []).filter(c => c.type === 'products' && c.props && c.props.featuredOnly);
+                        if (productComps.length > 0) {
+                            const maxLimit = Math.min(100, Math.max(...productComps.map(c => (c.props?.limit || 8))));
+                            const featuredRes = await getProducts(storeId, null, true, true, maxLimit).catch(() => ({ data: [] }));
+                            setProducts(featuredRes.data || []);
+                        }
+                    } catch (e) {
+                        // ignore and continue with already fetched products
+                    }
                 }
             } catch (e) {
                 // No page config yet, will use default layout
@@ -453,7 +660,48 @@ const StoreFront = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [storeId]);
+
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
+
+    // Open checkout modal when navigated with ?checkout=1
+    useEffect(() => {
+        try {
+            const params = new URLSearchParams(location.search || window.location.search);
+            if (params.get('checkout')) {
+                setCheckoutOpen(true);
+                // remove param from URL
+                navigate(`/store/${storeId}`, { replace: true });
+            }
+        } catch (e) {}
+    }, [location.search, storeId, navigate]);
+
+    useEffect(() => {
+        if (user) {
+            loadAddresses();
+        }
+    }, [user]);
+    // Keep global search state in sync with the URL (react when query param changes)
+    useEffect(() => {
+        try {
+            const params = new URLSearchParams(location.search || window.location.search);
+            const s = params.get('search') || '';
+            setGlobalSearchTerm(s);
+            setSearchTerm(s);
+        } catch (e) {}
+    }, [location.search]);
+    
+    useEffect(() => {
+        // Load recently viewed plans from localStorage
+        const recentKey = `recent_plans_${storeId}`;
+        const recentIds = JSON.parse(localStorage.getItem(recentKey) || '[]');
+        const recentPlansList = recentIds.map(id => plans.find(p => p.id === id)).filter(Boolean);
+        setRecentlyViewedPlans(recentPlansList);
+    }, [plans, storeId]);
+
+    // (loadData defined earlier)
 
     const loadAddresses = async () => {
         try {
@@ -475,28 +723,23 @@ const StoreFront = () => {
             toast.error(`${product.name} is out of stock`);
             return;
         }
-        
+
         const existing = cart.find(item => item.product_id === product.id);
         const currentQtyInCart = existing ? existing.quantity : 0;
-        
+
         if (currentQtyInCart + 1 > stock) {
             toast.error(`Only ${stock} items available in stock`);
             return;
         }
-        
-        if (existing) {
-            setCart(cart.map(item =>
-                item.product_id === product.id ? { ...item, quantity: item.quantity + 1 } : item
-            ));
-        } else {
-            setCart([...cart, { product_id: product.id, product_name: product.name, quantity: 1, price: product.price }]);
-        }
+
+        // Delegate persistence and updates to CartContext
+        contextAddToCart(product, 1);
         toast.success(`${product.name} added to cart`);
     };
 
     const updateQuantity = (productId, delta) => {
         const stock = getProductStock(productId);
-        setCart(cart.map(item => {
+        const newCart = cart.map(item => {
             if (item.product_id === productId) {
                 const newQty = item.quantity + delta;
                 if (newQty > stock) {
@@ -506,14 +749,15 @@ const StoreFront = () => {
                 return newQty > 0 ? { ...item, quantity: newQty } : item;
             }
             return item;
-        }).filter(item => item.quantity > 0));
+        }).filter(item => item.quantity > 0);
+        setCart(newCart);
     };
 
     const removeFromCart = (productId) => {
         setCart(cart.filter(item => item.product_id !== productId));
     };
 
-    const cartTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    // cartCount and cartTotal provided by CartContext
 
     const handleAddAddress = async (e) => {
         e.preventDefault();
@@ -655,9 +899,9 @@ const StoreFront = () => {
                     data-testid="cart-btn"
                 >
                     <ShoppingCart className="w-5 h-5" />
-                    {cart.length > 0 && (
+                    {cartCount > 0 && (
                         <span className="absolute -top-2 -right-2 w-5 h-5 bg-gold text-white text-xs rounded-full flex items-center justify-center">
-                            {cart.reduce((sum, item) => sum + item.quantity, 0)}
+                            {cartCount}
                         </span>
                     )}
                 </Button>
@@ -700,10 +944,10 @@ const StoreFront = () => {
                         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
                             <h1 className="text-2xl font-serif">{store.name}</h1>
                             <nav className="hidden md:flex gap-6">
-                                <span className="hover:opacity-80 cursor-pointer">Home</span>
-                                <span className="hover:opacity-80 cursor-pointer">Products</span>
-                                <span className="hover:opacity-80 cursor-pointer">Plans</span>
-                                <span className="hover:opacity-80 cursor-pointer">Contact</span>
+                                <Link to={`/store/${storeId}`} className="hover:opacity-80 cursor-pointer">Home</Link>
+                                <Link to={`/store/${storeId}/products`} className="hover:opacity-80 cursor-pointer">Products</Link>
+                                <Link to={`/store/${storeId}/plans`} className="hover:opacity-80 cursor-pointer">Plans</Link>
+                                <Link to={`/store/${storeId}/contact`} className="hover:opacity-80 cursor-pointer">Contact</Link>
                             </nav>
                         </div>
                     </header>
@@ -760,46 +1004,65 @@ const StoreFront = () => {
                                 </div>
                             </div>
                             
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                                {filteredProducts.map((product) => (
-                                    <Link key={product.id} to={`/store/${storeId}/product/${product.id}`}>
-                                        <Card className="luxury-card overflow-hidden group cursor-pointer" data-testid={`product-card-${product.id}`}>
-                                            <div className="h-56 bg-muted flex items-center justify-center overflow-hidden">
-                                                {product.images?.[0] ? (
-                                                    <img
-                                                        src={product.images[0]}
-                                                        alt={product.name}
-                                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                                                    />
-                                                ) : (
-                                                    <div className="w-full h-full gold-gradient opacity-20" />
-                                                )}
-                                            </div>
-                                            <CardContent className="p-4">
-                                                <h3 className="font-serif font-semibold text-lg">{product.name}</h3>
-                                                {product.category && (
-                                                    <Badge variant="outline" className="text-xs mt-1">{product.category}</Badge>
-                                                )}
-                                                {product.weight && (
-                                                    <p className="text-sm text-muted-foreground">{product.weight}g</p>
-                                                )}
-                                                <div className="flex items-center justify-between mt-3">
-                                                    <span className="gold-text text-xl font-semibold">
-                                                        {formatCurrency(product.price, store.currency)}
-                                                    </span>
-                                                    <Button
-                                                        size="sm"
-                                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); addToCart(product); }}
-                                                        className="gold-gradient text-white"
-                                                        data-testid={`add-to-cart-${product.id}`}
-                                                    >
-                                                        <Plus className="w-4 h-4" />
-                                                    </Button>
+                            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                {filteredProducts.map((product) => {
+                                    const inv = getInventoryEntry(product.id);
+                                    const stock = inv.quantity;
+                                    const minLevel = inv.min_stock_level;
+                                    const isOutOfStock = stock <= 0;
+                                    const isLowStock = stock > 0 && (stock < 10 || (minLevel > 0 && stock <= minLevel));
+
+                                    return (
+                                        <Link key={product.id} to={`/store/${storeId}/product/${product.id}`}>
+                                            <Card className={`luxury-card overflow-hidden group cursor-pointer ${isOutOfStock ? 'opacity-70' : ''}`} data-testid={`product-card-${product.id}`}>
+                                                <div className="h-40 sm:h-48 lg:h-56 bg-muted flex items-center justify-center overflow-hidden relative">
+                                                    {product.images?.[0] ? (
+                                                        <img
+                                                            src={product.images[0]}
+                                                            alt={product.name}
+                                                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                                        />
+                                                    ) : (
+                                                        <div className="w-full h-full gold-gradient opacity-20" />
+                                                    )}
+                                                    {isOutOfStock && (
+                                                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                                                            <Badge variant="destructive" className="text-sm">Out of Stock</Badge>
+                                                        </div>
+                                                    )}
+                                                    {isLowStock && !isOutOfStock && (
+                                                        <Badge variant="secondary" className="absolute top-2 right-2 text-xs bg-orange-500 text-white">
+                                                            Only {stock} left
+                                                        </Badge>
+                                                    )}
                                                 </div>
-                                            </CardContent>
-                                        </Card>
-                                    </Link>
-                                ))}
+                                                <CardContent className="p-4">
+                                                    <h3 className="font-serif font-semibold text-lg">{product.name}</h3>
+                                                    {product.category && (
+                                                        <Badge variant="outline" className="text-xs mt-1">{product.category}</Badge>
+                                                    )}
+                                                    {product.weight && (
+                                                        <p className="text-sm text-muted-foreground">{product.weight}g</p>
+                                                    )}
+                                                    <div className="flex items-center justify-between mt-3">
+                                                        <span className="gold-text text-xl font-semibold">
+                                                            {formatCurrency(product.price, store.currency)}
+                                                        </span>
+                                                        <Button
+                                                            size="sm"
+                                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (!isOutOfStock) addToCart(product); }}
+                                                            className={isOutOfStock ? 'bg-gray-400 cursor-not-allowed' : 'gold-gradient text-white'}
+                                                            disabled={isOutOfStock}
+                                                            data-testid={`add-to-cart-${product.id}`}
+                                                        >
+                                                            <Plus className="w-4 h-4" />
+                                                        </Button>
+                                                    </div>
+                                                </CardContent>
+                                            </Card>
+                                        </Link>
+                                    );
+                                })}
                                 {filteredProducts.length === 0 && (
                                     <div className="col-span-full text-center py-12 text-muted-foreground">
                                         {searchTerm || selectedCategory ? 'No products match your search.' : 'No products available yet.'}
@@ -863,63 +1126,7 @@ const StoreFront = () => {
                 </>
             )}
 
-            {/* Cart Drawer */}
-            <Dialog open={cartOpen} onOpenChange={setCartOpen}>
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                        <DialogTitle className="font-serif">Shopping Cart</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                        {cart.length === 0 ? (
-                            <p className="text-center text-muted-foreground py-8">Your cart is empty</p>
-                        ) : (
-                            <>
-                                {cart.map((item) => (
-                                    <div key={item.product_id} className="flex items-center justify-between">
-                                        <div>
-                                            <p className="font-medium">{item.product_name}</p>
-                                            <p className="text-sm text-muted-foreground">
-                                                {formatCurrency(item.price, store.currency)} × {item.quantity}
-                                            </p>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <Button variant="outline" size="sm" onClick={() => updateQuantity(item.product_id, -1)}>
-                                                <Minus className="w-3 h-3" />
-                                            </Button>
-                                            <span className="w-8 text-center">{item.quantity}</span>
-                                            <Button variant="outline" size="sm" onClick={() => updateQuantity(item.product_id, 1)}>
-                                                <Plus className="w-3 h-3" />
-                                            </Button>
-                                            <Button variant="ghost" size="sm" onClick={() => removeFromCart(item.product_id)}>
-                                                <X className="w-4 h-4 text-destructive" />
-                                            </Button>
-                                        </div>
-                                    </div>
-                                ))}
-                                <div className="border-t pt-4">
-                                    <div className="flex justify-between text-lg font-semibold">
-                                        <span>Total</span>
-                                        <span className="gold-text">{formatCurrency(cartTotal, store.currency)}</span>
-                                    </div>
-                                </div>
-                                {user ? (
-                                    <Button
-                                        className="w-full gold-gradient text-white"
-                                        onClick={() => { setCartOpen(false); setCheckoutOpen(true); }}
-                                        data-testid="checkout-btn"
-                                    >
-                                        <CreditCard className="w-4 h-4 mr-2" /> Checkout
-                                    </Button>
-                                ) : (
-                                    <Link to="/login" className="block">
-                                        <Button className="w-full">Login to Checkout</Button>
-                                    </Link>
-                                )}
-                            </>
-                        )}
-                    </div>
-                </DialogContent>
-            </Dialog>
+            {/* Cart Drawer is rendered globally via CartDrawer component */}
 
             {/* Checkout Dialog */}
             <Dialog open={checkoutOpen} onOpenChange={setCheckoutOpen}>
