@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getStore, getProducts, getProduct, getInventory } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
@@ -22,6 +22,7 @@ const ProductDetail = () => {
     const [loading, setLoading] = useState(true);
     const [selectedImageIndex, setSelectedImageIndex] = useState(0);
     const { cart, setCart, addToCart: contextAddToCart, cartCount } = useCart(storeId);
+    const navigate = useNavigate();
 
     useEffect(() => {
         loadData();
@@ -106,6 +107,15 @@ const ProductDetail = () => {
         // delegate to CartContext
         contextAddToCart(product, quantity);
         toast.success(`${product.name} added to cart`);
+
+        return true;
+    };
+
+    const checkoutNow = () => {
+        const added = addToCart();
+        if (added) {
+            navigate(`/store/${storeId}?checkout=1`);
+        }
     };
 
     const cartTotal = cartCount;
@@ -146,21 +156,21 @@ const ProductDetail = () => {
             <div className="bg-muted/50 border-b">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <a 
-                            href={`/store/${storeId}`} 
-                            onClick={(e) => { e.preventDefault(); window.location.href = `/store/${storeId}`; }}
-                            className="hover:text-foreground cursor-pointer"
-                        >
-                            Home
-                        </a>
+                        <Link
+  to={`/store/${storeId}`}
+  className="hover:text-foreground cursor-pointer"
+>
+  Home
+</Link>
+
                         <ChevronRight className="w-4 h-4" />
-                        <a 
-                            href={`/store/${storeId}/category/${encodeURIComponent(product.category || 'All')}`}
-                            onClick={(e) => { e.preventDefault(); window.location.href = `/store/${storeId}/category/${encodeURIComponent(product.category || 'All')}`; }}
-                            className="hover:text-foreground cursor-pointer"
-                        >
-                            {product.category || 'Products'}
-                        </a>
+                        <Link
+  to={`/store/${storeId}/category/${encodeURIComponent(product.category || 'All')}`}
+  className="hover:text-foreground cursor-pointer"
+>
+  {product.category || 'Products'}  
+</Link>
+
                         <ChevronRight className="w-4 h-4" />
                         <span className="text-foreground">{product.name}</span>
                     </div>
@@ -280,15 +290,26 @@ const ProductDetail = () => {
                                             </div>
                                         </div>
 
-                                        <Button 
-                                            className={`w-full h-14 text-lg ${isOutOfStock ? 'bg-gray-400 cursor-not-allowed' : 'gold-gradient text-white'}`}
-                                            onClick={addToCart}
-                                            disabled={isOutOfStock}
-                                            data-testid="add-to-cart-btn"
-                                        >
-                                            <ShoppingCart className="w-5 h-5 mr-2" />
-                                            {isOutOfStock ? 'Out of Stock' : `Add to Cart - ${formatCurrency(product.price * quantity, store.currency)}`}
-                                        </Button>
+                                        <div className="space-y-3">
+                                            <Button 
+                                                className={`w-full h-14 text-lg ${isOutOfStock ? 'bg-gray-400 cursor-not-allowed' : 'gold-gradient text-white'}`}
+                                                onClick={addToCart}
+                                                disabled={isOutOfStock}
+                                                data-testid="add-to-cart-btn"
+                                            >
+                                                <ShoppingCart className="w-5 h-5 mr-2" />
+                                                {isOutOfStock ? 'Out of Stock' : `Add to Cart - ${formatCurrency(product.price * quantity, store.currency)}`}
+                                            </Button>
+                                            {!isOutOfStock && (
+                                                <Button 
+                                                    variant="outline"
+                                                    className="w-full h-12"
+                                                    onClick={checkoutNow}
+                                                >
+                                                    Checkout Now
+                                                </Button>
+                                            )}
+                                        </div>
                                     </>
                                 );
                             })()}

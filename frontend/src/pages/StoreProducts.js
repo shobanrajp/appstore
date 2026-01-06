@@ -210,16 +210,9 @@ const StoreProducts = () => {
                                         <Link
                                             to={`/store/${storeId}/plans`}
                                             onClick={(e) => {
-                                                // preserve new-tab behavior
                                                 if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || (e.button && e.button !== 0)) return;
                                                 e.preventDefault();
-                                                const target = `/store/${storeId}/plans`;
-                                                try {
-                                                    navigate(target);
-                                                } catch (err) {
-                                                    window.location.href = target;
-                                                    return;
-                                                }
+                                                navigate(`/store/${storeId}/plans`);
                                             }}
                                         >
                                             <Button size="sm" className="gold-gradient text-white">View Plans</Button>
@@ -238,7 +231,7 @@ const StoreProducts = () => {
                     {filteredProducts.length} product{filteredProducts.length !== 1 ? 's' : ''} found
                 </div>
                 
-                <div className={viewMode === 'grid' ? 'grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4' : 'space-y-4'}>
+                <div className={viewMode === 'grid' ? 'grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4' : 'space-y-4'}>
                     {filteredProducts.map((product) => {
                         const inv = getInventoryEntry(product.id);
                         const stock = inv.quantity;

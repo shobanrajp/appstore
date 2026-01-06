@@ -30,13 +30,9 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
         if (typeof onGlobalSearch === 'function') {
             try { onGlobalSearch(value); } catch (e) {}
         }
-        try {
-            if (typeof onNavigate === 'function') {
-                onNavigate(`/store/${storeId}/products?search=${encodeURIComponent(value)}`);
-                return;
-            }
-        } catch (e) {}
-        window.location.href = `/store/${storeId}/products?search=${encodeURIComponent(value)}`;
+        if (typeof onNavigate === 'function') {
+            onNavigate(`/store/${storeId}/products?search=${encodeURIComponent(value)}`);
+        }
     };
 
     const handleKeyDownSearch = (e) => {
@@ -54,9 +50,9 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
             if (highlightIndex >= 0 && suggestions[highlightIndex]) {
                 const s = suggestions[highlightIndex];
                 if (s.type === 'product') {
-                    try { if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/product/${s.id}`); else window.location.href = `/store/${storeId}/product/${s.id}`; } catch (err) { window.location.href = `/store/${storeId}/product/${s.id}`; }
+                    if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/product/${s.id}`);
                 } else {
-                    try { if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/plans`); else window.location.href = `/store/${storeId}/plans`; } catch (err) { window.location.href = `/store/${storeId}/plans`; }
+                    if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/plans`);
                 }
                 return;
             }
@@ -204,9 +200,9 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                                                     onMouseDown={(e) => e.preventDefault()}
                                                     onClick={() => {
                                                         if (s.type === 'product') {
-                                                            try { if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/product/${s.id}`); else window.location.href = `/store/${storeId}/product/${s.id}`; } catch (err) { window.location.href = `/store/${storeId}/product/${s.id}`; }
+                                                            if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/product/${s.id}`);
                                                         } else {
-                                                            try { if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/plans`); else window.location.href = `/store/${storeId}/plans`; } catch (err) { window.location.href = `/store/${storeId}/plans`; }
+                                                            if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/plans`);
                                                         }
                                                     }}
                                                     onMouseEnter={() => setHighlightIndex(idx)}
@@ -339,13 +335,7 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                                                         <div className="text-gold font-semibold">{formatCurrency(plan.min_amount || 0, store?.currency)}+</div>
                                                         <button onClick={() => {
                                                             const target = `/store/${storeId}/plans`;
-                                                            try {
-                                                                if (typeof onNavigate === 'function') {
-                                                                    onNavigate(target);
-                                                                    return;
-                                                                }
-                                                            } catch (e) {}
-                                                            try { window.location.href = target; } catch (e) {}
+                                                            if (typeof onNavigate === 'function') onNavigate(target);
                                                         }} className="gold-gradient text-white px-3 py-1 rounded">View Plans</button>
                                                     </div>
                                                 </CardContent>
@@ -355,7 +345,7 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                                 </div>
                             )}
 
-                            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                                 {displayProducts.map((product) => {
                                     const inv = getInventoryEntry(product.id);
                                     const stock = inv.quantity;
@@ -371,7 +361,6 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                                                 return;
                                             }
                                         } catch (e) {}
-                                        try { window.location.href = target; } catch (e) {}
                                     };
 
                                     return (

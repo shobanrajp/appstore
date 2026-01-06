@@ -50,11 +50,7 @@ const StoreHeader = ({
             try { onSearchChange(value); } catch (e) {}
         } else {
             // client-side navigate to products page with query param
-            try {
-                navigate(`/store/${storeId}/products?search=${encodeURIComponent(value)}`);
-            } catch (e) {
-                window.location.href = `/store/${storeId}/products?search=${encodeURIComponent(value)}`;
-            }
+            navigate(`/store/${storeId}/products?search=${encodeURIComponent(value)}`);
         }
     };
 
@@ -74,8 +70,7 @@ const StoreHeader = ({
     const handleNavClick = (path, e) => {
         if (e) e.preventDefault();
         setMobileMenuOpen(false);
-        // Use window.location for reliable navigation
-        window.location.href = path;
+        navigate(path);
     };
 
     return (

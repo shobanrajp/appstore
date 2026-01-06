@@ -109,7 +109,7 @@ const CategoryProducts = () => {
                 <Card>
                     <CardContent className="p-8 text-center">
                         <h2 className="text-xl font-serif mb-4">Store Not Found</h2>
-                        <a href="/" onClick={(e) => { e.preventDefault(); window.location.href = '/'; }}>
+                        <a href="/" onClick={(e) => { e.preventDefault(); navigate('/'); }}>
                             <Button>Go Home</Button>
                         </a>
                     </CardContent>
@@ -127,7 +127,7 @@ const CategoryProducts = () => {
                 <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-center gap-4 md:gap-8 px-4">
                     <a 
                         href={`/store/${storeId}`}
-                        onClick={(e) => { e.preventDefault(); window.location.href = `/store/${storeId}`; }}
+                        onClick={(e) => { e.preventDefault(); navigate(`/store/${storeId}`); }}
                         className="hover:text-gold cursor-pointer transition-colors text-sm md:text-base"
                     >
                         All Products
@@ -136,7 +136,7 @@ const CategoryProducts = () => {
                         <a 
                             key={i}
                             href={`/store/${storeId}/category/${encodeURIComponent(cat)}`}
-                            onClick={(e) => { e.preventDefault(); window.location.href = `/store/${storeId}/category/${encodeURIComponent(cat)}`; }}
+                            onClick={(e) => { e.preventDefault(); navigate(`/store/${storeId}/category/${encodeURIComponent(cat)}`); }}
                             className={`hover:text-gold cursor-pointer transition-colors text-sm md:text-base ${
                                 cat === decodedCategory ? 'text-gold font-semibold' : ''
                             }`}
@@ -236,7 +236,7 @@ const CategoryProducts = () => {
                                 : `No products available in ${decodedCategory}`
                             }
                         </p>
-                        <a href={`/store/${storeId}`} onClick={(e) => { e.preventDefault(); window.location.href = `/store/${storeId}`; }}>
+                        <a href={`/store/${storeId}`} onClick={(e) => { e.preventDefault(); navigate(`/store/${storeId}`); }}>
                             <Button variant="outline">View All Products</Button>
                         </a>
                     </div>
