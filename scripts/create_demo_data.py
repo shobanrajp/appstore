@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from motor.motor_asyncio import AsyncIOMotorClient
 
 # MongoDB connection
-MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+MONGO_URL = os.environ.get("MONGO_URL", "mongodb+srv://super_db_user:32vP1kxwlgo4y1tS@cluster0.esi7c1q.mongodb.net/?appName=Cluster0")
 DB_NAME = os.environ.get("DB_NAME", "test_database")
 
 
