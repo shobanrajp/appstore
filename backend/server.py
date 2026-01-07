@@ -1753,7 +1753,7 @@ app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*','https://appstores-pink.vercel.app/').split(','),
+    allow_origins=["https://your-vercel-domain.vercel.app"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
