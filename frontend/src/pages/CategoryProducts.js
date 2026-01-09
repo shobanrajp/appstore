@@ -8,7 +8,7 @@ import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { toast } from 'sonner';
 import { Plus, Search, ArrowLeft, User, LogIn, ShoppingCart } from 'lucide-react';
-import { formatCurrency } from '../lib/utils';
+import { formatCurrency, setPageTitle } from '../lib/utils';
 import StoreHeader from '../components/StoreHeader';
 import StoreFooter from '../components/StoreFooter';
 import { useCart } from '../context/CartContext';
@@ -34,6 +34,7 @@ const CategoryProducts = () => {
                     getInventory(storeId).catch(() => ({ data: [] }))
                 ]);
                 setStore(storeRes.data);
+                setPageTitle(storeRes.data, 'Products');
                 // normalize inventory into a map by product_id for reliable lookups
                 const invArray = inventoryRes.data || [];
                 const invMap = invArray.reduce((m, i) => {

@@ -1,17 +1,16 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, Link, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getStore, getProducts, getSubscriptionPlans, getPageConfig, createOrder, subscribeToPlan, createPaymentOrder, completePayment, getAddresses, createAddress, getInventory } from '../lib/api';
+import { getStore, getProducts, getSubscriptionPlans, getPageConfig, subscribeToPlan, createPaymentOrder, verifyPayment, getInventory } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
-import { ShoppingCart, User, Plus, Minus, X, CreditCard, LogIn, Search, MessageCircle, Phone, Mail, MapPin, AlertTriangle } from 'lucide-react';
-import { formatCurrency } from '../lib/utils';
+import { ShoppingCart, User, Plus, Minus, X, CreditCard, LogIn, Search, MessageCircle, Phone, Mail, MapPin, AlertTriangle, Menu } from 'lucide-react';
+import { formatCurrency, setPageTitle } from '../lib/utils';
 import { useCart } from '../context/CartContext';
 
 // Dynamic Component Renderer - renders components based on page config
@@ -20,7 +19,12 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
     const [localSearch, setLocalSearch] = useState(globalSearchTerm || '');
     const [suggestions, setSuggestions] = useState([]);
     const [highlightIndex, setHighlightIndex] = useState(-1);
+    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [heroIndex, setHeroIndex] = useState(0);
     const suggestionsRef = useRef(null);
+    // Use store-specific cart context so we can show live count badge
+    const { cartCount } = useCart(storeId);
+    const navigate = useNavigate();
 
     useEffect(() => {
         if (globalSearchTerm !== undefined) setLocalSearch(globalSearchTerm || '');
@@ -82,6 +86,71 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
         }, 160);
         return () => clearTimeout(t);
     }, [localSearch, products, plans, store]);
+
+    // Hero carousel data (memoized)
+    const heroSlides = useMemo(() => {
+        if (type !== 'hero') return [];
+        if (Array.isArray(props.heroSlides) && props.heroSlides.length > 0) {
+            return props.heroSlides
+                .map(sl => ({
+                    image: sl.image || sl,
+                    category: sl.category || '',
+                    title: sl.title || '',
+                    subtitle: sl.subtitle || '',
+                    titleColor: sl.titleColor || ''
+                }))
+                .filter(sl => sl.image);
+        }
+        const imgs = Array.isArray(props.heroImages) ? props.heroImages.filter(Boolean) : [];
+        if (imgs.length > 0) return imgs.map(img => ({ image: img, category: '', title: '', subtitle: '', titleColor: '' }));
+        if (props.backgroundImage) return [{ image: props.backgroundImage, category: '', title: '', subtitle: '', titleColor: '' }];
+        return [];
+    }, [type, props.heroSlides, props.heroImages, props.backgroundImage]);
+
+    const useCarousel = type === 'hero' && props.heroCarousel && heroSlides.length > 1;
+    const heroCategorySet = useMemo(() => new Set((categories || []).map((c) => (c || '').toLowerCase())), [categories]);
+    const heroIntervalMs = useMemo(() => {
+        const val = Number(props.heroInterval);
+        if (!Number.isFinite(val)) return 4000;
+        return Math.min(10000, Math.max(1500, val));
+    }, [props.heroInterval]);
+
+    const heroActiveSlide = useMemo(() => {
+        if (type !== 'hero') return null;
+        if (useCarousel) return heroSlides[heroIndex];
+        if (heroSlides[0]) return heroSlides[0];
+        if (props.backgroundImage) return { image: props.backgroundImage, category: '', title: '', subtitle: '', titleColor: '' };
+        return null;
+    }, [type, useCarousel, heroSlides, heroIndex, props.backgroundImage]);
+
+    const heroActiveCategory = useMemo(
+        () => (heroActiveSlide?.category || '').trim(),
+        [heroActiveSlide]
+    );
+
+    const heroHasCategoryMatch = useMemo(
+        () => heroActiveCategory && heroCategorySet.has(heroActiveCategory.toLowerCase()),
+        [heroActiveCategory, heroCategorySet]
+    );
+
+    const handleHeroNavigate = useCallback(() => {
+        if (type !== 'hero') return;
+        if (heroHasCategoryMatch && typeof onNavigate === 'function') {
+            onNavigate(`/store/${storeId}/category/${encodeURIComponent(heroActiveCategory)}`);
+        }
+    }, [type, heroHasCategoryMatch, heroActiveCategory, onNavigate, storeId]);
+
+    useEffect(() => {
+        if (!useCarousel) {
+            setHeroIndex(0);
+            return undefined;
+        }
+        setHeroIndex(0);
+        const id = setInterval(() => {
+            setHeroIndex((idx) => (idx + 1) % heroSlides.length);
+        }, heroIntervalMs);
+        return () => clearInterval(id);
+    }, [useCarousel, heroSlides.length, heroIntervalMs]);
 
     // Helper to get stock for a product
     const getProductStock = (productId) => {
@@ -158,19 +227,47 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
     const wrapperStyle = getStyleFromProps();
 
     switch (type) {
-        case 'header':
-            // Save header style to localStorage for other pages
-            if (typeof window !== 'undefined' && Object.keys(wrapperStyle).length > 0) {
-                localStorage.setItem(`header_style_${storeId}`, JSON.stringify(wrapperStyle));
+        case 'header': {
+            // Save header style and key display prefs to localStorage for other pages (e.g., product detail)
+            if (typeof window !== 'undefined') {
+                const headerData = {
+                    style: wrapperStyle,
+                    iconColor: props.iconColor,
+                    showLogo: props.showLogo,
+                    showTitle: props.showTitle,
+                    logoUrl: props.logoUrl,
+                    logoScale: props.logoScale,
+                    title: props.title
+                };
+                localStorage.setItem(`header_style_${storeId}`, JSON.stringify(headerData));
             }
+
+            const logoSource = props.logoUrl || store?.logo_url;
+            const parsedScale = Number(props.logoScale);
+            const logoScale = Number.isFinite(parsedScale) && parsedScale > 0 ? parsedScale : 1;
+            const logoHeight = 40 * logoScale;
+
             return (
-                <header className="bg-primary text-primary-foreground p-4 sticky top-0 z-40" style={wrapperStyle}>
-                    <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
-                        <Link to={`/store/${storeId}`}>
-                            <h1 className="text-2xl font-serif hover:opacity-80">{props.title || store?.name || 'Store'}</h1>
+                <header className="bg-primary text-primary-foreground sticky top-0 z-40" style={wrapperStyle}>
+                    <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between gap-4">
+                        {/* Logo/Title */}
+                        <Link to={`/store/${storeId}`} className="flex-shrink-0 flex items-center gap-3">
+                            {props.showLogo !== false && logoSource && (
+                                <img 
+                                    src={logoSource} 
+                                    alt={store?.name || 'Store logo'} 
+                                    className="w-auto object-contain"
+                                    style={{ height: `${logoHeight}px` }}
+                                />
+                            )}
+                            {props.showTitle !== false && (
+                                <h1 className="text-xl md:text-2xl font-serif hover:opacity-80 transition-opacity">
+                                    {props.title || store?.name || 'Store'}
+                                </h1>
+                            )}
                         </Link>
                         
-                        {/* Global Search Bar - Center */}
+                        {/* Global Search Bar - Center (Desktop) */}
                         {props.showSearch !== false && (
                             <div className="hidden md:flex flex-1 max-w-md mx-4">
                                 <div className="relative w-full">
@@ -217,16 +314,154 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                                 </div>
                             </div>
                         )}
-                        
+            
+                        {/* Desktop Navigation */}
                         <nav className="hidden md:flex gap-6 items-center">
                             <Link to={`/store/${storeId}`} className="hover:opacity-80 cursor-pointer">Home</Link>
                             <Link to={`/store/${storeId}/products`} className="hover:opacity-80 cursor-pointer">Products</Link>
                             <Link to={`/store/${storeId}/plans`} className="hover:opacity-80 cursor-pointer">Plans</Link>
                             <Link to={`/store/${storeId}/contact`} className="hover:opacity-80 cursor-pointer">Contact</Link>
                         </nav>
+
+                        {/* Right Actions */}
+                        <div className="flex items-center gap-2">
+                            {user ? (
+                                <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    className="text-primary-foreground hover:bg-white/10"
+                                    onClick={() => navigate(`/store/${storeId}/portal`)}
+                                    style={props.iconColor ? { color: props.iconColor } : {}}
+                                >
+                                    <User className="w-4 h-4 md:mr-2" />
+                                    <span className="hidden md:inline">Account</span>
+                                </Button>
+                            ) : (
+                                <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    className="text-primary-foreground hover:bg-white/10"
+                                    onClick={() => navigate(`/store/${storeId}/login`)}
+                                    style={props.iconColor ? { color: props.iconColor } : {}}
+                                >
+                                    <LogIn className="w-4 h-4 md:mr-2" />
+                                    <span className="hidden md:inline">Login</span>
+                                </Button>
+                            )}
+                            
+                            <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="text-primary-foreground hover:bg-white/10 relative"
+                                onClick={() => navigate(`/store/${storeId}/cart`)}
+                                style={props.iconColor ? { color: props.iconColor } : {}}
+                            >
+                                <ShoppingCart className="w-4 h-4" />
+                                {cartCount > 0 && (
+                                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-gold text-white text-xs rounded-full flex items-center justify-center">
+                                        {cartCount}
+                                    </span>
+                                )}
+                            </Button>
+
+                            {/* Mobile Menu */}
+                            <div className="md:hidden">
+                                <button 
+                                    onClick={() => setMobileMenuOpen(true)}
+                                    className="inline-flex items-center justify-center rounded-md text-sm font-medium h-9 px-3 text-primary-foreground hover:bg-white/10"
+                                    style={props.iconColor ? { color: props.iconColor } : {}}
+                                >
+                                    <Menu className="w-5 h-5" />
+                                </button>
+                                {mobileMenuOpen && (
+                                    <>
+                                        {/* Overlay */}
+                                        <div 
+                                            className="fixed inset-0 z-50 bg-black/80"
+                                            onClick={() => setMobileMenuOpen(false)}
+                                        />
+                                        {/* Menu Panel */}
+                                        <div className="fixed inset-y-0 right-0 z-50 w-[250px] bg-background p-6 shadow-lg text-foreground">
+                                            <button 
+                                                onClick={() => setMobileMenuOpen(false)}
+                                                className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 text-foreground"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                                </svg>
+                                            </button>
+                                            <nav className="flex flex-col gap-4 mt-8">
+                                                <Link to={`/store/${storeId}`} onClick={() => setMobileMenuOpen(false)} className="hover:opacity-80 transition-opacity block py-2 cursor-pointer text-foreground">
+                                                    Home
+                                                </Link>
+                                                <Link to={`/store/${storeId}/products`} onClick={() => setMobileMenuOpen(false)} className="hover:opacity-80 transition-opacity block py-2 cursor-pointer text-foreground">
+                                                    Products
+                                                </Link>
+                                                <Link to={`/store/${storeId}/plans`} onClick={() => setMobileMenuOpen(false)} className="hover:opacity-80 transition-opacity block py-2 cursor-pointer text-foreground">
+                                                    Plans
+                                                </Link>
+                                                <Link to={`/store/${storeId}/contact`} onClick={() => setMobileMenuOpen(false)} className="hover:opacity-80 transition-opacity block py-2 cursor-pointer text-foreground">
+                                                    Contact
+                                                </Link>
+                                            </nav>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </div>
                     </div>
+                    
+                    {/* Mobile Search */}
+                    {props.showSearch !== false && (
+                        <div className="md:hidden px-4 pb-3">
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                <Input
+                                    placeholder="Search products & plans..."
+                                    value={localSearch}
+                                    onChange={(e) => { setLocalSearch(e.target.value); setHighlightIndex(-1); }}
+                                    onKeyDown={handleKeyDownSearch}
+                                    className="pl-10 bg-background text-foreground border-input placeholder:text-muted-foreground"
+                                />
+                                <button
+                                    aria-label="Search"
+                                    onClick={() => triggerSearch(localSearch)}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                >
+                                    <Search className="w-4 h-4" />
+                                </button>
+                                {/* Mobile Suggestions dropdown */}
+                                {suggestions.length > 0 && (
+                                    <div ref={suggestionsRef} className="absolute left-0 right-0 mt-1 bg-background text-foreground border rounded shadow-lg z-50 max-h-64 overflow-auto">
+                                        {suggestions.map((s, idx) => (
+                                            <div
+                                                key={`${s.type}-${s.id}-mobile`}
+                                                role="button"
+                                                tabIndex={0}
+                                                onMouseDown={(e) => e.preventDefault()}
+                                                onClick={() => {
+                                                    if (s.type === 'product') {
+                                                        if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/product/${s.id}`);
+                                                    } else {
+                                                        if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/plans`);
+                                                    }
+                                                }}
+                                                onMouseEnter={() => setHighlightIndex(idx)}
+                                                className={`px-3 py-2 cursor-pointer ${highlightIndex === idx ? 'bg-muted/80' : 'hover:bg-muted'}`}
+                                            >
+                                                <div className="text-sm font-medium">{s.title}</div>
+                                                {s.subtitle && <div className="text-xs text-muted-foreground">{s.subtitle}</div>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </header>
             );
+        }
         case 'footer':
             // Save footer style to localStorage for other pages
             if (typeof window !== 'undefined' && Object.keys(wrapperStyle).length > 0) {
@@ -243,24 +478,127 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                 </footer>
             );
         case 'hero':
-            return (
-                <div 
-                    className="relative h-96 bg-cover bg-center flex items-center justify-center"
-                    style={{ 
-                        backgroundImage: props.backgroundImage ? `url(${props.backgroundImage})` : 'linear-gradient(135deg, #D4AF37 0%, #F2D06B 50%, #B5942F 100%)',
-                        ...wrapperStyle 
-                    }}
-                >
-                    <div className="absolute inset-0 bg-black/40" />
-                    <div className="relative text-center text-white px-4">
-                        <h1 className="text-4xl md:text-6xl font-serif mb-4">{props.title || `Welcome to ${store?.name}`}</h1>
-                        <p className="text-lg md:text-xl mb-6">{props.subtitle || 'Discover exquisite jewelry'}</p>
-                        {props.buttonText && (
-                            <Button className="gold-gradient text-white">{props.buttonText}</Button>
+            {
+                const activeImage = heroActiveSlide?.image;
+                const activeCategory = heroActiveCategory;
+                const hasCategoryMatch = heroHasCategoryMatch;
+
+                return (
+                    <div 
+                        className={`relative h-96 bg-cover bg-center flex items-center justify-center overflow-hidden ${hasCategoryMatch ? 'cursor-pointer' : ''}`}
+                        onClick={handleHeroNavigate}
+                        style={{ 
+                            backgroundImage: activeImage ? `url(${activeImage})` : 'linear-gradient(135deg, #D4AF37 0%, #F2D06B 50%, #B5942F 100%)',
+                            ...wrapperStyle 
+                        }}
+                    >
+                        {useCarousel && (
+                            <>
+                                <div className="absolute inset-0">
+                                    {heroSlides.map((slide, idx) => (
+                                        <div
+                                            key={idx}
+                                            className="absolute inset-0 transition-opacity duration-700"
+                                            style={{
+                                                backgroundImage: `url(${slide.image})`,
+                                                backgroundSize: 'cover',
+                                                backgroundPosition: 'center',
+                                                opacity: idx === heroIndex ? 1 : 0,
+                                            }}
+                                        />
+                                    ))}
+                                </div>
+                                {props.heroArrows !== false && (
+                                    <div className="absolute inset-0 flex items-center justify-between px-4 md:px-8 z-10">
+                                        <button
+                                            aria-label="Previous slide"
+                                            onClick={(e) => { e.stopPropagation(); setHeroIndex((idx) => (idx - 1 + heroSlides.length) % heroSlides.length); }}
+                                            className="h-10 w-10 rounded-full bg-black/40 text-white hover:bg-black/60 transition"
+                                        >
+                                            <span className="sr-only">Previous</span>
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                                            </svg>
+                                        </button>
+                                        <button
+                                            aria-label="Next slide"
+                                            onClick={(e) => { e.stopPropagation(); setHeroIndex((idx) => (idx + 1) % heroSlides.length); }}
+                                            className="h-10 w-10 rounded-full bg-black/40 text-white hover:bg-black/60 transition"
+                                        >
+                                            <span className="sr-only">Next</span>
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                )}
+                                {props.heroDots !== false && heroSlides.length > 1 && (
+                                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-10">
+                                        {heroSlides.map((_, idx) => (
+                                            <button
+                                                key={idx}
+                                                aria-label={`Go to slide ${idx + 1}`}
+                                                onClick={(e) => { e.stopPropagation(); setHeroIndex(idx); }}
+                                                className={`h-2.5 w-2.5 rounded-full transition ${idx === heroIndex ? 'bg-white' : 'bg-white/50 hover:bg-white/80'}`}
+                                            />
+                                        ))}
+                                    </div>
+                                )}
+                            </>
                         )}
+                        {/* No shadow overlay on carousel images */}
+                        {!useCarousel && <div className="absolute inset-0 bg-black/40" />}
+                        <div className="relative text-center text-white px-4">
+                            {(() => {
+                                const slideTitle = (heroActiveSlide?.title || '').trim();
+                                const style = (heroActiveSlide?.titleColor || '').trim() ? { color: heroActiveSlide.titleColor } : undefined;
+                                if (slideTitle) {
+                                    return <h1 className="text-4xl md:text-6xl font-serif mb-4" style={style}>{slideTitle}</h1>;
+                                }
+                                if (props.showHeroTitle !== false) {
+                                    return <h1 className="text-4xl md:text-6xl font-serif mb-4" style={style}>{props.title || `Welcome to ${store?.name}`}</h1>;
+                                }
+                                return null;
+                            })()}
+                            {(() => {
+                                const slideSubtitle = (heroActiveSlide?.subtitle || '').trim();
+                                if (slideSubtitle) {
+                                    return <p className="text-lg md:text-xl mb-6">{slideSubtitle}</p>;
+                                }
+                                if (props.showHeroSubtitle !== false) {
+                                    return <p className="text-lg md:text-xl mb-6">{props.subtitle || 'Discover exquisite jewelry'}</p>;
+                                }
+                                return null;
+                            })()}
+                            {props.buttonText && (
+                                <Button
+                                    className="gold-gradient text-white"
+                                    onClick={() => {
+                                        if (hasCategoryMatch && typeof onNavigate === 'function') {
+                                            onNavigate(`/store/${storeId}/category/${encodeURIComponent(activeCategory)}`);
+                                        }
+                                    }}
+                                >
+                                    {hasCategoryMatch ? `Shop ${activeCategory}` : props.buttonText}
+                                </Button>
+                            )}
+                            {!props.buttonText && hasCategoryMatch && (
+                                <Button
+                                    variant="outline"
+                                    className="mt-4 border-white/60 text-white hover:bg-white/10"
+                                    onClick={() => {
+                                        if (typeof onNavigate === 'function') {
+                                            onNavigate(`/store/${storeId}/category/${encodeURIComponent(activeCategory)}`);
+                                        }
+                                    }}
+                                >
+                                    Explore {activeCategory}
+                                </Button>
+                            )}
+                        </div>
                     </div>
-                </div>
-            );
+                );
+            }
         case 'text':
             return (
                 <div className="py-12 px-4" style={wrapperStyle}>
@@ -534,6 +872,46 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                     </div>
                 </div>
             );
+        case 'map_link':
+            // Don't render if explicitly hidden from home page
+            if (props.visible_home === false) return null;
+            
+            return (
+                <div className="py-8 px-4" style={wrapperStyle}>
+                    <div className="max-w-3xl mx-auto text-center">
+                        <h2 className="text-3xl font-serif mb-2">{props.title || 'Find Us on Google Maps'}</h2>
+                        {props.subtitle && (
+                            <p className="text-muted-foreground mb-4">{props.subtitle}</p>
+                        )}
+                        {props.embed_url ? (
+                            <div className="rounded-lg overflow-hidden border">
+                                <iframe
+                                    src={props.embed_url}
+                                    width="100%"
+                                    height={props.height || 360}
+                                    style={{ border: 0 }}
+                                    allowFullScreen=""
+                                    loading="lazy"
+                                    referrerPolicy="no-referrer-when-downgrade"
+                                    title="Google Maps"
+                                ></iframe>
+                            </div>
+                        ) : props.map_url ? (
+                            <a
+                                href={props.map_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-2 gold-gradient text-white px-4 py-2 rounded"
+                            >
+                                <MapPin className="w-4 h-4" />
+                                Open in Google Maps
+                            </a>
+                        ) : (
+                            <p className="text-sm text-muted-foreground">Set a Google Maps embed URL in Properties</p>
+                        )}
+                    </div>
+                </div>
+            );
         default:
             return null;
     }
@@ -550,20 +928,11 @@ const StoreFront = () => {
     const [inventory, setInventory] = useState([]);
     const [pageConfig, setPageConfig] = useState(null);
     const [loading, setLoading] = useState(true);
-    const { cart, setCart, addToCart: contextAddToCart, cartCount, cartTotal } = useCart(storeId);
-    // cart UI state is provided by CartContext
-    const { cartOpen, setCartOpen } = useCart(storeId);
-    const [checkoutOpen, setCheckoutOpen] = useState(false);
-    const [addresses, setAddresses] = useState([]);
-    const [selectedAddress, setSelectedAddress] = useState('');
-    const [newAddressOpen, setNewAddressOpen] = useState(false);
-    const [newAddress, setNewAddress] = useState({
-        label: 'Home', full_name: '', phone: '', address_line1: '', address_line2: '',
-        city: '', state: '', postal_code: '', country: 'India', is_default: false
-    });
+    const { cart, setCart, loadCart, addToCart: contextAddToCart, updateQuantityLocal, removeFromCart: removeFromCartLocal, cartCount, cartTotal } = useCart(storeId);
     const [subscribeOpen, setSubscribeOpen] = useState(false);
     const [selectedPlan, setSelectedPlan] = useState(null);
     const [chosenMonthlyAmount, setChosenMonthlyAmount] = useState('');
+    const [processingPayment, setProcessingPayment] = useState(false);
     
     // Search and filter states
     const [searchTerm, setSearchTerm] = useState('');
@@ -616,6 +985,7 @@ const StoreFront = () => {
                 getInventory(storeId).catch(() => ({ data: [] }))
             ]);
             setStore(storeRes.data);
+            setPageTitle(storeRes.data, 'Home');
             setProducts(productsRes.data);
             setPlans(plansRes.data);
             setInventory(inventoryRes.data || []);
@@ -655,23 +1025,35 @@ const StoreFront = () => {
         loadData();
     }, [loadData]);
 
-    // Open checkout modal when navigated with ?checkout=1
+    // Load cart from backend on mount or storeId change
     useEffect(() => {
-        try {
-            const params = new URLSearchParams(location.search || window.location.search);
-            if (params.get('checkout')) {
-                setCheckoutOpen(true);
-                // remove param from URL
-                navigate(`/store/${storeId}`, { replace: true });
-            }
-        } catch (e) {}
-    }, [location.search, storeId, navigate]);
-
-    useEffect(() => {
-        if (user) {
-            loadAddresses();
+        if (storeId) {
+            loadCart(storeId);
         }
-    }, [user]);
+    }, [storeId, loadCart]);
+
+    // Set document title to store name
+    useEffect(() => {
+        if (store?.name) {
+            document.title = store.name;
+        }
+        return () => {
+            document.title = 'Store';
+        };
+    }, [store?.name]);
+
+    // Load Razorpay script
+    useEffect(() => {
+        const script = document.createElement('script');
+        script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+        script.async = true;
+        document.body.appendChild(script);
+        return () => {
+            try { document.body.removeChild(script); } catch {}
+        };
+    }, []);
+
+    // Previously handled checkout modal via URL params; now checkout lives inline on CartPage.
     // Keep global search state in sync with the URL (react when query param changes)
     useEffect(() => {
         try {
@@ -692,20 +1074,7 @@ const StoreFront = () => {
 
     // (loadData defined earlier)
 
-    const loadAddresses = async () => {
-        try {
-            const res = await getAddresses();
-            setAddresses(res.data);
-            if (res.data.length > 0) {
-                const defaultAddr = res.data.find(a => a.is_default) || res.data[0];
-                setSelectedAddress(defaultAddr.id);
-            }
-        } catch (error) {
-            console.error(error);
-        }
-    };
-
-    const addToCart = (product) => {
+    const addToCart = async (product) => {
         // Check inventory before adding to cart
         const stock = getProductStock(product.id);
         if (stock <= 0) {
@@ -713,7 +1082,8 @@ const StoreFront = () => {
             return;
         }
 
-        const existing = cart.find(item => item.product_id === product.id);
+        const cartItems = cart.items || [];
+        const existing = cartItems.find(item => item.product_id === product.id);
         const currentQtyInCart = existing ? existing.quantity : 0;
 
         if (currentQtyInCart + 1 > stock) {
@@ -722,80 +1092,33 @@ const StoreFront = () => {
         }
 
         // Delegate persistence and updates to CartContext
-        contextAddToCart(product, 1);
+        await contextAddToCart(product, 1);
         toast.success(`${product.name} added to cart`);
     };
 
     const updateQuantity = (productId, delta) => {
         const stock = getProductStock(productId);
-        const newCart = cart.map(item => {
-            if (item.product_id === productId) {
-                const newQty = item.quantity + delta;
-                if (newQty > stock) {
-                    toast.error(`Only ${stock} items available in stock`);
-                    return item;
-                }
-                return newQty > 0 ? { ...item, quantity: newQty } : item;
+        const items = cart.items || [];
+        const item = items.find(it => it.product_id === productId);
+        if (item) {
+            const newQty = item.quantity + delta;
+            if (newQty > stock && delta > 0) {
+                toast.error(`Only ${stock} items available in stock`);
+                return;
             }
-            return item;
-        }).filter(item => item.quantity > 0);
-        setCart(newCart);
+            if (newQty > 0) {
+                updateQuantityLocal(productId, delta);
+            } else {
+                removeFromCartLocal(productId);
+            }
+        }
     };
 
     const removeFromCart = (productId) => {
-        setCart(cart.filter(item => item.product_id !== productId));
+        removeFromCartLocal(productId);
     };
 
     // cartCount and cartTotal provided by CartContext
-
-    const handleAddAddress = async (e) => {
-        e.preventDefault();
-        try {
-            const res = await createAddress(newAddress);
-            setAddresses([...addresses, res.data]);
-            setSelectedAddress(res.data.id);
-            setNewAddressOpen(false);
-            setNewAddress({
-                label: 'Home', full_name: '', phone: '', address_line1: '', address_line2: '',
-                city: '', state: '', postal_code: '', country: 'India', is_default: false
-            });
-            toast.success('Address added');
-        } catch (error) {
-            toast.error('Failed to add address');
-        }
-    };
-
-    const handleCheckout = async () => {
-        if (!selectedAddress) {
-            toast.error('Please select a delivery address');
-            return;
-        }
-
-        try {
-            const orderRes = await createOrder(storeId, {
-                items: cart.map(item => ({
-                    product_id: item.product_id,
-                    quantity: item.quantity,
-                    price: item.price
-                })),
-                shipping_address_id: selectedAddress
-            });
-
-            const paymentRes = await createPaymentOrder({
-                amount: cartTotal,
-                description: `Order ${orderRes.data.id}`,
-                order_id: orderRes.data.id
-            });
-
-            await completePayment(paymentRes.data.id);
-
-            toast.success('Order placed successfully!');
-            setCart([]);
-            setCheckoutOpen(false);
-        } catch (error) {
-            toast.error(error.response?.data?.detail || 'Checkout failed');
-        }
-    };
 
     const handleSubscribe = async () => {
         if (!selectedPlan) return;
@@ -809,6 +1132,13 @@ const StoreFront = () => {
             return;
         }
 
+        if (!store || !store.razorpay_key_id) {
+            toast.error('Payment gateway not configured for this store');
+            return;
+        }
+
+        setProcessingPayment(true);
+
         try {
             const subRes = await subscribeToPlan(storeId, {
                 plan_id: selectedPlan.id,
@@ -817,17 +1147,58 @@ const StoreFront = () => {
 
             const paymentRes = await createPaymentOrder({
                 amount: amount,
+                currency: store.currency || 'INR',
                 description: `${selectedPlan.name} - First Installment`,
+                store_id: storeId,
                 subscription_id: subRes.data.id
             });
 
-            await completePayment(paymentRes.data.id);
+            // Open Razorpay checkout
+            const options = {
+                key: store.razorpay_key_id,
+                amount: Math.round(amount * 100), // Amount in paise
+                currency: store.currency || 'INR',
+                name: store.name || 'Store',
+                description: `${selectedPlan.name} - First Installment`,
+                order_id: paymentRes.data.razorpay_order_id,
+                handler: async function (response) {
+                    try {
+                        await verifyPayment({
+                            razorpay_order_id: response.razorpay_order_id,
+                            razorpay_payment_id: response.razorpay_payment_id,
+                            razorpay_signature: response.razorpay_signature,
+                            payment_id: paymentRes.data.id,
+                        });
+                        toast.success('Subscribed successfully! First payment completed.');
+                        setSubscribeOpen(false);
+                        setSelectedPlan(null);
+                        setChosenMonthlyAmount('');
+                        navigate(`/store/${storeId}/portal?tab=subscriptions`);
+                    } catch (error) {
+                        toast.error('Payment verification failed');
+                    } finally {
+                        setProcessingPayment(false);
+                    }
+                },
+                prefill: {
+                    name: user.name,
+                    email: user.email,
+                },
+                theme: {
+                    color: '#D4AF37',
+                },
+                modal: {
+                    ondismiss: function() {
+                        setProcessingPayment(false);
+                        toast.error('Payment cancelled');
+                    }
+                }
+            };
 
-            toast.success('Subscribed successfully! First payment completed.');
-            setSubscribeOpen(false);
-            setSelectedPlan(null);
-            setChosenMonthlyAmount('');
+            const rzp = new window.Razorpay(options);
+            rzp.open();
         } catch (error) {
+            setProcessingPayment(false);
             toast.error(error.response?.data?.detail || 'Subscription failed');
         }
     };
@@ -866,36 +1237,6 @@ const StoreFront = () => {
 
     return (
         <div className="min-h-screen bg-background">
-            {/* Fixed Cart Button */}
-            <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
-                {user ? (
-                    <Link to="/portal">
-                        <Button variant="secondary" className="shadow-lg" data-testid="my-account-btn">
-                            <User className="w-4 h-4 mr-2" /> My Account
-                        </Button>
-                    </Link>
-                ) : (
-                    <Link to="/login">
-                        <Button variant="secondary" className="shadow-lg" data-testid="login-btn">
-                            <LogIn className="w-4 h-4 mr-2" /> Login
-                        </Button>
-                    </Link>
-                )}
-                <Button
-                    variant="secondary"
-                    className="shadow-lg relative"
-                    onClick={() => setCartOpen(true)}
-                    data-testid="cart-btn"
-                >
-                    <ShoppingCart className="w-5 h-5" />
-                    {cartCount > 0 && (
-                        <span className="absolute -top-2 -right-2 w-5 h-5 bg-gold text-white text-xs rounded-full flex items-center justify-center">
-                            {cartCount}
-                        </span>
-                    )}
-                </Button>
-            </div>
-
             {/* Render page config components if available, otherwise show default layout */}
             {hasPageConfig ? (
                 <>
@@ -1117,155 +1458,6 @@ const StoreFront = () => {
 
             {/* Cart Drawer is rendered globally via CartDrawer component */}
 
-            {/* Checkout Dialog */}
-            <Dialog open={checkoutOpen} onOpenChange={setCheckoutOpen}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle className="font-serif">Checkout</DialogTitle>
-                        <DialogDescription>Select delivery address and complete payment</DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                        <div className="space-y-2">
-                            <Label>Delivery Address</Label>
-                            {addresses.length > 0 ? (
-                                <Select value={selectedAddress} onValueChange={setSelectedAddress}>
-                                    <SelectTrigger data-testid="address-select">
-                                        <SelectValue placeholder="Select address" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {addresses.map((addr) => (
-                                            <SelectItem key={addr.id} value={addr.id}>
-                                                {addr.label}: {addr.address_line1}, {addr.city}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            ) : (
-                                <p className="text-sm text-muted-foreground">No addresses saved</p>
-                            )}
-                            <Button variant="outline" size="sm" onClick={() => setNewAddressOpen(true)}>
-                                <Plus className="w-4 h-4 mr-2" /> Add New Address
-                            </Button>
-                        </div>
-
-                        <div className="border-t pt-4 space-y-2">
-                            <div className="flex justify-between">
-                                <span>Items ({cart.length})</span>
-                                <span>{formatCurrency(cartTotal, store.currency)}</span>
-                            </div>
-                            <div className="flex justify-between text-lg font-semibold">
-                                <span>Total</span>
-                                <span className="gold-text">{formatCurrency(cartTotal, store.currency)}</span>
-                            </div>
-                        </div>
-
-                        <Button
-                            className="w-full gold-gradient text-white"
-                            onClick={handleCheckout}
-                            disabled={!selectedAddress || cart.length === 0}
-                            data-testid="place-order-btn"
-                        >
-                            Place Order (Mock Payment)
-                        </Button>
-                        <p className="text-xs text-center text-muted-foreground">
-                            This is a demo checkout with mock payment processing
-                        </p>
-                    </div>
-                </DialogContent>
-            </Dialog>
-
-            {/* Add Address Dialog */}
-            <Dialog open={newAddressOpen} onOpenChange={setNewAddressOpen}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle className="font-serif">Add New Address</DialogTitle>
-                    </DialogHeader>
-                    <form onSubmit={handleAddAddress} className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label>Label</Label>
-                                <Select value={newAddress.label} onValueChange={(v) => setNewAddress({ ...newAddress, label: v })}>
-                                    <SelectTrigger>
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="Home">Home</SelectItem>
-                                        <SelectItem value="Work">Work</SelectItem>
-                                        <SelectItem value="Other">Other</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Full Name</Label>
-                                <Input
-                                    value={newAddress.full_name}
-                                    onChange={(e) => setNewAddress({ ...newAddress, full_name: e.target.value })}
-                                    required
-                                />
-                            </div>
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Phone</Label>
-                            <Input
-                                value={newAddress.phone}
-                                onChange={(e) => setNewAddress({ ...newAddress, phone: e.target.value })}
-                                required
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Address Line 1</Label>
-                            <Input
-                                value={newAddress.address_line1}
-                                onChange={(e) => setNewAddress({ ...newAddress, address_line1: e.target.value })}
-                                required
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Address Line 2</Label>
-                            <Input
-                                value={newAddress.address_line2}
-                                onChange={(e) => setNewAddress({ ...newAddress, address_line2: e.target.value })}
-                            />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label>City</Label>
-                                <Input
-                                    value={newAddress.city}
-                                    onChange={(e) => setNewAddress({ ...newAddress, city: e.target.value })}
-                                    required
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>State</Label>
-                                <Input
-                                    value={newAddress.state}
-                                    onChange={(e) => setNewAddress({ ...newAddress, state: e.target.value })}
-                                    required
-                                />
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label>Postal Code</Label>
-                                <Input
-                                    value={newAddress.postal_code}
-                                    onChange={(e) => setNewAddress({ ...newAddress, postal_code: e.target.value })}
-                                    required
-                                />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Country</Label>
-                                <Input value={newAddress.country} disabled />
-                            </div>
-                        </div>
-                        <Button type="submit" className="w-full gold-gradient text-white">
-                            Save Address
-                        </Button>
-                    </form>
-                </DialogContent>
-            </Dialog>
-
             {/* Subscribe Dialog */}
             <Dialog open={subscribeOpen} onOpenChange={setSubscribeOpen}>
                 <DialogContent>
@@ -1313,12 +1505,13 @@ const StoreFront = () => {
                             <Button
                                 className="w-full gold-gradient text-white"
                                 onClick={handleSubscribe}
+                                disabled={processingPayment}
                                 data-testid="confirm-subscribe-btn"
                             >
-                                Subscribe & Pay First Installment ({formatCurrency(parseFloat(chosenMonthlyAmount) || 0, store.currency)})
+                                {processingPayment ? 'Processing...' : `Subscribe & Pay ${formatCurrency(parseFloat(chosenMonthlyAmount) || 0, store.currency)}`}
                             </Button>
                             <p className="text-xs text-center text-muted-foreground">
-                                This is a demo subscription with MOCK payment
+                                Secure payment powered by Razorpay
                             </p>
                         </div>
                     )}

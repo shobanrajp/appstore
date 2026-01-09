@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useParams, Link } from 'react-router-dom';
 import { getStore, getProducts, getProduct, getInventory } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
 import { Plus, Minus, ChevronRight, AlertTriangle, ShoppingCart } from 'lucide-react';
-import { formatCurrency } from '../lib/utils';
+import { formatCurrency, setPageTitle } from '../lib/utils';
 import StoreHeader from '../components/StoreHeader';
 import StoreFooter from '../components/StoreFooter';
 import { useCart } from '../context/CartContext';
@@ -21,27 +21,14 @@ const ProductDetail = () => {
     const [quantity, setQuantity] = useState(1);
     const [loading, setLoading] = useState(true);
     const [selectedImageIndex, setSelectedImageIndex] = useState(0);
-    const { cart, setCart, addToCart: contextAddToCart, cartCount } = useCart(storeId);
-    const navigate = useNavigate();
+    const { cart, setCart, addToCart: contextAddToCart, cartCount, setCartOpen } = useCart(storeId);
 
-    useEffect(() => {
-        loadData();
-    }, [storeId, productId]);
+    console.log('ProductDetail rendered:', { storeId, productId });
 
-    // cart state and persistence provided by CartContext
-
-    useEffect(() => {
-        // Add to recently viewed
-        if (product) {
-            const recentKey = `recent_${storeId}`;
-            const recent = JSON.parse(localStorage.getItem(recentKey) || '[]');
-            const filtered = recent.filter(id => id !== product.id);
-            const updated = [product.id, ...filtered].slice(0, 10);
-            localStorage.setItem(recentKey, JSON.stringify(updated));
-        }
-    }, [product, storeId]);
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
+        setLoading(true);
+        setSelectedImageIndex(0);
+        setQuantity(1);
         try {
             const [storeRes, productRes, productsRes, inventoryRes] = await Promise.all([
                 getStore(storeId),
@@ -50,6 +37,7 @@ const ProductDetail = () => {
                 getInventory(storeId).catch(() => ({ data: [] }))
             ]);
             setStore(storeRes.data);
+            setPageTitle(storeRes.data, productRes.data?.name || 'Product');
             setProduct(productRes.data);
             setAllProducts(productsRes.data);
             setInventory(inventoryRes.data || []);
@@ -69,7 +57,24 @@ const ProductDetail = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [storeId, productId]);
+
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
+
+    // cart state and persistence provided by CartContext
+
+    useEffect(() => {
+        // Add to recently viewed
+        if (product) {
+            const recentKey = `recent_${storeId}`;
+            const recent = JSON.parse(localStorage.getItem(recentKey) || '[]');
+            const filtered = recent.filter(id => id !== product.id);
+            const updated = [product.id, ...filtered].slice(0, 10);
+            localStorage.setItem(recentKey, JSON.stringify(updated));
+        }
+    }, [product, storeId]);
     
     const getInventoryEntry = (prodId) => {
         if (!inventory) return { quantity: 0, min_stock_level: 0 };
@@ -114,7 +119,7 @@ const ProductDetail = () => {
     const checkoutNow = () => {
         const added = addToCart();
         if (added) {
-            navigate(`/store/${storeId}?checkout=1`);
+            setCartOpen(true);
         }
     };
 

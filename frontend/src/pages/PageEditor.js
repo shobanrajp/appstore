@@ -14,10 +14,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Switch } from '../components/ui/switch';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
+import { setPageTitle } from '../lib/utils';
 import {
     ArrowLeft, Save, Eye, Layout, Type, Image, Grid3X3, Columns, Square, 
     Menu, ListOrdered, ChevronDown, SeparatorHorizontal, Trash2, GripVertical,
-    Monitor, Smartphone, Plus, Search, Palette
+    Monitor, Smartphone, Plus, Search, Palette, MapPin
 } from 'lucide-react';
 
 // Predefined Theme Presets
@@ -96,6 +97,7 @@ const COMPONENT_TYPES = [
     { type: 'products', label: 'Product Grid', icon: Grid3X3 },
     { type: 'scrolling_text', label: 'Scrolling Text', icon: Type },
     { type: 'subscription_plans', label: 'Subscription Plans', icon: Square },
+    { type: 'map_link', label: 'Map Link', icon: MapPin },
 ];
 
 // Sortable Component Wrapper
@@ -375,6 +377,53 @@ const ComponentPreview = ({ component, products, plans }) => {
                     </div>
                 </div>
             );
+        case 'map_link':
+            const isHidden = props.visible_home === false || props.visible_contact === false;
+            const hiddenPages = [];
+            if (props.visible_home === false) hiddenPages.push('Home');
+            if (props.visible_contact === false) hiddenPages.push('Contact');
+            
+            return (
+                <div className={`py-8 px-4 ${effectAttrs.className} ${isHidden ? 'opacity-50 border-2 border-dashed border-muted' : ''}`} style={{ ...wrapperStyle, ...effectAttrs.style }}>
+                    <div className="max-w-3xl mx-auto text-center">
+                        {hiddenPages.length > 0 && (
+                            <div className="text-xs text-muted-foreground mb-2 bg-muted px-2 py-1 rounded inline-block">
+                                Hidden on: {hiddenPages.join(', ')}
+                            </div>
+                        )}
+                        <h2 className="text-3xl font-serif mb-2">{props.title || 'Find Us on Google Maps'}</h2>
+                        {props.subtitle && (
+                            <p className="text-muted-foreground mb-4">{props.subtitle}</p>
+                        )}
+                        {props.embed_url ? (
+                            <div className="rounded-lg overflow-hidden border">
+                                <iframe
+                                    src={props.embed_url}
+                                    width="100%"
+                                    height={props.height || 360}
+                                    style={{ border: 0 }}
+                                    allowFullScreen=""
+                                    loading="lazy"
+                                    referrerPolicy="no-referrer-when-downgrade"
+                                    title="Google Maps"
+                                ></iframe>
+                            </div>
+                        ) : props.map_url ? (
+                            <a
+                                href={props.map_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-2 gold-gradient text-white px-4 py-2 rounded"
+                            >
+                                <MapPin className="w-4 h-4" />
+                                Open in Google Maps
+                            </a>
+                        ) : (
+                            <p className="text-sm text-muted-foreground">Set a Google Maps embed URL in Properties</p>
+                        )}
+                    </div>
+                </div>
+            );
         case 'menu':
             // Derive categories from actual products
             const productCategories = [...new Set(products.filter(p => p.category).map(p => p.category))];
@@ -428,12 +477,46 @@ const PageEditor = () => {
     const [isPublished, setIsPublished] = useState(false);
     const [selectedTheme, setSelectedTheme] = useState(null);
     const [showThemePanel, setShowThemePanel] = useState(false);
+    const [heroSlidesDraft, setHeroSlidesDraft] = useState([]);
+    const [previewHeroIndex, setPreviewHeroIndex] = useState(0);
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
     useEffect(() => {
         loadData();
     }, [storeId]);
+
+    useEffect(() => {
+        if (selectedComponent?.type === 'hero') {
+            const normalized = normalizeHeroSlides(
+                (Array.isArray(selectedComponent.props?.heroSlides) && selectedComponent.props.heroSlides.length > 0)
+                    ? selectedComponent.props.heroSlides
+                    : (Array.isArray(selectedComponent.props?.heroImages) && selectedComponent.props.heroImages.length > 0)
+                        ? selectedComponent.props.heroImages.map((img) => ({ image: img, category: '' }))
+                        : [{ image: '', category: '' }]
+            );
+            setHeroSlidesDraft(normalized);
+            setPreviewHeroIndex(0);
+        } else {
+            setHeroSlidesDraft([]);
+            setPreviewHeroIndex(0);
+        }
+    }, [selectedComponent]);
+
+    useEffect(() => {
+        // Autoplay the preview when carousel is enabled
+        if (!selectedComponent || selectedComponent.type !== 'hero') return;
+        const slides = heroSlidesDraft;
+        const useCarousel = !!selectedComponent.props?.heroCarousel && slides.length > 1;
+        setPreviewHeroIndex(0);
+        if (!useCarousel) return;
+        const val = Number(selectedComponent.props?.heroInterval);
+        const intervalMs = Number.isFinite(val) ? Math.min(10000, Math.max(1500, val)) : 4000;
+        const id = setInterval(() => {
+            setPreviewHeroIndex((idx) => (idx + 1) % slides.length);
+        }, intervalMs);
+        return () => clearInterval(id);
+    }, [selectedComponent, heroSlidesDraft]);
 
     const loadData = async () => {
         try {
@@ -445,6 +528,7 @@ const PageEditor = () => {
             ]);
 
             setStore(storeRes.data);
+            setPageTitle(storeRes.data, 'Editor');
             setProducts(productsRes.data);
             setPlans(plansRes.data);
 
@@ -492,13 +576,28 @@ const PageEditor = () => {
         setSelectedComponent(newComponent);
     };
 
-    const updateComponentProps = (key, value) => {
+    const normalizeHeroSlides = (slides) => {
+        const base = Array.isArray(slides) && slides.length > 0 ? slides : [{ image: '', category: '' }];
+        return base.map((slide) => {
+            if (typeof slide === 'string') return { image: slide, category: '', title: '', subtitle: '', titleColor: '' };
+            return {
+                image: slide?.image || '',
+                category: slide?.category || '',
+                title: slide?.title || '',
+                subtitle: slide?.subtitle || '',
+                titleColor: slide?.titleColor || '',
+            };
+        });
+    };
+
+    const updateComponentProps = (keyOrObj, value) => {
         if (!selectedComponent) return;
-        const updated = components.map(c =>
-            c.id === selectedComponent.id ? { ...c, props: { ...c.props, [key]: value } } : c
+        const patch = typeof keyOrObj === 'object' ? keyOrObj : { [keyOrObj]: value };
+        const updated = components.map((c) =>
+            c.id === selectedComponent.id ? { ...c, props: { ...c.props, ...patch } } : c
         );
         setComponents(updated);
-        setSelectedComponent({ ...selectedComponent, props: { ...selectedComponent.props, [key]: value } });
+        setSelectedComponent({ ...selectedComponent, props: { ...selectedComponent.props, ...patch } });
     };
 
     const deleteComponent = (id) => {
@@ -563,7 +662,7 @@ const PageEditor = () => {
             <header className="border-b bg-card sticky top-0 z-50">
                 <div className="px-4 py-3 flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                        <Button variant="ghost" size="sm" onClick={() => navigate('/store-admin')} data-testid="back-btn">
+                        <Button variant="ghost" size="sm" onClick={() => navigate(`/store/${storeId}/admin`)} data-testid="back-btn">
                             <ArrowLeft className="w-4 h-4 mr-2" /> Back
                         </Button>
                         <div>
@@ -708,7 +807,7 @@ const PageEditor = () => {
                                 </div>
 
                                 {/* Common Props */}
-                                {['header', 'hero', 'text', 'card', 'products', 'subscription_plans', 'menu'].includes(selectedComponent.type) && (
+                                {['header', 'hero', 'text', 'card', 'products', 'subscription_plans', 'menu', 'map_link'].includes(selectedComponent.type) && (
                                     <div className="space-y-2">
                                         <Label>Title</Label>
                                         <Input
@@ -720,16 +819,78 @@ const PageEditor = () => {
                                 )}
 
                                 {selectedComponent.type === 'header' && (
-                                    <div className="space-y-2">
-                                        <Label>Show Search</Label>
-                                        <div className="flex items-center">
-                                            <Switch
-                                                checked={!!selectedComponent.props?.showSearch}
-                                                onCheckedChange={(v) => updateComponentProps('showSearch', !!v)}
+                                    <>
+                                        <div className="space-y-2">
+                                            <Label>Logo URL</Label>
+                                            <Input
+                                                value={selectedComponent.props?.logoUrl || ''}
+                                                onChange={(e) => updateComponentProps('logoUrl', e.target.value)}
+                                                placeholder="https://example.com/logo.png"
                                             />
-                                            <span className="ml-2 text-sm text-muted-foreground">Displays search bar in header</span>
+                                            <span className="text-xs text-muted-foreground">Optional custom logo URL</span>
                                         </div>
-                                    </div>
+                                        <div className="space-y-2">
+                                            <Label>Logo Scale</Label>
+                                            <Input
+                                                type="number"
+                                                min="0.25"
+                                                max="3"
+                                                step="0.05"
+                                                value={selectedComponent.props?.logoScale ?? ''}
+                                                onChange={(e) => updateComponentProps('logoScale', e.target.value)}
+                                                placeholder="1.0"
+                                            />
+                                            <span className="text-xs text-muted-foreground">Adjust logo size (1 = default)</span>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label>Show Logo</Label>
+                                            <div className="flex items-center">
+                                                <Switch
+                                                    checked={selectedComponent.props?.showLogo !== false}
+                                                    onCheckedChange={(v) => updateComponentProps('showLogo', v)}
+                                                />
+                                                <span className="ml-2 text-sm text-muted-foreground">Shows store logo if available</span>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label>Show Store Title</Label>
+                                            <div className="flex items-center">
+                                                <Switch
+                                                    checked={selectedComponent.props?.showTitle !== false}
+                                                    onCheckedChange={(v) => updateComponentProps('showTitle', v)}
+                                                />
+                                                <span className="ml-2 text-sm text-muted-foreground">Shows store name as text</span>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label>Show Search</Label>
+                                            <div className="flex items-center">
+                                                <Switch
+                                                    checked={!!selectedComponent.props?.showSearch}
+                                                    onCheckedChange={(v) => updateComponentProps('showSearch', !!v)}
+                                                />
+                                                <span className="ml-2 text-sm text-muted-foreground">Displays search bar in header</span>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label>Icon Color</Label>
+                                            <div className="flex gap-2">
+                                                <Input
+                                                    type="color"
+                                                    value={selectedComponent.props?.iconColor || '#ffffff'}
+                                                    onChange={(e) => updateComponentProps('iconColor', e.target.value)}
+                                                    className="w-12 h-10 p-1 cursor-pointer"
+                                                />
+                                                <Input
+                                                    value={selectedComponent.props?.iconColor || ''}
+                                                    onChange={(e) => updateComponentProps('iconColor', e.target.value)}
+                                                    placeholder="#ffffff"
+                                                    className="flex-1"
+                                                />
+                                            </div>
+                                            <p className="text-xs text-muted-foreground">Color for Account, Cart, and Menu icons</p>
+                                        </div>
+                                    </>
                                 )}
 
                                 {selectedComponent.type === 'hero' && (
@@ -748,12 +909,378 @@ const PageEditor = () => {
                                                 onChange={(e) => updateComponentProps('buttonText', e.target.value)}
                                             />
                                         </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <Label>Show Title</Label>
+                                                <div className="flex items-center">
+                                                    <Switch
+                                                        checked={selectedComponent.props?.showHeroTitle !== false}
+                                                        onCheckedChange={(v) => updateComponentProps('showHeroTitle', v)}
+                                                    />
+                                                    <span className="ml-2 text-sm text-muted-foreground">Toggle hero title visibility</span>
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Show Subtitle</Label>
+                                                <div className="flex items-center">
+                                                    <Switch
+                                                        checked={selectedComponent.props?.showHeroSubtitle !== false}
+                                                        onCheckedChange={(v) => updateComponentProps('showHeroSubtitle', v)}
+                                                    />
+                                                    <span className="ml-2 text-sm text-muted-foreground">Toggle hero subtitle visibility</span>
+                                                </div>
+                                            </div>
+                                        </div>
                                         <div className="space-y-2">
-                                            <Label>Background Image URL</Label>
+                                            <Label>Use Image Carousel</Label>
+                                            <div className="flex items-center">
+                                                <Switch
+                                                    checked={!!selectedComponent.props?.heroCarousel}
+                                                    onCheckedChange={(v) => updateComponentProps('heroCarousel', !!v)}
+                                                />
+                                                <span className="ml-2 text-sm text-muted-foreground">Scroll through multiple images</span>
+                                            </div>
+                                        </div>
+                                        {selectedComponent.props?.heroCarousel ? (() => {
+                                            const slides = heroSlidesDraft.length > 0
+                                                ? heroSlidesDraft
+                                                : [{ image: '', category: '' }];
+
+                                            const setSlides = (nextSlides) => {
+                                                const normalized = normalizeHeroSlides(nextSlides || []);
+                                                setHeroSlidesDraft(normalized);
+                                                updateComponentProps({
+                                                    heroSlides: normalized,
+                                                    heroImages: normalized.map((s) => s.image),
+                                                });
+                                            };
+
+                                            return (
+                                                <div className="space-y-2">
+                                                    <div className="flex items-center justify-between">
+                                                        <Label>Carousel Images</Label>
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            type="button"
+                                                            onClick={() => setSlides([...slides, { image: '', category: '', title: '', subtitle: '', titleColor: '' }])}
+                                                        >
+                                                            + Add image
+                                                        </Button>
+                                                    </div>
+                                                    <div className="space-y-3">
+                                                        {slides.map((slide, idx) => (
+                                                            <div key={idx} className="space-y-3 border rounded-md p-3 bg-muted/40">
+                                                                <div className="flex gap-2 items-center">
+                                                                    <Input
+                                                                        value={slide.image}
+                                                                        onChange={(e) => {
+                                                                            const next = [...slides];
+                                                                            next[idx] = { ...(next[idx] || {}), image: e.target.value };
+                                                                            setSlides(next);
+                                                                        }}
+                                                                        placeholder={`https://example.com/hero${idx + 1}.jpg`}
+                                                                    />
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        onClick={() => {
+                                                                            const next = slides.filter((_, i) => i !== idx);
+                                                                            setSlides(next);
+                                                                        }}
+                                                                    >
+                                                                        <Trash2 className="w-4 h-4" />
+                                                                    </Button>
+                                                                </div>
+                                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                                    <div className="space-y-1">
+                                                                        <Label className="text-xs">Title (optional)</Label>
+                                                                        <Input
+                                                                            value={slide.title || ''}
+                                                                            onChange={(e) => {
+                                                                                const next = [...slides];
+                                                                                next[idx] = { ...(next[idx] || {}), title: e.target.value };
+                                                                                setSlides(next);
+                                                                            }}
+                                                                            placeholder="e.g., New Arrivals"
+                                                                        />
+                                                                    </div>
+                                                                    <div className="space-y-1">
+                                                                        <Label className="text-xs">Subtitle (optional)</Label>
+                                                                        <Input
+                                                                            value={slide.subtitle || ''}
+                                                                            onChange={(e) => {
+                                                                                const next = [...slides];
+                                                                                next[idx] = { ...(next[idx] || {}), subtitle: e.target.value };
+                                                                                setSlides(next);
+                                                                            }}
+                                                                            placeholder="e.g., Discover the latest collection"
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                                <div className="space-y-1">
+                                                                    <Label className="text-xs">Title Color (optional)</Label>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <Input
+                                                                            type="color"
+                                                                            value={slide.titleColor || '#ffffff'}
+                                                                            onChange={(e) => {
+                                                                                const next = [...slides];
+                                                                                next[idx] = { ...(next[idx] || {}), titleColor: e.target.value };
+                                                                                setSlides(next);
+                                                                            }}
+                                                                            className="w-12 h-10 p-1 cursor-pointer"
+                                                                        />
+                                                                        <Input
+                                                                            value={slide.titleColor || ''}
+                                                                            onChange={(e) => {
+                                                                                const next = [...slides];
+                                                                                next[idx] = { ...(next[idx] || {}), titleColor: e.target.value };
+                                                                                setSlides(next);
+                                                                            }}
+                                                                            placeholder="#ffffff"
+                                                                            className="flex-1"
+                                                                        />
+                                                                    </div>
+                                                                    <p className="text-xs text-muted-foreground">Overrides the hero title color for this slide</p>
+                                                                </div>
+                                                                <div className="space-y-1">
+                                                                    <Label className="text-xs">Category (optional)</Label>
+                                                                    <Input
+                                                                        value={slide.category || ''}
+                                                                        onChange={(e) => {
+                                                                            const next = [...slides];
+                                                                            next[idx] = { ...(next[idx] || {}), category: e.target.value };
+                                                                            setSlides(next);
+                                                                        }}
+                                                                        placeholder="e.g., Rings"
+                                                                    />
+                                                                    <p className="text-xs text-muted-foreground">If it matches a product category, clicking the slide will filter by it.</p>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                    <p className="text-xs text-muted-foreground">Leave empty to fall back to single image</p>
+                                                </div>
+                                            );
+                                        })() : (
+                                            <div className="space-y-2">
+                                                <Label>Background Image URL</Label>
+                                                <Input
+                                                    value={selectedComponent.props?.backgroundImage || ''}
+                                                    onChange={(e) => updateComponentProps('backgroundImage', e.target.value)}
+                                                    placeholder="https://example.com/hero.jpg"
+                                                />
+                                            </div>
+                                        )}
+                                        {selectedComponent.props?.heroCarousel && (
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label>Slide Interval (ms)</Label>
+                                                    <Input
+                                                        type="number"
+                                                        min="1500"
+                                                        max="10000"
+                                                        step="250"
+                                                        value={selectedComponent.props?.heroInterval ?? 4000}
+                                                        onChange={(e) => updateComponentProps('heroInterval', Number(e.target.value) || 4000)}
+                                                    />
+                                                    <p className="text-xs text-muted-foreground">Time between slides (default 4000)</p>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Show Arrows</Label>
+                                                    <div className="flex items-center">
+                                                        <Switch
+                                                            checked={selectedComponent.props?.heroArrows !== false}
+                                                            onCheckedChange={(v) => updateComponentProps('heroArrows', v)}
+                                                        />
+                                                        <span className="ml-2 text-sm text-muted-foreground">Display next/prev controls</span>
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Show Dots</Label>
+                                                    <div className="flex items-center">
+                                                        <Switch
+                                                            checked={selectedComponent.props?.heroDots !== false}
+                                                            onCheckedChange={(v) => updateComponentProps('heroDots', v)}
+                                                        />
+                                                        <span className="ml-2 text-sm text-muted-foreground">Show slide position indicators</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Preview */}
+                                        <div className="mt-4 border rounded-md overflow-hidden bg-muted/40">
+                                            <div className="relative h-48 flex items-center justify-center text-center text-white">
+                                                {selectedComponent.props?.heroCarousel && heroSlidesDraft.length > 0 && heroSlidesDraft.some(s => s.image) ? (
+                                                    <>
+                                                        <div className="absolute inset-0">
+                                                            {heroSlidesDraft.map((slide, idx) => (
+                                                                <div
+                                                                    key={idx}
+                                                                    className="absolute inset-0 transition-opacity duration-700"
+                                                                    style={{
+                                                                        backgroundImage: `url(${slide.image})`,
+                                                                        backgroundSize: 'cover',
+                                                                        backgroundPosition: 'center',
+                                                                        opacity: idx === previewHeroIndex ? 1 : 0,
+                                                                    }}
+                                                                />
+                                                            ))}
+                                                        </div>
+                                                        {selectedComponent.props?.heroArrows !== false && heroSlidesDraft.filter(s => s.image).length > 1 && (
+                                                            <div className="absolute inset-0 flex items-center justify-between px-3 z-10">
+                                                                <button
+                                                                    aria-label="Previous slide"
+                                                                    onClick={() => setPreviewHeroIndex((idx) => (idx - 1 + heroSlidesDraft.length) % heroSlidesDraft.length)}
+                                                                    className="h-8 w-8 rounded-full bg-black/40 text-white hover:bg-black/60 transition"
+                                                                >
+                                                                    <span className="sr-only">Previous</span>
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                                                                    </svg>
+                                                                </button>
+                                                                <button
+                                                                    aria-label="Next slide"
+                                                                    onClick={() => setPreviewHeroIndex((idx) => (idx + 1) % heroSlidesDraft.length)}
+                                                                    className="h-8 w-8 rounded-full bg-black/40 text-white hover:bg-black/60 transition"
+                                                                >
+                                                                    <span className="sr-only">Next</span>
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                                                    </svg>
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                        {selectedComponent.props?.heroDots !== false && heroSlidesDraft.filter(s => s.image).length > 1 && (
+                                                            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1 z-10">
+                                                                {heroSlidesDraft.map((_, idx) => (
+                                                                    <button
+                                                                        key={idx}
+                                                                        aria-label={`Go to slide ${idx + 1}`}
+                                                                        onClick={() => setPreviewHeroIndex(idx)}
+                                                                        className={`h-2 w-2 rounded-full transition ${idx === previewHeroIndex ? 'bg-white' : 'bg-white/50 hover:bg-white/80'}`}
+                                                                    />
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    <div className="absolute inset-0" style={{
+                                                        backgroundImage: (() => {
+                                                            const slides = heroSlidesDraft.length > 0
+                                                                ? heroSlidesDraft
+                                                                : (Array.isArray(selectedComponent.props?.heroSlides) && selectedComponent.props.heroSlides.length > 0
+                                                                    ? selectedComponent.props.heroSlides
+                                                                    : (Array.isArray(selectedComponent.props?.heroImages) && selectedComponent.props?.heroImages.length > 0
+                                                                        ? selectedComponent.props.heroImages.map((img) => ({ image: img, category: '' }))
+                                                                        : []));
+                                                            const first = slides[0]?.image || selectedComponent.props?.backgroundImage;
+                                                            return first ? `url(${first})` : 'linear-gradient(135deg, #D4AF37 0%, #F2D06B 50%, #B5942F 100%)';
+                                                        })(),
+                                                        backgroundSize: 'cover',
+                                                        backgroundPosition: 'center'
+                                                    }} />
+                                                )}
+                                                {selectedComponent.props?.heroCarousel && heroSlidesDraft.length > 0 && heroSlidesDraft.some(s => s.image) ? null : <div className="absolute inset-0 bg-black/40" />}
+                                                <div className="relative px-4">
+                                                    {(() => {
+                                                        const s = (selectedComponent.props?.heroCarousel && heroSlidesDraft.length > 0 && heroSlidesDraft.some(sl => sl.image))
+                                                            ? heroSlidesDraft[previewHeroIndex] || {}
+                                                            : heroSlidesDraft[0] || {};
+                                                        const slideTitle = (s.title || '').trim();
+                                                        const style = s.titleColor ? { color: s.titleColor } : undefined;
+                                                        if (slideTitle) {
+                                                            return <div className="text-xl font-serif" style={style}>{slideTitle}</div>;
+                                                        }
+                                                        if (selectedComponent.props?.showHeroTitle !== false) {
+                                                            return <div className="text-xl font-serif" style={style}>{selectedComponent.props?.title || 'Hero Title'}</div>;
+                                                        }
+                                                        return null;
+                                                    })()}
+                                                    {(() => {
+                                                        const s = (selectedComponent.props?.heroCarousel && heroSlidesDraft.length > 0 && heroSlidesDraft.some(sl => sl.image))
+                                                            ? heroSlidesDraft[previewHeroIndex] || {}
+                                                            : heroSlidesDraft[0] || {};
+                                                        const slideSubtitle = (s.subtitle || '').trim();
+                                                        if (slideSubtitle) {
+                                                            return <div className="text-sm text-white/80 mt-1">{slideSubtitle}</div>;
+                                                        }
+                                                        if (selectedComponent.props?.showHeroSubtitle !== false) {
+                                                            return <div className="text-sm text-white/80 mt-1">{selectedComponent.props?.subtitle || 'Hero subtitle'}</div>;
+                                                        }
+                                                        return null;
+                                                    })()}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+
+                                {selectedComponent.type === 'map_link' && (
+                                    <>
+                                        <div className="space-y-3 p-3 bg-muted/50 rounded-lg">
+                                            <Label className="text-sm font-semibold">Page Visibility</Label>
+                                            <div className="space-y-2">
+                                                <div className="flex items-center">
+                                                    <Switch
+                                                        checked={selectedComponent.props?.visible_home !== false}
+                                                        onCheckedChange={(v) => updateComponentProps('visible_home', v)}
+                                                        data-testid="prop-map-visible-home-switch"
+                                                    />
+                                                    <span className="ml-2 text-sm text-muted-foreground">Show on Home Page</span>
+                                                </div>
+                                                <div className="flex items-center">
+                                                    <Switch
+                                                        checked={selectedComponent.props?.visible_contact !== false}
+                                                        onCheckedChange={(v) => updateComponentProps('visible_contact', v)}
+                                                        data-testid="prop-map-visible-contact-switch"
+                                                    />
+                                                    <span className="ml-2 text-sm text-muted-foreground">Show on Contact Page</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label>Subtitle</Label>
                                             <Input
-                                                value={selectedComponent.props?.backgroundImage || ''}
-                                                onChange={(e) => updateComponentProps('backgroundImage', e.target.value)}
+                                                value={selectedComponent.props?.subtitle || ''}
+                                                onChange={(e) => updateComponentProps('subtitle', e.target.value)}
+                                                placeholder="e.g., Click to view our location"
                                             />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label>Google Maps Embed URL</Label>
+                                            <Input
+                                                value={selectedComponent.props?.embed_url || ''}
+                                                onChange={(e) => updateComponentProps('embed_url', e.target.value)}
+                                                placeholder="https://www.google.com/maps/embed?pb=..."
+                                                data-testid="prop-map-embed-url-input"
+                                            />
+                                            <p className="text-xs text-muted-foreground">Paste the embed URL (opens inside the page)</p>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label>Height (px)</Label>
+                                            <Input
+                                                type="number"
+                                                min={200}
+                                                max={800}
+                                                value={selectedComponent.props?.height ?? ''}
+                                                onChange={(e) => updateComponentProps('height', parseInt(e.target.value || '0'))}
+                                                placeholder="360"
+                                            />
+                                            <p className="text-xs text-muted-foreground">Adjust the embedded map height</p>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label>Fallback Google Maps URL</Label>
+                                            <Input
+                                                value={selectedComponent.props?.map_url || ''}
+                                                onChange={(e) => updateComponentProps('map_url', e.target.value)}
+                                                placeholder="https://maps.google.com/?q=Your+Address"
+                                                data-testid="prop-map-url-input"
+                                            />
+                                            <p className="text-xs text-muted-foreground">Optional: used if embed URL is not set</p>
                                         </div>
                                     </>
                                 )}

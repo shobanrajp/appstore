@@ -40,15 +40,21 @@ const Register = () => {
         setLoading(true);
         
         try {
+            const lastStore = typeof window !== 'undefined' ? localStorage.getItem('lastVisitedStore') : null;
             const response = await registerApi({
                 name: formData.name,
                 email: formData.email,
                 password: formData.password,
                 role: 'end_user',
+                store_id: lastStore || undefined,
             });
             login(response.data.access_token, response.data.user);
             toast.success('Account created successfully!');
-            navigate('/shop');
+            if (lastStore) {
+                navigate(`/store/${lastStore}`);
+            } else {
+                navigate('/shop');
+            }
         } catch (error) {
             toast.error(error.response?.data?.detail || 'Registration failed');
         } finally {

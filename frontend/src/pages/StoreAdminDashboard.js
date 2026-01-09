@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useParams } from 'react-router-dom';
 import {
     getStores, getProducts, createProduct, updateProduct, deleteProduct,
     getInventory, createInventory, updateInventory,
@@ -32,7 +32,7 @@ import {
     Box, Truck, DollarSign, CreditCard, Edit2, LayoutDashboard, Palette, Eye, Building2,
     BarChart3, Filter, Calendar, UserCog, Contact, Activity, Shield
 } from 'lucide-react';
-import { formatCurrency, formatDate, formatDateTime, getStatusColor } from '../lib/utils';
+import { formatCurrency, formatDate, formatDateTime, getStatusColor, setPageTitle } from '../lib/utils';
 
 const StoreAdminDashboard = () => {
     const { user, logout } = useAuth();
@@ -70,7 +70,7 @@ const StoreAdminDashboard = () => {
     const [orderDetailOpen, setOrderDetailOpen] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState(null);
     const [orderTrackingInfo, setOrderTrackingInfo] = useState({ tracking_number: '', carrier_name: '', carrier_url: '' });
-    const [storeEditForm, setStoreEditForm] = useState({ name: '', description: '', contact_email: '', contact_phone: '', address: '' });
+    const [storeEditForm, setStoreEditForm] = useState({ name: '', description: '', contact_email: '', contact_phone: '', address: '', address_map_url: '' });
     
     // Staff management states
     const [staffDialogOpen, setStaffDialogOpen] = useState(false);
@@ -127,6 +127,16 @@ const StoreAdminDashboard = () => {
         loadData();
     }, []);
 
+    // Set document title to store name + Admin
+    useEffect(() => {
+        if (store?.name) {
+            document.title = `${store.name} - Admin`;
+        }
+        return () => {
+            document.title = 'Store Admin';
+        };
+    }, [store?.name]);
+
     const loadData = async () => {
         try {
             const storesRes = await getStores();
@@ -136,6 +146,7 @@ const StoreAdminDashboard = () => {
                 return;
             }
             setStore(userStore);
+            setPageTitle(userStore, 'Admin');
             setCurrency(userStore.currency);
 
             const storeId = userStore.id;
@@ -746,7 +757,8 @@ const StoreAdminDashboard = () => {
             description: store.description || '',
             contact_email: store.contact_email || '',
             contact_phone: store.contact_phone || '',
-            address: store.address || ''
+            address: store.address || '',
+            address_map_url: store.address_map_url || ''
         });
         setStoreEditDialogOpen(true);
     };
@@ -765,7 +777,9 @@ const StoreAdminDashboard = () => {
 
     const handleLogout = () => {
         logout();
-        navigate('/login');
+        // Get the storeId from the first store (if available) or redirect to landing
+        const lastStore = localStorage.getItem('lastVisitedStore');
+        navigate(lastStore ? `/store/${lastStore}/login` : '/landing');
     };
 
     const getProductName = (productId) => {
@@ -868,7 +882,7 @@ const StoreAdminDashboard = () => {
                                     <Contact className="w-4 h-4 mr-2" /> Website Customers
                                 </Button>
                                 <div className="border-t my-4" />
-                                <Link to={`/page-editor/${store.id}`}>
+                                <Link to={`/store/${store.id}/page-editor`}>
                                     <Button variant="ghost" className="w-full justify-start" data-testid="nav-page-editor">
                                         <Palette className="w-4 h-4 mr-2" /> Page Editor
                                     </Button>
@@ -2789,6 +2803,17 @@ const StoreAdminDashboard = () => {
                                 onChange={(e) => setStoreEditForm({ ...storeEditForm, address: e.target.value })}
                                 data-testid="store-edit-address"
                             />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Address Google Maps URL</Label>
+                            <Input
+                                type="url"
+                                value={storeEditForm.address_map_url}
+                                onChange={(e) => setStoreEditForm({ ...storeEditForm, address_map_url: e.target.value })}
+                                placeholder="https://maps.google.com/?q=Your+Address"
+                                data-testid="store-edit-address-map-url"
+                            />
+                            <p className="text-xs text-muted-foreground">Makes the address clickable on contact page</p>
                         </div>
                         <Button type="submit" className="w-full gold-gradient text-white" data-testid="save-store-btn">
                             Save Changes

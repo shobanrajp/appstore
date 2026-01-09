@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -12,9 +12,6 @@ import uuid
 from datetime import datetime, timezone, timedelta
 import jwt
 from passlib.context import CryptContext
-import requests
-import hmac
-import hashlib
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -34,7 +31,6 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Security
 security = HTTPBearer()
-optional_security = HTTPBearer(auto_error=False)
 
 app = FastAPI(title="Dynamic Web App Configurator")
 api_router = APIRouter(prefix="/api")
@@ -79,11 +75,6 @@ class UserResponse(BaseModel):
     created_at: str
     menu_access: Optional[List[str]] = None
 
-
-class PasswordUpdateRequest(BaseModel):
-    current_password: str
-    new_password: str
-
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -97,7 +88,6 @@ class StoreCreate(BaseModel):
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     address: Optional[str] = None
-    address_map_url: Optional[str] = None
 
 class StoreResponse(BaseModel):
     id: str
@@ -108,10 +98,8 @@ class StoreResponse(BaseModel):
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
     address: Optional[str] = None
-    address_map_url: Optional[str] = None
     is_active: bool
     created_at: str
-    razorpay_key_id: Optional[str] = None
 
 class ProductCreate(BaseModel):
     name: str
@@ -165,7 +153,6 @@ class AddressCreate(BaseModel):
     state: str
     postal_code: str
     country: str = "India"
-    special_instructions: Optional[str] = None
     is_default: bool = False
 
 class AddressResponse(BaseModel):
@@ -180,34 +167,7 @@ class AddressResponse(BaseModel):
     state: str
     postal_code: str
     country: str
-    special_instructions: Optional[str] = None
     is_default: bool
-
-class CartItemCreate(BaseModel):
-    product_id: str
-    quantity: int
-    price: float
-
-class CartItemUpdate(BaseModel):
-    quantity: int
-
-class CartMergeRequest(BaseModel):
-    session_id: str
-
-class CartItemResponse(BaseModel):
-    id: str
-    product_id: str
-    quantity: int
-    price: float
-
-class CartResponse(BaseModel):
-    id: str
-    store_id: str
-    user_id: Optional[str] = None
-    session_id: Optional[str] = None
-    items: List[CartItemResponse] = []
-    created_at: str
-    updated_at: str
 
 class OrderItemCreate(BaseModel):
     product_id: str
@@ -400,12 +360,6 @@ class MockPaymentResponse(BaseModel):
     razorpay_order_id: str
     created_at: str
 
-class PaymentVerification(BaseModel):
-    razorpay_order_id: str
-    razorpay_payment_id: str
-    razorpay_signature: str
-    payment_id: str
-
 # Staff/Worker Management
 class StaffCreate(BaseModel):
     email: EmailStr
@@ -483,19 +437,6 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
-
-async def get_optional_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security)):
-    if not credentials:
-        return None
-    try:
-        payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        user_id = payload.get("sub")
-        if not user_id:
-            return None
-        user = await db.users.find_one({"id": user_id}, {"_id": 0})
-        return user
-    except:
-        return None
 
 def require_roles(allowed_roles: List[str]):
     async def role_checker(user: dict = Depends(get_current_user)):
@@ -1464,226 +1405,6 @@ async def delete_address(addr_id: str, user: dict = Depends(get_current_user)):
     await db.addresses.delete_one({"id": addr_id, "user_id": user["id"]})
     return {"message": "Address deleted"}
 
-# ==================== CART ENDPOINTS ====================
-
-@api_router.post("/stores/{store_id}/cart", response_model=CartResponse)
-async def get_or_create_cart(store_id: str, session_id: Optional[str] = Query(None), user: dict = Depends(get_optional_user)):
-    """Get or create a cart for the user or session"""
-    now = datetime.now(timezone.utc).isoformat()
-    
-    if user:
-        # Logged-in user cart
-        cart = await db.carts.find_one({"store_id": store_id, "user_id": user["id"]}, {"_id": 0})
-        if not cart:
-            cart_id = str(uuid.uuid4())
-            cart_doc = {
-                "id": cart_id,
-                "store_id": store_id,
-                "user_id": user["id"],
-                "session_id": None,
-                "items": [],
-                "created_at": now,
-                "updated_at": now
-            }
-            await db.carts.insert_one(cart_doc)
-            cart = cart_doc
-    else:
-        # Guest cart via session
-        if not session_id:
-            session_id = str(uuid.uuid4())
-        cart = await db.carts.find_one({"store_id": store_id, "session_id": session_id}, {"_id": 0})
-        if not cart:
-            cart_id = str(uuid.uuid4())
-            cart_doc = {
-                "id": cart_id,
-                "store_id": store_id,
-                "user_id": None,
-                "session_id": session_id,
-                "items": [],
-                "created_at": now,
-                "updated_at": now
-            }
-            await db.carts.insert_one(cart_doc)
-            cart = cart_doc
-    
-    return CartResponse(**cart)
-
-@api_router.get("/stores/{store_id}/cart", response_model=CartResponse)
-async def get_cart(store_id: str, session_id: Optional[str] = Query(None), user: dict = Depends(get_optional_user)):
-    """Get cart for user or session"""
-    if user:
-        cart = await db.carts.find_one({"store_id": store_id, "user_id": user["id"]}, {"_id": 0})
-    else:
-        if not session_id:
-            raise HTTPException(status_code=400, detail="session_id required for guest")
-        cart = await db.carts.find_one({"store_id": store_id, "session_id": session_id}, {"_id": 0})
-    
-    if not cart:
-        raise HTTPException(status_code=404, detail="Cart not found")
-    
-    return CartResponse(**cart)
-
-@api_router.post("/stores/{store_id}/cart/items", response_model=CartResponse)
-async def add_cart_item(store_id: str, item_data: CartItemCreate, session_id: Optional[str] = Query(None), user: dict = Depends(get_optional_user)):
-    """Add item to cart"""
-    now = datetime.now(timezone.utc).isoformat()
-    
-    if user:
-        cart = await db.carts.find_one({"store_id": store_id, "user_id": user["id"]}, {"_id": 0})
-    else:
-        if not session_id:
-            raise HTTPException(status_code=400, detail="session_id required for guest")
-        cart = await db.carts.find_one({"store_id": store_id, "session_id": session_id}, {"_id": 0})
-    
-    if not cart:
-        raise HTTPException(status_code=404, detail="Cart not found")
-    
-    # Check if item already in cart, if so update quantity
-    existing_item = next((it for it in cart.get("items", []) if it["product_id"] == item_data.product_id), None)
-    
-    if existing_item:
-        existing_item["quantity"] += item_data.quantity
-    else:
-        new_item = {
-            "id": str(uuid.uuid4()),
-            "product_id": item_data.product_id,
-            "quantity": item_data.quantity,
-            "price": item_data.price
-        }
-        if "items" not in cart:
-            cart["items"] = []
-        cart["items"].append(new_item)
-    
-    await db.carts.update_one(
-        {"id": cart["id"]},
-        {"$set": {"items": cart["items"], "updated_at": now}}
-    )
-    
-    cart["updated_at"] = now
-    return CartResponse(**cart)
-
-@api_router.put("/stores/{store_id}/cart/items/{item_id}", response_model=CartResponse)
-async def update_cart_item(store_id: str, item_id: str, update_data: CartItemUpdate, session_id: Optional[str] = Query(None), user: dict = Depends(get_optional_user)):
-    """Update item quantity in cart"""
-    now = datetime.now(timezone.utc).isoformat()
-    quantity = update_data.quantity
-    
-    if user:
-        cart = await db.carts.find_one({"store_id": store_id, "user_id": user["id"]}, {"_id": 0})
-    else:
-        if not session_id:
-            raise HTTPException(status_code=400, detail="session_id required for guest")
-        cart = await db.carts.find_one({"store_id": store_id, "session_id": session_id}, {"_id": 0})
-    
-    if not cart:
-        raise HTTPException(status_code=404, detail="Cart not found")
-    
-    item = next((it for it in cart.get("items", []) if it["id"] == item_id), None)
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not in cart")
-    
-    if quantity <= 0:
-        cart["items"] = [it for it in cart["items"] if it["id"] != item_id]
-    else:
-        item["quantity"] = quantity
-    
-    await db.carts.update_one(
-        {"id": cart["id"]},
-        {"$set": {"items": cart["items"], "updated_at": now}}
-    )
-    
-    cart["updated_at"] = now
-    return CartResponse(**cart)
-
-@api_router.delete("/stores/{store_id}/cart/items/{item_id}", response_model=CartResponse)
-async def remove_cart_item(store_id: str, item_id: str, session_id: Optional[str] = Query(None), user: dict = Depends(get_optional_user)):
-    """Remove item from cart"""
-    now = datetime.now(timezone.utc).isoformat()
-    
-    if user:
-        cart = await db.carts.find_one({"store_id": store_id, "user_id": user["id"]}, {"_id": 0})
-    else:
-        if not session_id:
-            raise HTTPException(status_code=400, detail="session_id required for guest")
-        cart = await db.carts.find_one({"store_id": store_id, "session_id": session_id}, {"_id": 0})
-    
-    if not cart:
-        raise HTTPException(status_code=404, detail="Cart not found")
-    
-    cart["items"] = [it for it in cart.get("items", []) if it["id"] != item_id]
-    
-    await db.carts.update_one(
-        {"id": cart["id"]},
-        {"$set": {"items": cart["items"], "updated_at": now}}
-    )
-    
-    cart["updated_at"] = now
-    return CartResponse(**cart)
-
-@api_router.post("/stores/{store_id}/cart/merge")
-async def merge_guest_cart_to_user(store_id: str, merge_data: CartMergeRequest, user: dict = Depends(get_current_user)):
-    """Migrate guest cart items to user cart on login"""
-    session_id = merge_data.session_id
-    guest_cart = await db.carts.find_one({"store_id": store_id, "session_id": session_id}, {"_id": 0})
-    user_cart = await db.carts.find_one({"store_id": store_id, "user_id": user["id"]}, {"_id": 0})
-    
-    if not user_cart:
-        now = datetime.now(timezone.utc).isoformat()
-        cart_id = str(uuid.uuid4())
-        user_cart = {
-            "id": cart_id,
-            "store_id": store_id,
-            "user_id": user["id"],
-            "session_id": None,
-            "items": [],
-            "created_at": now,
-            "updated_at": now
-        }
-        await db.carts.insert_one(user_cart)
-    
-    if guest_cart and guest_cart.get("items"):
-        for guest_item in guest_cart["items"]:
-            existing = next((it for it in user_cart.get("items", []) if it["product_id"] == guest_item["product_id"]), None)
-            if existing:
-                existing["quantity"] += guest_item["quantity"]
-            else:
-                user_cart["items"].append(guest_item)
-        
-        now = datetime.now(timezone.utc).isoformat()
-        await db.carts.update_one(
-            {"id": user_cart["id"]},
-            {"$set": {"items": user_cart["items"], "updated_at": now}}
-        )
-        
-        # Delete guest cart
-        await db.carts.delete_one({"id": guest_cart["id"]})
-    
-    return CartResponse(**user_cart)
-
-@api_router.delete("/stores/{store_id}/cart")
-async def clear_cart(store_id: str, session_id: Optional[str] = Query(None), user: dict = Depends(get_optional_user)):
-    """Clear all items from cart"""
-    now = datetime.now(timezone.utc).isoformat()
-    
-    if user:
-        cart = await db.carts.find_one({"store_id": store_id, "user_id": user["id"]}, {"_id": 0})
-    else:
-        if not session_id:
-            raise HTTPException(status_code=400, detail="session_id required for guest")
-        cart = await db.carts.find_one({"store_id": store_id, "session_id": session_id}, {"_id": 0})
-    
-    if not cart:
-        raise HTTPException(status_code=404, detail="Cart not found")
-    
-    await db.carts.update_one(
-        {"id": cart["id"]},
-        {"$set": {"items": [], "updated_at": now}}
-    )
-    
-    cart["items"] = []
-    cart["updated_at"] = now
-    return CartResponse(**cart)
-
 # ==================== SUBSCRIPTION PLAN ENDPOINTS ====================
 
 @api_router.post("/stores/{store_id}/subscription-plans", response_model=SubscriptionPlanResponse)
@@ -1973,39 +1694,8 @@ async def create_payment_order(payment_data: MockPaymentCreate, user: dict = Dep
     payment_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     
-    # Get store to fetch Razorpay credentials
-    store = None
-    if payment_data.order_id:
-        order = await db.orders.find_one({"id": payment_data.order_id})
-        if order:
-            store = await db.stores.find_one({"id": order["store_id"]})
-    
-    if not store or not store.get("razorpay_key_id") or not store.get("razorpay_key_secret"):
-        raise HTTPException(status_code=400, detail="Store payment configuration not found")
-    
-    # Create real Razorpay order
-    try:
-        razorpay_auth = (store["razorpay_key_id"], store["razorpay_key_secret"])
-        razorpay_response = requests.post(
-            "https://api.razorpay.com/v1/orders",
-            auth=razorpay_auth,
-            json={
-                "amount": int(payment_data.amount * 100),  # Convert to paise
-                "currency": "INR",
-                "receipt": f"order_{payment_data.order_id or payment_id}",
-            }
-        )
-        
-        if razorpay_response.status_code != 200:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Failed to create Razorpay order: {razorpay_response.text}"
-            )
-        
-        razorpay_order = razorpay_response.json()
-        razorpay_order_id = razorpay_order["id"]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Payment gateway error: {str(e)}")
+    # Mock Razorpay order ID
+    razorpay_order_id = f"order_mock_{uuid.uuid4().hex[:16]}"
     
     payment_doc = {
         "id": payment_id,
@@ -2016,7 +1706,6 @@ async def create_payment_order(payment_data: MockPaymentCreate, user: dict = Dep
         "order_id": payment_data.order_id,
         "status": "created",
         "razorpay_order_id": razorpay_order_id,
-        "razorpay_key_id": store["razorpay_key_id"],
         "created_at": now
     }
     
@@ -2044,85 +1733,11 @@ async def complete_payment(payment_id: str, user: dict = Depends(get_current_use
     
     return {"message": "Payment completed successfully", "status": "completed"}
 
-@api_router.post("/payments/verify")
-async def verify_payment(verification: PaymentVerification, user: dict = Depends(get_current_user)):
-    """Verify Razorpay payment signature"""
-    payment = await db.payments.find_one({"id": verification.payment_id, "user_id": user["id"]})
-    if not payment:
-        raise HTTPException(status_code=404, detail="Payment not found")
-    
-    # Verify signature
-    store_id = None
-    if payment.get("order_id"):
-        order = await db.orders.find_one({"id": payment["order_id"]})
-        if order:
-            store_id = order["store_id"]
-            store = await db.stores.find_one({"id": store_id})
-            if store and store.get("razorpay_key_secret"):
-                secret = store["razorpay_key_secret"]
-                
-                # Verify signature: HMAC(order_id|payment_id, secret) should equal signature
-                message = f"{verification.razorpay_order_id}|{verification.razorpay_payment_id}"
-                signature_generated = hmac.new(
-                    secret.encode(),
-                    message.encode(),
-                    hashlib.sha256
-                ).hexdigest()
-                
-                if signature_generated != verification.razorpay_signature:
-                    raise HTTPException(status_code=400, detail="Invalid payment signature")
-    
-    # Update payment as completed
-    await db.payments.update_one(
-        {"id": verification.payment_id},
-        {"$set": {
-            "status": "completed",
-            "razorpay_payment_id": verification.razorpay_payment_id,
-            "razorpay_signature": verification.razorpay_signature,
-            "completed_at": datetime.now(timezone.utc).isoformat()
-        }}
-    )
-    
-    # If subscription payment, update subscription
-    if payment.get("subscription_id"):
-        sub = await db.user_subscriptions.find_one({"id": payment["subscription_id"]})
-        if sub:
-            new_payments = sub["payments_made"] + 1
-            new_total = sub["total_paid"] + payment["amount"]
-            await db.user_subscriptions.update_one(
-                {"id": payment["subscription_id"]},
-                {"$set": {"payments_made": new_payments, "total_paid": new_total}}
-            )
-    
-    return {"message": "Payment verified successfully", "status": "completed"}
-
 # ==================== PROFILE ENDPOINTS ====================
 
 @api_router.put("/profile", response_model=UserResponse)
 async def update_profile(name: str, user: dict = Depends(get_current_user)):
     await db.users.update_one({"id": user["id"]}, {"$set": {"name": name}})
-    updated = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})
-    return UserResponse(**updated)
-
-
-@api_router.put("/profile/password")
-async def update_profile_password(payload: PasswordUpdateRequest, user: dict = Depends(get_current_user)):
-    # Verify current password
-    if not verify_password(payload.current_password, user.get("password_hash", "")):
-        raise HTTPException(status_code=400, detail="Current password is incorrect")
-
-    if len(payload.new_password) < 8:
-        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
-
-    new_hash = hash_password(payload.new_password)
-    await db.users.update_one({"id": user["id"]}, {"$set": {"password_hash": new_hash}})
-    return {"message": "Password updated"}
-
-@api_router.put("/profile/store", response_model=UserResponse)
-async def set_profile_store(store_id: str, user: dict = Depends(get_current_user)):
-    # Allow an authenticated user to associate themselves with a store
-    # Useful when an end user signs in via a specific store
-    await db.users.update_one({"id": user["id"]}, {"$set": {"store_id": store_id}})
     updated = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})
     return UserResponse(**updated)
 
@@ -2156,10 +1771,6 @@ logger = logging.getLogger(__name__)
 # Create default super admin on startup
 @app.on_event("startup")
 async def create_default_admin():
-    # Create indexes for better query performance
-    await db.carts.create_index([("store_id", 1), ("user_id", 1)], unique=False)
-    await db.carts.create_index([("store_id", 1), ("session_id", 1)], unique=False)
-    
     existing = await db.users.find_one({"email": "admin@admin.com"})
     if not existing:
         admin_doc = {

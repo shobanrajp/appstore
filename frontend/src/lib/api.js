@@ -9,6 +9,9 @@ const api = axios.create({
     },
 });
 
+// Get raw backend API URL for fetch() calls (cart endpoints)
+export const getBackendAPI = () => process.env.REACT_APP_BACKEND_URL + '/api';
+
 // Add token to requests
 api.interceptors.request.use((config) => {
     const token = localStorage.getItem('token');
@@ -50,6 +53,11 @@ export const createUser = (data) => api.post('/users', data);
 export const updateUser = (id, data) => api.put(`/users/${id}`, data);
 export const deleteUser = (id) => api.delete(`/users/${id}`);
 export const updateProfile = (name) => api.put(`/profile?name=${encodeURIComponent(name)}`);
+export const updatePassword = (currentPassword, newPassword) => api.put('/profile/password', {
+    current_password: currentPassword,
+    new_password: newPassword,
+});
+export const setProfileStore = (storeId) => api.put(`/profile/store?store_id=${encodeURIComponent(storeId)}`);
 
 // Products
 export const getProducts = (storeId, category, activeOnly = true, featured = null, limit = null) => {
@@ -150,8 +158,8 @@ export const getPageConfig = (storeId, pageName) => api.get(`/stores/${storeId}/
 export const createPageConfig = (storeId, data) => api.post(`/stores/${storeId}/page-config`, data);
 export const updatePageConfig = (storeId, configId, data) => api.put(`/stores/${storeId}/page-config/${configId}`, data);
 
-// Payments (Mock)
+// Payments (Razorpay)
 export const createPaymentOrder = (data) => api.post('/payments/create-order', data);
-export const completePayment = (paymentId) => api.post(`/payments/${paymentId}/complete`);
+export const verifyPayment = (data) => api.post('/payments/verify', data);
 
 export default api;

@@ -60,3 +60,14 @@ export const getRoleLabel = (role) => {
     };
     return labels[role] || role;
 };
+
+export const setPageTitle = (store, pageName = '') => {
+    if (!store) {
+        document.title = pageName || 'Store';
+        return;
+    }
+    const title = pageName 
+        ? `${pageName} - ${store.name}`
+        : store.name;
+    document.title = title;
+};

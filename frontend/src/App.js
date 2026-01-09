@@ -2,7 +2,6 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
-import CartDrawer from './components/CartDrawer';
 import { Toaster } from './components/ui/sonner';
 
 // Pages
@@ -19,8 +18,10 @@ import StoreProducts from './pages/StoreProducts';
 import StorePlans from './pages/StorePlans';
 import StoreContact from './pages/StoreContact';
 import CustomerPortal from './pages/CustomerPortal';
+import StoreLogin from './pages/StoreLogin';
+import StoreRegister from './pages/StoreRegister';
+import CartPage from './pages/CartPage';
 
-// Protected Route Component
 const ProtectedRoute = ({ children, allowedRoles }) => {
     const { user, loading } = useAuth();
 
@@ -33,14 +34,19 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
     }
 
     if (!user) {
-        return <Navigate to="/login" replace />;
+        // Get last visited store for login redirect
+        const lastStore = localStorage.getItem('lastVisitedStore');
+        console.log('[ProtectedRoute] User not authenticated, lastStore:', lastStore);
+        return <Navigate to={lastStore ? `/store/${lastStore}/login` : '/landing'} replace />;
     }
 
     if (allowedRoles && !allowedRoles.includes(user.role)) {
-        // Redirect to appropriate dashboard based on role
-        if (user.role === 'super_admin') return <Navigate to="/admin" replace />;
-        if (user.role === 'store_admin' || user.role === 'store_user') return <Navigate to="/store-admin" replace />;
-        return <Navigate to="/shop" replace />;
+        // Redirect to appropriate page based on role
+        const lastStore = localStorage.getItem('lastVisitedStore');
+        console.log('[ProtectedRoute] Role check failed. user.role:', user.role, 'allowedRoles:', allowedRoles, 'lastStore:', lastStore);
+        if (user.role === 'super_admin') return <Navigate to="/" replace />;
+        if (user.role === 'store_admin' || user.role === 'store_user') return <Navigate to={lastStore ? `/store/${lastStore}/admin` : '/landing'} replace />;
+        return <Navigate to={lastStore ? `/store/${lastStore}` : '/landing'} replace />;
     }
 
     return children;
@@ -59,9 +65,10 @@ const PublicRoute = ({ children }) => {
     }
 
     if (user) {
-        if (user.role === 'super_admin') return <Navigate to="/admin" replace />;
-        if (user.role === 'store_admin' || user.role === 'store_user') return <Navigate to="/store-admin" replace />;
-        return <Navigate to="/portal" replace />;
+        const lastStore = localStorage.getItem('lastVisitedStore');
+        if (user.role === 'super_admin') return <Navigate to="/" replace />;
+        if (user.role === 'store_admin' || user.role === 'store_user') return <Navigate to={lastStore ? `/store/${lastStore}/admin` : '/landing'} replace />;
+        return <Navigate to={lastStore ? `/store/${lastStore}/portal` : '/landing'} replace />;
     }
 
     return children;
@@ -70,23 +77,9 @@ const PublicRoute = ({ children }) => {
 function AppRoutes() {
     return (
         <Routes>
-            {/* Public Routes */}
-            <Route path="/" element={<Landing />} />
-            <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
-            <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
-            
-            {/* Store Front (Public) */}
-            <Route path="/store/:storeId" element={<StoreFront />} />
-            <Route path="/store/:storeId/product/:productId" element={<ProductDetail />} />
-            <Route path="/store/:storeId/category/:category" element={<CategoryProducts />} />
-            <Route path="/store/:storeId/products" element={<StoreProducts />} />
-            <Route path="/store/:storeId/plans" element={<StorePlans />} />
-            <Route path="/store/:storeId/contact" element={<StoreContact />} />
-            <Route path="/shop" element={<StoreFront />} />
-
-            {/* Super Admin Routes */}
+            {/* Super Admin Dashboard - Root */}
             <Route
-                path="/admin"
+                path="/"
                 element={
                     <ProtectedRoute allowedRoles={['super_admin']}>
                         <SuperAdminDashboard />
@@ -94,9 +87,25 @@ function AppRoutes() {
                 }
             />
 
+            {/* Landing Page */}
+            <Route path="/landing" element={<Landing />} />
+            <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+            <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
+
+            {/* Store Front (Public) */}
+            <Route path="/store/:storeId" element={<StoreFront />} />
+            <Route path="/store/:storeId/login" element={<StoreLogin />} />
+            <Route path="/store/:storeId/register" element={<StoreRegister />} />
+            <Route path="/store/:storeId/product/:productId" element={<ProductDetail />} />
+            <Route path="/store/:storeId/category/:category" element={<CategoryProducts />} />
+            <Route path="/store/:storeId/products" element={<StoreProducts />} />
+            <Route path="/store/:storeId/cart" element={<CartPage />} />
+            <Route path="/store/:storeId/plans" element={<StorePlans />} />
+            <Route path="/store/:storeId/contact" element={<StoreContact />} />
+
             {/* Store Admin/User Routes */}
             <Route
-                path="/store-admin"
+                path="/store/:storeId/admin"
                 element={
                     <ProtectedRoute allowedRoles={['super_admin', 'store_admin', 'store_user']}>
                         <StoreAdminDashboard />
@@ -104,7 +113,7 @@ function AppRoutes() {
                 }
             />
             <Route
-                path="/page-editor/:storeId"
+                path="/store/:storeId/page-editor"
                 element={
                     <ProtectedRoute allowedRoles={['super_admin', 'store_admin']}>
                         <PageEditor />
@@ -114,7 +123,7 @@ function AppRoutes() {
 
             {/* Customer Portal */}
             <Route
-                path="/portal"
+                path="/store/:storeId/portal"
                 element={
                     <ProtectedRoute allowedRoles={['end_user', 'super_admin', 'store_admin', 'store_user']}>
                         <CustomerPortal />
@@ -123,7 +132,7 @@ function AppRoutes() {
             />
 
             {/* Fallback */}
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<Navigate to="/landing" replace />} />
         </Routes>
     );
 }
@@ -132,8 +141,7 @@ function AppRoutes() {
 const RouteChangeLogger = () => {
     const location = useLocation();
     React.useEffect(() => {
-        // eslint-disable-next-line no-console
-        console.log('[Router]', location.pathname + location.search);
+        console.log('[Router] Location changed:', location.pathname + location.search);
     }, [location.pathname, location.search]);
     return null;
 };
@@ -146,8 +154,6 @@ function App() {
                     <RouteChangeLogger />
                     <AppRoutes />
                     <Toaster position="top-right" richColors />
-                    {/* Global cart drawer available on all routes */}
-                    <CartDrawer />
                 </BrowserRouter>
             </CartProvider>
         </AuthProvider>

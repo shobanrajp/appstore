@@ -8,14 +8,14 @@ import { Input } from '../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
 import { Plus, Search, Grid3X3, List } from 'lucide-react';
-import { formatCurrency } from '../lib/utils';
+import { formatCurrency, setPageTitle } from '../lib/utils';
 import StoreHeader from '../components/StoreHeader';
 import StoreFooter from '../components/StoreFooter';
 import { useCart } from '../context/CartContext';
 
 const StoreProducts = () => {
     const { storeId } = useParams();
-    const [searchParams] = useSearchParams();
+    const [searchParams, setSearchParams] = useSearchParams();
     const location = useLocation();
     const [store, setStore] = useState(null);
     const [products, setProducts] = useState([]);
@@ -33,6 +33,14 @@ const StoreProducts = () => {
 
     const categories = [...new Set(products.filter(p => p.category).map(p => p.category))];
 
+    // Update URL when search or category changes
+    const updateUrlParams = useCallback((search, category) => {
+        const params = new URLSearchParams();
+        if (search) params.set('search', search);
+        if (category) params.set('category', category);
+        setSearchParams(params, { replace: true });
+    }, [setSearchParams]);
+
     // Define loadData before effects to avoid temporal dead zone
     const loadData = useCallback(async () => {
         try {
@@ -43,6 +51,7 @@ const StoreProducts = () => {
                 getInventory(storeId).catch(() => ({ data: [] }))
             ]);
             setStore(storeRes.data);
+            setPageTitle(storeRes.data, 'Products');
             setProducts(productsRes.data);
             setPlans(plansRes.data || []);
             setInventory(inventoryRes.data || []);
@@ -62,9 +71,11 @@ const StoreProducts = () => {
         try {
             const params = new URLSearchParams(location.search || window.location.search);
             const s = params.get('search') || '';
+            const c = params.get('category') || '';
             setSearchTerm(s);
+            setSelectedCategory(c);
         } catch (e) {}
-    }, [location.search]);
+    }, [location.search, location.key]);
 
     
     
@@ -145,7 +156,7 @@ const StoreProducts = () => {
 
     return (
         <div className="min-h-screen bg-background flex flex-col">
-            <StoreHeader store={store} storeId={storeId} cartTotal={cartTotal} activeTab="products" />
+            <StoreHeader store={store} storeId={storeId} cartTotal={cartTotal} activeTab="products" searchTerm={searchTerm} onSearchChange={(val) => { setSearchTerm(val); updateUrlParams(val, selectedCategory); }} />
 
             {/* Filters */}
             <div className="border-b bg-card">
@@ -157,12 +168,12 @@ const StoreProducts = () => {
                                 <Input
                                     placeholder="Search products..."
                                     value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    onChange={(e) => { setSearchTerm(e.target.value); updateUrlParams(e.target.value, selectedCategory); }}
                                     className="pl-10"
                                 />
                             </div>
                         </div>
-                        <Select value={selectedCategory || 'all'} onValueChange={(v) => setSelectedCategory(v === 'all' ? '' : v)}>
+                        <Select value={selectedCategory || 'all'} onValueChange={(v) => { const cat = v === 'all' ? '' : v; setSelectedCategory(cat); updateUrlParams(searchTerm, cat); }}>
                             <SelectTrigger className="w-[180px]">
                                 <SelectValue placeholder="All Categories" />
                             </SelectTrigger>
@@ -241,12 +252,15 @@ const StoreProducts = () => {
                         
                         if (viewMode === 'list') {
                                 return (
-                                    <Link key={product.id} to={`/store/${storeId}/product/${product.id}`}>
-                                    <Card className={`hover:shadow-md transition-shadow ${isOutOfStock ? 'opacity-70' : ''}`}>
+                                    <div key={product.id}>
+                                    <Card 
+                                        className={`hover:shadow-md transition-shadow cursor-pointer ${isOutOfStock ? 'opacity-70' : ''}`}
+                                        onClick={() => navigate(`/store/${storeId}/product/${product.id}`)}
+                                    >
                                         <CardContent className="p-4 flex gap-4">
-                                            <div className="w-20 h-20 sm:w-24 sm:h-24 bg-muted rounded overflow-hidden flex-shrink-0 relative">
+                                            <div className="w-20 h-20 sm:w-24 sm:h-24 bg-muted rounded overflow-hidden flex-shrink-0 relative" style={{ pointerEvents: 'auto', cursor: 'pointer' }}>
                                                 {product.images?.[0] ? (
-                                                    <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover" />
+                                                    <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover" style={{ pointerEvents: 'auto', cursor: 'pointer' }} />
                                                 ) : (
                                                     <div className="w-full h-full gold-gradient opacity-20" />
                                                 )}
@@ -266,7 +280,7 @@ const StoreProducts = () => {
                                                 <span className="gold-text text-xl font-semibold">{formatCurrency(product.price, store?.currency)}</span>
                                                 <Button
                                                     size="sm"
-                                                    onClick={(e) => { e.preventDefault(); if (!isOutOfStock) addToCart(product); }}
+                                                    onClick={(e) => { e.stopPropagation(); if (!isOutOfStock) addToCart(product); }}
                                                     className={isOutOfStock ? 'bg-gray-400 cursor-not-allowed' : 'gold-gradient text-white'}
                                                     disabled={isOutOfStock}
                                                 >
@@ -275,16 +289,19 @@ const StoreProducts = () => {
                                             </div>
                                         </CardContent>
                                     </Card>
-                                </Link>
+                                </div>
                             );
                         }
                         
                                 return (
-                            <Link key={product.id} to={`/store/${storeId}/product/${product.id}`}>
-                                <Card className={`luxury-card overflow-hidden group cursor-pointer ${isOutOfStock ? 'opacity-70' : ''}`}>
-                                    <div className="h-40 sm:h-48 lg:h-56 bg-muted flex items-center justify-center overflow-hidden relative">
+                            <div key={product.id}>
+                                <Card 
+                                    className={`luxury-card overflow-hidden group cursor-pointer ${isOutOfStock ? 'opacity-70' : ''}`}
+                                    onClick={() => navigate(`/store/${storeId}/product/${product.id}`)}
+                                >
+                                    <div className="h-40 sm:h-48 lg:h-56 bg-muted flex items-center justify-center overflow-hidden relative" style={{ pointerEvents: 'auto', cursor: 'pointer' }}>
                                         {product.images?.[0] ? (
-                                            <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                                            <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" style={{ pointerEvents: 'auto', cursor: 'pointer' }} />
                                         ) : (
                                             <div className="w-full h-full gold-gradient opacity-20" />
                                         )}
@@ -307,7 +324,7 @@ const StoreProducts = () => {
                                             <span className="gold-text text-xl font-semibold">{formatCurrency(product.price, store?.currency)}</span>
                                             <Button
                                                 size="sm"
-                                                onClick={(e) => { e.preventDefault(); if (!isOutOfStock) addToCart(product); }}
+                                                onClick={(e) => { e.stopPropagation(); if (!isOutOfStock) addToCart(product); }}
                                                 className={isOutOfStock ? 'bg-gray-400 cursor-not-allowed' : 'gold-gradient text-white'}
                                                 disabled={isOutOfStock}
                                             >
@@ -316,7 +333,7 @@ const StoreProducts = () => {
                                         </div>
                                     </CardContent>
                                 </Card>
-                            </Link>
+                            </div>
                         );
                     })}
                 </div>

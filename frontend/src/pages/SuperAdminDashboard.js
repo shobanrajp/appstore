@@ -154,6 +154,8 @@ const SuperAdminDashboard = () => {
             setPaymentConfigDialogOpen(false);
             setSelectedStoreForPayment(null);
             setPaymentConfig({ razorpay_key_id: '', razorpay_key_secret: '' });
+            // Reload stores to show updated payment status
+            loadStores();
         } catch (error) {
             toast.error('Failed to save payment configuration');
         }

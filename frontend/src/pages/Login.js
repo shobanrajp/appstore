@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { login as loginApi } from '../lib/api';
+import { login as loginApi, getStores } from '../lib/api';
+import { useCartContext } from '../context/CartContext';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -14,6 +15,7 @@ const Login = () => {
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const { login } = useAuth();
+    const { mergeGuestCartToUser } = useCartContext();
     const navigate = useNavigate();
 
     const handleSubmit = async (e) => {
@@ -25,6 +27,16 @@ const Login = () => {
             login(response.data.access_token, response.data.user);
             toast.success('Login successful!');
             
+            // Merge guest cart if it exists
+            const lastStore = localStorage.getItem('lastVisitedStore');
+            if (lastStore) {
+                try {
+                    await mergeGuestCartToUser(lastStore);
+                } catch (e) {
+                    console.error('Failed to merge cart:', e);
+                }
+            }
+            
             // Redirect based on role
             const role = response.data.user.role;
             if (role === 'super_admin') {
@@ -32,7 +44,25 @@ const Login = () => {
             } else if (role === 'store_admin' || role === 'store_user') {
                 navigate('/store-admin');
             } else {
-                navigate('/shop');
+                // end_user: direct to a store page
+                try {
+                    let targetStoreId = lastStore;
+                    if (!targetStoreId) {
+                        const storesRes = await getStores();
+                        const stores = storesRes.data || [];
+                        if (stores.length > 0) {
+                            targetStoreId = stores[0].id || stores[0]._id || stores[0].store_id;
+                        }
+                    }
+                    if (targetStoreId) {
+                        localStorage.setItem('lastVisitedStore', targetStoreId);
+                        navigate(`/store/${targetStoreId}`);
+                    } else {
+                        navigate('/portal');
+                    }
+                } catch (e) {
+                    navigate('/portal');
+                }
             }
         } catch (error) {
             toast.error(error.response?.data?.detail || 'Invalid credentials');

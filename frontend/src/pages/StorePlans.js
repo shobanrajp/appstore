@@ -9,7 +9,7 @@ import { Label } from '../components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { toast } from 'sonner';
 import { Clock, Calendar, CreditCard } from 'lucide-react';
-import { formatCurrency } from '../lib/utils';
+import { formatCurrency, setPageTitle } from '../lib/utils';
 import StoreHeader from '../components/StoreHeader';
 import StoreFooter from '../components/StoreFooter';
 
@@ -47,6 +47,7 @@ const StorePlans = () => {
                 getSubscriptionPlans(storeId)
             ]);
             setStore(storeRes.data);
+            setPageTitle(storeRes.data, 'Plans');
             setPlans(plansRes.data);
         } catch (error) {
             toast.error('Failed to load plans');
