@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getStore, getSubscriptionPlans, subscribeToPlan } from '../lib/api';
 import { Button } from '../components/ui/button';
@@ -15,6 +15,7 @@ import StoreFooter from '../components/StoreFooter';
 
 const StorePlans = () => {
     const { storeId } = useParams();
+    const navigate = useNavigate();
     const { user } = useAuth();
     const [store, setStore] = useState(null);
     const [plans, setPlans] = useState([]);
@@ -135,8 +136,8 @@ const StorePlans = () => {
                                                 {plan.max_amount && `Max: ${formatCurrency(plan.max_amount, store?.currency)}`}
                                             </p>
                                         )}
-                                        <Button className="w-full gold-gradient text-white" onClick={() => openSubscribeDialog(plan)}>
-                                            Subscribe Now
+                                        <Button className="w-full gold-gradient text-white" onClick={() => navigate(`/store/${storeId}/plan/${plan.id}`)}>
+                                            View Plan Details
                                         </Button>
                                     </CardContent>
                                 </Card>
@@ -189,9 +190,9 @@ const StorePlans = () => {
                                         
                                         <Button 
                                             className="w-full gold-gradient text-white mt-4" 
-                                            onClick={() => openSubscribeDialog(plan)}
+                                            onClick={() => navigate(`/store/${storeId}/plan/${plan.id}`)}
                                         >
-                                            <CreditCard className="w-4 h-4 mr-2" /> Subscribe Now
+                                            <CreditCard className="w-4 h-4 mr-2" /> View Plan Details
                                         </Button>
                                     </CardContent>
                                 </Card>
