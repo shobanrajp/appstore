@@ -1236,7 +1236,7 @@ const StoreFront = () => {
     const hasPageConfig = pageConfig && pageConfig.components && pageConfig.components.length > 0;
 
     return (
-        <div className="min-h-screen bg-background">
+        <div className="min-h-screen bg-background w-full overflow-x-hidden flex flex-col">
             {/* Render page config components if available, otherwise show default layout */}
             {hasPageConfig ? (
                 <>

@@ -815,9 +815,9 @@ const StoreAdminDashboard = () => {
     }
 
     return (
-        <div className="min-h-screen bg-background flex">
+        <div className="min-h-screen bg-background flex w-full overflow-x-hidden">
             {/* Sidebar */}
-            <aside className="w-64 bg-card border-r flex flex-col">
+            <aside className="w-64 bg-card border-r flex flex-col shrink-0">
                 <div className="p-6 border-b">
                     <h1 className="text-xl font-serif font-semibold truncate">{store.name}</h1>
                     <p className="text-sm text-muted-foreground truncate">{user?.email}</p>

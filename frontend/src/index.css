@@ -67,6 +67,11 @@
         @apply border-border;
     }
 
+    html, body {
+        width: 100%;
+        overflow-x: hidden;
+    }
+
     body {
         @apply bg-background text-foreground font-sans antialiased;
         font-family: 'Manrope', sans-serif;
@@ -74,10 +79,18 @@
 
     h1, h2, h3, h4, h5, h6 {
         font-family: 'Playfair Display', serif;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
     }
 
     code, pre {
         font-family: 'JetBrains Mono', monospace;
+        overflow-x: auto;
+    }
+
+    #root {
+        width: 100%;
+        overflow-x: hidden;
     }
 }
 
@@ -122,6 +135,28 @@
 
     .scrollbar-hide::-webkit-scrollbar {
         display: none;
+    }
+
+    /* Mobile responsive container fixes */
+    @media (max-width: 768px) {
+        .max-w-7xl,
+        .max-w-6xl,
+        .max-w-4xl,
+        .max-w-2xl,
+        .max-w-md {
+            width: 100%;
+            margin-left: auto;
+            margin-right: auto;
+            box-sizing: border-box;
+        }
+
+        main,
+        section,
+        article {
+            overflow-x: hidden !important;
+            width: 100%;
+            box-sizing: border-box;
+        }
     }
 }
 

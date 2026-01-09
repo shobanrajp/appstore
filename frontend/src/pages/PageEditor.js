@@ -657,17 +657,17 @@ const PageEditor = () => {
     }
 
     return (
-        <div className="min-h-screen bg-background flex flex-col">
+        <div className="min-h-screen bg-background flex flex-col w-full overflow-x-hidden">
             {/* Header */}
-            <header className="border-b bg-card sticky top-0 z-50">
+            <header className="border-b bg-card sticky top-0 z-50 overflow-x-hidden">
                 <div className="px-4 py-3 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4 min-w-0">
                         <Button variant="ghost" size="sm" onClick={() => navigate(`/store/${storeId}/admin`)} data-testid="back-btn">
                             <ArrowLeft className="w-4 h-4 mr-2" /> Back
                         </Button>
-                        <div>
-                            <h1 className="font-serif font-semibold">Page Editor</h1>
-                            <p className="text-sm text-muted-foreground">{store?.name} - Home Page</p>
+                        <div className="min-w-0">
+                            <h1 className="font-serif font-semibold truncate">Page Editor</h1>
+                            <p className="text-sm text-muted-foreground truncate">{store?.name} - Home Page</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">

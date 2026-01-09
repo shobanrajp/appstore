@@ -64,10 +64,10 @@ const StoreContact = () => {
     }
 
     return (
-        <div className="min-h-screen bg-background flex flex-col">
+        <div className="min-h-screen bg-background flex flex-col w-full overflow-x-hidden">
             <StoreHeader store={store} storeId={storeId} cartTotal={cartTotal} activeTab="contact" />
 
-            <main className="max-w-4xl mx-auto px-4 py-12 flex-1">
+            <main className="max-w-4xl mx-auto px-4 py-12 flex-1 w-full box-sizing-border-box">
                 <h2 className="text-4xl font-serif text-center mb-4">Contact Us</h2>
                 <p className="text-center text-muted-foreground mb-12">We'd love to hear from you. Reach out to us through any of the following channels.</p>
 

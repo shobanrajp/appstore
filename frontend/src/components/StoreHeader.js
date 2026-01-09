@@ -242,7 +242,7 @@ const StoreHeader = ({
                                     onClick={() => setMobileMenuOpen(false)}
                                 />
                                 {/* Menu Panel */}
-                                <div className="fixed inset-y-0 right-0 z-50 w-[250px] bg-background p-6 shadow-lg text-foreground">
+                                <div className="fixed inset-y-0 right-0 z-50 w-[250px] max-w-[75vw] bg-background p-6 shadow-lg text-foreground overflow-y-auto">
                                     <button 
                                         onClick={() => setMobileMenuOpen(false)}
                                         className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 text-foreground"
@@ -258,7 +258,7 @@ const StoreHeader = ({
                                                 key={item.key} 
                                                 href={item.path}
                                                 onClick={(e) => handleNavClick(item.path, e)}
-                                                className={`hover:opacity-80 transition-opacity block py-2 cursor-pointer text-foreground ${activeTab === item.key ? 'font-semibold' : ''}`}
+                                                className={`hover:opacity-80 transition-opacity block py-2 cursor-pointer text-foreground break-words ${activeTab === item.key ? 'font-semibold' : ''}`}
                                             >
                                                 {item.label}
                                             </a>
@@ -273,7 +273,7 @@ const StoreHeader = ({
 
             {/* Mobile Search */}
             {showSearch && (
-                <div className="md:hidden px-4 pb-3">
+                <div className="md:hidden px-4 pb-3 overflow-x-hidden">
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                         <Input

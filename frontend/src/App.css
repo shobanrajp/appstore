@@ -47,3 +47,20 @@
 .scrolling-text-container:hover .scrolling-text {
     animation-play-state: paused;
 }
+
+/* Prevent horizontal scrolling on mobile */
+* {
+    max-width: 100%;
+}
+
+body {
+    position: fixed;
+    width: 100vw;
+    overflow-x: hidden;
+}
+
+@media (max-width: 768px) {
+    body {
+        position: relative;
+    }
+}

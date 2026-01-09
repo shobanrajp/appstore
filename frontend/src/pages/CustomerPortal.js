@@ -236,7 +236,7 @@ const CustomerPortal = () => {
     }
 
     return (
-        <div className="min-h-screen bg-background flex flex-col">
+        <div className="min-h-screen bg-background flex flex-col w-full overflow-x-hidden">
             <StoreHeader
                 store={store}
                 storeId={storeId}

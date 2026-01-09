@@ -155,12 +155,12 @@ const StoreProducts = () => {
     }
 
     return (
-        <div className="min-h-screen bg-background flex flex-col">
+        <div className="min-h-screen bg-background flex flex-col w-full overflow-x-hidden">
             <StoreHeader store={store} storeId={storeId} cartTotal={cartTotal} activeTab="products" searchTerm={searchTerm} onSearchChange={(val) => { setSearchTerm(val); updateUrlParams(val, selectedCategory); }} />
 
             {/* Filters */}
-            <div className="border-b bg-card">
-                <div className="max-w-7xl mx-auto px-4 py-4">
+            <div className="border-b bg-card overflow-x-hidden">
+                <div className="max-w-7xl mx-auto px-4 py-4 w-full box-sizing-border-box">
                     <div className="flex flex-wrap items-center gap-4">
                         <div className="flex-1 min-w-[200px] max-w-md">
                             <div className="relative" style={{ minWidth: 240 }}>
