@@ -98,6 +98,8 @@ class StoreCreate(BaseModel):
     contact_phone: Optional[str] = None
     address: Optional[str] = None
     address_map_url: Optional[str] = None
+    razorpay_key_id: Optional[str] = None
+    razorpay_key_secret: Optional[str] = None
 
 class StoreResponse(BaseModel):
     id: str
@@ -600,6 +602,12 @@ async def create_store(store_data: StoreCreate, user: dict = Depends(require_rol
         "is_active": True,
         "created_at": now
     }
+    
+    # Add Razorpay keys if provided
+    if store_data.razorpay_key_id:
+        store_doc["razorpay_key_id"] = store_data.razorpay_key_id
+    if store_data.razorpay_key_secret:
+        store_doc["razorpay_key_secret"] = store_data.razorpay_key_secret
     
     await db.stores.insert_one(store_doc)
     

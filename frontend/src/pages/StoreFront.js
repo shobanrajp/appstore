@@ -56,7 +56,7 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                 if (s.type === 'product') {
                     if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/product/${s.id}`);
                 } else {
-                    if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/plans`);
+                    if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/plan/${s.id}`);
                 }
                 return;
             }
@@ -299,7 +299,7 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                                                         if (s.type === 'product') {
                                                             if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/product/${s.id}`);
                                                         } else {
-                                                            if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/plans`);
+                                                            if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/plan/${s.id}`);
                                                         }
                                                     }}
                                                     onMouseEnter={() => setHighlightIndex(idx)}
@@ -444,7 +444,7 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                                                     if (s.type === 'product') {
                                                         if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/product/${s.id}`);
                                                     } else {
-                                                        if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/plans`);
+                                                        if (typeof onNavigate === 'function') onNavigate(`/store/${storeId}/plan/${s.id}`);
                                                     }
                                                 }}
                                                 onMouseEnter={() => setHighlightIndex(idx)}
@@ -672,9 +672,9 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                                                     <div className="flex items-center justify-between mt-4">
                                                         <div className="text-gold font-semibold">{formatCurrency(plan.min_amount || 0, store?.currency)}+</div>
                                                         <button onClick={() => {
-                                                            const target = `/store/${storeId}/plans`;
+                                                            const target = `/store/${storeId}/plan/${plan.id}`;
                                                             if (typeof onNavigate === 'function') onNavigate(target);
-                                                        }} className="gold-gradient text-white px-3 py-1 rounded">View Plans</button>
+                                                        }} className="gold-gradient text-white px-3 py-1 rounded">View Plan</button>
                                                     </div>
                                                 </CardContent>
                                             </Card>
@@ -816,10 +816,9 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                                         <Button
                                             className="w-full gold-gradient text-white"
                                             onClick={() => onSubscribe(plan)}
-                                            disabled={!user}
                                             data-testid={`subscribe-btn-${plan.id}`}
                                         >
-                                            {user ? 'Subscribe Now' : 'Login to Subscribe'}
+                                            View Plan
                                         </Button>
                                     </CardContent>
                                 </Card>
@@ -1204,9 +1203,8 @@ const StoreFront = () => {
     };
 
     const openSubscribeDialog = (plan) => {
-        setSelectedPlan(plan);
-        setChosenMonthlyAmount(plan.min_amount?.toString() || '500');
-        setSubscribeOpen(true);
+        if (!plan) return;
+        navigate(`/store/${storeId}/plan/${plan.id}`);
     };
 
     if (loading) {
@@ -1431,10 +1429,9 @@ const StoreFront = () => {
                                                 <Button
                                                     className="w-full gold-gradient text-white"
                                                     onClick={() => openSubscribeDialog(plan)}
-                                                    disabled={!user}
                                                     data-testid={`subscribe-btn-${plan.id}`}
                                                 >
-                                                    {user ? 'Subscribe Now' : 'Login to Subscribe'}
+                                                    View Plan
                                                 </Button>
                                             </CardContent>
                                         </Card>

@@ -219,14 +219,14 @@ const StoreProducts = () => {
                                     <div className="flex items-center justify-between mt-4">
                                         <div className="text-gold font-semibold">{formatCurrency(plan.min_amount || 0, store?.currency)}+</div>
                                         <Link
-                                            to={`/store/${storeId}/plans`}
+                                            to={`/store/${storeId}/plan/${plan.id}`}
                                             onClick={(e) => {
                                                 if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || (e.button && e.button !== 0)) return;
                                                 e.preventDefault();
-                                                navigate(`/store/${storeId}/plans`);
+                                                navigate(`/store/${storeId}/plan/${plan.id}`);
                                             }}
                                         >
-                                            <Button size="sm" className="gold-gradient text-white">View Plans</Button>
+                                            <Button size="sm" className="gold-gradient text-white">View Plan</Button>
                                         </Link>
                                     </div>
                                 </CardContent>

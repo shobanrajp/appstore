@@ -16,7 +16,7 @@ import ProductDetail from './pages/ProductDetail';
 import CategoryProducts from './pages/CategoryProducts';
 import StoreProducts from './pages/StoreProducts';
 import StorePlans from './pages/StorePlans';
-import SubscriptionDetail from './pages/SubscriptionDetail';
+import PlanDetail from './pages/PlanDetail';
 import StoreContact from './pages/StoreContact';
 import CustomerPortal from './pages/CustomerPortal';
 import StoreLogin from './pages/StoreLogin';
@@ -102,7 +102,7 @@ function AppRoutes() {
             <Route path="/store/:storeId/products" element={<StoreProducts />} />
             <Route path="/store/:storeId/cart" element={<CartPage />} />
             <Route path="/store/:storeId/plans" element={<StorePlans />} />
-            <Route path="/store/:storeId/plan/:planId" element={<SubscriptionDetail />} />
+            <Route path="/store/:storeId/plan/:planId" element={<PlanDetail />} />
             <Route path="/store/:storeId/contact" element={<StoreContact />} />
 
             {/* Store Admin/User Routes */}
