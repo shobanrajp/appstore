@@ -80,12 +80,15 @@ const PlanDetail = () => {
                 monthly_amount: amountValue
             });
 
+            console.log('[PlanDetail] Subscription created:', subRes.data);
+
             const paymentRes = await createPaymentOrder({
                 amount: amountValue,
                 currency: store.currency || 'INR',
                 description: `${plan.name} - First Installment`,
                 store_id: storeId,
-                subscription_id: subRes.data.id
+                subscription_id: subRes.data.id,
+                order_id: subRes.data.order_id  // Include subscription's order_id
             });
 
             const options = {

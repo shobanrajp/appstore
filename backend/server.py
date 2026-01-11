@@ -6,7 +6,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, model_validator
 from typing import List, Optional, Any
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -329,6 +329,7 @@ class UserSubscriptionCreate(BaseModel):
 
 class UserSubscriptionResponse(BaseModel):
     id: str
+    order_id: str  # REQUIRED - Must be generated during subscription creation
     user_id: str
     user_email: Optional[str] = None
     user_name: Optional[str] = None
@@ -343,6 +344,13 @@ class UserSubscriptionResponse(BaseModel):
     start_date: str
     maturity_date: str
     created_at: str
+    
+    @model_validator(mode='after')
+    def validate_order_id(self):
+        """Enforce order_id is present and not None"""
+        if not self.order_id:
+            raise ValueError(f"order_id is required and cannot be None")
+        return self
 
 # Store Payment Config (Razorpay)
 class StorePaymentConfigUpdate(BaseModel):
@@ -392,6 +400,7 @@ class MockPaymentCreate(BaseModel):
     description: str
     subscription_id: Optional[str] = None
     order_id: Optional[str] = None
+    store_id: Optional[str] = None
 
 class MockPaymentResponse(BaseModel):
     id: str
@@ -1745,11 +1754,13 @@ async def subscribe_to_plan(store_id: str, sub_data: UserSubscriptionCreate, use
         raise HTTPException(status_code=400, detail=f"Monthly amount must be between {min_amount} and {max_amount}")
     
     sub_id = str(uuid.uuid4())
+    order_id = await get_next_order_id()  # Generate order ID for subscription
     now = datetime.now(timezone.utc)
     maturity = now + timedelta(days=plan["duration_months"] * 30)
     
     sub_doc = {
         "id": sub_id,
+        "order_id": order_id,
         "user_id": user["id"],
         "user_email": user.get("email"),
         "user_name": user.get("name"),
@@ -1767,11 +1778,28 @@ async def subscribe_to_plan(store_id: str, sub_data: UserSubscriptionCreate, use
     }
     
     await db.user_subscriptions.insert_one(sub_doc)
-    return UserSubscriptionResponse(**{k: v for k, v in sub_doc.items() if k != "_id"})
+    # Read back the stored subscription to ensure fields added by DB or other middleware are included (e.g., order_id)
+    stored_sub = await db.user_subscriptions.find_one({"id": sub_id}, {"_id": 0})
+    print(f"[subscribe_to_plan] sub_doc before insert: {sub_doc}")
+    print(f"[subscribe_to_plan] stored_sub after insert: {stored_sub}")
+    print(f"[subscribe_to_plan] Attempting to create UserSubscriptionResponse...")
+    try:
+        response = UserSubscriptionResponse(**stored_sub)
+        print(f"[subscribe_to_plan] SUCCESS: Response model created with order_id={response.order_id}")
+        return response
+    except Exception as e:
+        print(f"[subscribe_to_plan] ERROR: Failed to create response model: {str(e)}")
+        print(f"[subscribe_to_plan] Stored subscription keys: {list(stored_sub.keys())}")
+        raise
 
 @api_router.get("/my-subscriptions", response_model=List[UserSubscriptionResponse])
 async def get_my_subscriptions(user: dict = Depends(get_current_user)):
     subs = await db.user_subscriptions.find({"user_id": user["id"]}, {"_id": 0}).to_list(100)
+    # Ensure each subscription has order_id; if missing, generate one
+    for sub in subs:
+        if not sub.get("order_id"):
+            sub["order_id"] = await get_next_order_id()
+            await db.user_subscriptions.update_one({"id": sub["id"]}, {"$set": {"order_id": sub["order_id"]}})
     return [UserSubscriptionResponse(**s) for s in subs]
 
 # Store Admin - Get all subscribers for store
@@ -1976,31 +2004,143 @@ async def update_page_config(store_id: str, config_id: str, config_data: PageCon
 
 # ==================== MOCK PAYMENT ENDPOINTS ====================
 
+@api_router.get("/stores/{store_id}/debug-payment-config")
+async def debug_payment_config(store_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN]))):
+    """Debug endpoint - Check store payment configuration"""
+    store = await db.stores.find_one({"id": store_id}, {"_id": 0})
+    if not store:
+        return {"error": "Store not found", "store_id": store_id}
+    
+    return {
+        "store_id": store_id,
+        "store_found": True,
+        "store_name": store.get("name"),
+        "razorpay_key_id_present": bool(store.get("razorpay_key_id")),
+        "razorpay_key_id_value": store.get("razorpay_key_id"),
+        "razorpay_key_secret_present": bool(store.get("razorpay_key_secret")),
+        "full_store_doc_keys": list(store.keys())
+    }
+
 @api_router.post("/payments/create-order", response_model=MockPaymentResponse)
 async def create_payment_order(payment_data: MockPaymentCreate, user: dict = Depends(get_current_user)):
     payment_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     
+    # Debug: log incoming payment data
+    print(f"[create_payment_order] Received: store_id={payment_data.store_id}, order_id={payment_data.order_id}, subscription_id={payment_data.subscription_id}")
+
+    # If client omitted order_id but supplied subscription_id, try to derive it (server-side convenience)
+    if not payment_data.order_id and payment_data.subscription_id:
+        sub_lookup = await db.user_subscriptions.find_one({"id": payment_data.subscription_id}, {"_id": 0})
+        if sub_lookup and sub_lookup.get("order_id"):
+            payment_data.order_id = sub_lookup.get("order_id")
+            print(f"[create_payment_order] Derived order_id from subscription_id={payment_data.subscription_id}: order_id={payment_data.order_id}")
+        else:
+            print(f"[create_payment_order] Could not derive order_id from subscription_id={payment_data.subscription_id}")
+
     # Get store to fetch Razorpay credentials
     store = None
-    if payment_data.order_id:
+    store_id = None
+
+    # 1) Explicit store_id provided (preferred for subscriptions)
+    if payment_data.store_id:
+        store = await db.stores.find_one({"id": payment_data.store_id})
+        store_id = payment_data.store_id
+        print(f"[create_payment_order] Step 1: Lookup by store_id={payment_data.store_id}, found={store is not None}")
+        if store:
+            # Log only presence of keys (never log secrets or full store doc)
+            has_key = bool(store.get('razorpay_key_id'))
+            has_secret = bool(store.get('razorpay_key_secret'))
+            print(f"[create_payment_order] Step 1 SUCCESS - Store found: id={store.get('id')}, has_key={has_key}, has_secret={has_secret}")
+            if not has_key or not has_secret:
+                print(f"[create_payment_order] WARNING: Store found but missing credentials - key_id={store.get('razorpay_key_id')}, key_secret={'***' if store.get('razorpay_key_secret') else 'MISSING'}")
+        else:
+            print(f"[create_payment_order] Step 1 FAILED - No store found with id={payment_data.store_id}")
+
+    # 2) If not provided, derive from order_id (check both orders and subscriptions)
+    if not store and payment_data.order_id:
+        print(f"[create_payment_order] Step 2: Trying to derive store from order_id={payment_data.order_id}")
         order = await db.orders.find_one({"id": payment_data.order_id})
         if order:
-            store = await db.stores.find_one({"id": order["store_id"]})
+            store_id = order.get("store_id")
+            print(f"[create_payment_order] Step 2a: Found order, store_id={store_id}")
+            store = await db.stores.find_one({"id": store_id})
+            print(f"[create_payment_order] Step 2a: Lookup by order.store_id, found={store is not None}")
+        # Also check if order_id belongs to a subscription
+        if not store:
+            print(f"[create_payment_order] Step 2b: Order not found, checking subscriptions with order_id={payment_data.order_id}")
+            sub = await db.user_subscriptions.find_one({"order_id": payment_data.order_id})
+            if sub and sub.get("store_id"):
+                store_id = sub.get("store_id")
+                print(f"[create_payment_order] Step 2b: Found subscription, store_id={store_id}")
+                store = await db.stores.find_one({"id": store_id})
+                print(f"[create_payment_order] Step 2b: Lookup by subscription.store_id, found={store is not None}")
+            else:
+                print(f"[create_payment_order] Step 2b: No subscription found with order_id={payment_data.order_id}")
+
+    # 3) If still not found and subscription_id is given, derive from subscription
+    if not store and payment_data.subscription_id:
+        print(f"[create_payment_order] Step 3: Trying to derive store from subscription_id={payment_data.subscription_id}")
+        sub = await db.user_subscriptions.find_one({"id": payment_data.subscription_id})
+        if sub:
+            print(f"[create_payment_order] Step 3: Found subscription: {sub}")
+            if sub.get("store_id"):
+                store_id = sub.get("store_id")
+                print(f"[create_payment_order] Step 3: Subscription has store_id={store_id}")
+                store = await db.stores.find_one({"id": store_id})
+                print(f"[create_payment_order] Step 3: Lookup by subscription.store_id, found={store is not None}")
+            else:
+                print(f"[create_payment_order] Step 3: Subscription found but has NO store_id")
+        else:
+            print(f"[create_payment_order] Step 3: No subscription found with id={payment_data.subscription_id}")
+
+    if not store:
+        print(f"[create_payment_order] CRITICAL: Store not found after all lookup attempts. store_id={store_id}")
+        raise HTTPException(status_code=400, detail="Store not found for payment")
     
-    if not store or not store.get("razorpay_key_id") or not store.get("razorpay_key_secret"):
-        raise HTTPException(status_code=400, detail="Store payment configuration not found")
+    print(f"[create_payment_order] Store lookup successful: id={store.get('id')}, has_key={bool(store.get('razorpay_key_id'))}, has_secret={bool(store.get('razorpay_key_secret'))}")
+    
+    # Ensure we have Razorpay credentials (from store or environment)
+    razorpay_key_id = store.get("razorpay_key_id")
+    razorpay_key_secret = store.get("razorpay_key_secret")
+    
+    print(f"[create_payment_order] Credential check: key_id={'SET' if razorpay_key_id else 'MISSING'}, key_secret={'SET' if razorpay_key_secret else 'MISSING'}")
+    
+    if not razorpay_key_id or not razorpay_key_secret:
+        print(f"[create_payment_order] Store has incomplete credentials. Attempting fallback to environment variables...")
+        # Attempt fallback to environment variables (useful for local testing in non-production)
+        env_key = os.getenv("RAZORPAY_KEY_ID")
+        env_secret = os.getenv("RAZORPAY_KEY_SECRET")
+        env = os.getenv("ENVIRONMENT", "development")
+        
+        print(f"[create_payment_order] Environment: ENV={env}, env_key={'SET' if env_key else 'NOT SET'}, env_secret={'SET' if env_secret else 'NOT SET'}")
+        
+        if env_key and env_secret and env != "production":
+            print(f"[create_payment_order] Using environment variable fallback (ENV={env})")
+            razorpay_key_id = env_key
+            razorpay_key_secret = env_secret
+        else:
+            print(f"[create_payment_order] FAILURE: No valid Razorpay credentials found")
+            print(f"[create_payment_order] Store credentials: key_id={razorpay_key_id}, key_secret={razorpay_key_secret}")
+            print(f"[create_payment_order] Environment fallback failed: env={env}, has_env_key={bool(env_key)}, has_env_secret={bool(env_secret)}")
+            raise HTTPException(status_code=400, detail=f"Store payment configuration not found. Please configure Razorpay for store {store_id}")
     
     # Create real Razorpay order
     try:
-        razorpay_auth = (store["razorpay_key_id"], store["razorpay_key_secret"])
+        razorpay_auth = (razorpay_key_id, razorpay_key_secret)
+        # Ensure receipt length <= 40 characters (Razorpay requirement)
+        receipt_base = (payment_data.order_id or payment_id)
+        max_receipt_len = 40 - len("order_")
+        receipt = f"order_{receipt_base[:max_receipt_len]}"
+        if len(receipt_base) > max_receipt_len:
+            print(f"[create_payment_order] Trimming receipt base from {len(receipt_base)} to {max_receipt_len} chars: {receipt}")
         razorpay_response = requests.post(
             "https://api.razorpay.com/v1/orders",
             auth=razorpay_auth,
             json={
                 "amount": int(payment_data.amount * 100),  # Convert to paise
                 "currency": "INR",
-                "receipt": f"order_{payment_data.order_id or payment_id}",
+                "receipt": receipt,
             }
         )
         
@@ -2024,7 +2164,7 @@ async def create_payment_order(payment_data: MockPaymentCreate, user: dict = Dep
         "order_id": payment_data.order_id,
         "status": "created",
         "razorpay_order_id": razorpay_order_id,
-        "razorpay_key_id": store["razorpay_key_id"],
+        "razorpay_key_id": razorpay_key_id,
         "created_at": now
     }
     
@@ -2059,26 +2199,54 @@ async def verify_payment(verification: PaymentVerification, user: dict = Depends
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found")
     
-    # Verify signature
+    # Verify signature - find store for this payment
     store_id = None
+    store = None
+    
+    # Try to find store from order_id first
     if payment.get("order_id"):
         order = await db.orders.find_one({"id": payment["order_id"]})
         if order:
             store_id = order["store_id"]
             store = await db.stores.find_one({"id": store_id})
-            if store and store.get("razorpay_key_secret"):
-                secret = store["razorpay_key_secret"]
-                
-                # Verify signature: HMAC(order_id|payment_id, secret) should equal signature
-                message = f"{verification.razorpay_order_id}|{verification.razorpay_payment_id}"
-                signature_generated = hmac.new(
-                    secret.encode(),
-                    message.encode(),
-                    hashlib.sha256
-                ).hexdigest()
-                
-                if signature_generated != verification.razorpay_signature:
-                    raise HTTPException(status_code=400, detail="Invalid payment signature")
+    
+    # If not found via order, try subscription
+    if not store and payment.get("subscription_id"):
+        sub = await db.user_subscriptions.find_one({"id": payment["subscription_id"]})
+        if sub:
+            store_id = sub.get("store_id")
+            store = await db.stores.find_one({"id": store_id})
+    
+    # Verify signature if we have store credentials
+    if store and store.get("razorpay_key_secret"):
+        secret = store["razorpay_key_secret"]
+        
+        # Verify signature: HMAC(order_id|payment_id, secret) should equal signature
+        message = f"{verification.razorpay_order_id}|{verification.razorpay_payment_id}"
+        signature_generated = hmac.new(
+            secret.encode(),
+            message.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        
+        if signature_generated != verification.razorpay_signature:
+            raise HTTPException(status_code=400, detail="Invalid payment signature")
+    else:
+        # If no store found or no secret, try environment variable (for testing)
+        env_secret = os.getenv("RAZORPAY_KEY_SECRET")
+        if env_secret:
+            message = f"{verification.razorpay_order_id}|{verification.razorpay_payment_id}"
+            signature_generated = hmac.new(
+                env_secret.encode(),
+                message.encode(),
+                hashlib.sha256
+            ).hexdigest()
+            
+            if signature_generated != verification.razorpay_signature:
+                raise HTTPException(status_code=400, detail="Invalid payment signature")
+        # If no env var either, skip verification (not ideal but allows dev/test)
+        else:
+            print(f"[verify_payment] Warning: Could not verify signature for payment {verification.payment_id} - no store or env secret found")
     
     # Update payment as completed
     await db.payments.update_one(

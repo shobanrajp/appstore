@@ -21,14 +21,18 @@ api.interceptors.request.use((config) => {
     return config;
 });
 
-// Handle auth errors
+// Handle auth errors; avoid redirecting on login/register attempts to preserve in-place error toasts
 api.interceptors.response.use(
     (response) => response,
     (error) => {
         if (error.response?.status === 401) {
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-            window.location.href = '/login';
+            const reqUrl = error.config?.url || '';
+            const isAuthAttempt = reqUrl.includes('/auth/login') || reqUrl.includes('/auth/register');
+            if (!isAuthAttempt) {
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = '/login';
+            }
         }
         return Promise.reject(error);
     }

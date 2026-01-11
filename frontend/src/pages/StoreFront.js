@@ -1149,7 +1149,8 @@ const StoreFront = () => {
                 currency: store.currency || 'INR',
                 description: `${selectedPlan.name} - First Installment`,
                 store_id: storeId,
-                subscription_id: subRes.data.id
+                subscription_id: subRes.data.id,
+                order_id: subRes.data.order_id // Include subscription order_id so backend can find store config reliably
             });
 
             // Open Razorpay checkout

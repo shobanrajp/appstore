@@ -304,6 +304,7 @@ class UserSubscriptionCreate(BaseModel):
 
 class UserSubscriptionResponse(BaseModel):
     id: str
+    order_id: Optional[str] = None  # Generated during subscription creation, optional for backward compatibility
     user_id: str
     user_email: Optional[str] = None
     user_name: Optional[str] = None
@@ -1717,8 +1718,35 @@ async def update_page_config(store_id: str, config_id: str, config_data: PageCon
 
 @api_router.post("/payments/create-order", response_model=RazorpayOrderResponse)
 async def create_payment_order(payment_data: RazorpayOrderCreate, user: dict = Depends(get_current_user)):
-    # Get store Razorpay credentials
-    store = await db.stores.find_one({"id": payment_data.store_id}, {"_id": 0})
+    # Get store - handle various ways to identify it
+    store = None
+    store_id = payment_data.store_id
+    
+    # 1) Explicit store_id provided
+    if store_id:
+        store = await db.stores.find_one({"id": store_id}, {"_id": 0})
+    
+    # 2) If not found, try to derive from order_id (could be subscription order)
+    if not store and payment_data.order_id:
+        # Check if it's a regular order
+        order = await db.orders.find_one({"id": payment_data.order_id})
+        if order:
+            store_id = order.get("store_id")
+            store = await db.stores.find_one({"id": store_id}, {"_id": 0})
+        else:
+            # Check if it's a subscription order
+            sub = await db.user_subscriptions.find_one({"order_id": payment_data.order_id})
+            if sub and sub.get("store_id"):
+                store_id = sub.get("store_id")
+                store = await db.stores.find_one({"id": store_id}, {"_id": 0})
+    
+    # 3) If still not found, try subscription_id
+    if not store and payment_data.subscription_id:
+        sub = await db.user_subscriptions.find_one({"id": payment_data.subscription_id})
+        if sub and sub.get("store_id"):
+            store_id = sub.get("store_id")
+            store = await db.stores.find_one({"id": store_id}, {"_id": 0})
+    
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
     
@@ -1726,7 +1754,7 @@ async def create_payment_order(payment_data: RazorpayOrderCreate, user: dict = D
     razorpay_key_secret = store.get("razorpay_key_secret")
     
     if not razorpay_key_id or not razorpay_key_secret:
-        raise HTTPException(status_code=400, detail="Razorpay not configured for this store")
+        raise HTTPException(status_code=400, detail=f"Razorpay not configured for store {store_id}")
     
     try:
         # Initialize Razorpay client with store credentials
@@ -1751,7 +1779,7 @@ async def create_payment_order(payment_data: RazorpayOrderCreate, user: dict = D
         payment_doc = {
             "id": payment_id,
             "user_id": user["id"],
-            "store_id": payment_data.store_id,
+            "store_id": store_id,
             "amount": payment_data.amount,
             "currency": payment_data.currency,
             "description": payment_data.description,
