@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import StoreHeader from '../components/StoreHeader';
 import StoreFooter from '../components/StoreFooter';
+import LoadingOverlay from '../components/LoadingOverlay';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Label } from '../components/ui/label';
@@ -13,23 +14,29 @@ import { useCart } from '../context/CartContext';
 import { formatCurrency, setPageTitle } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
-import { getAddresses, createAddress, createOrder, createPaymentOrder, verifyPayment, getStore, getProducts } from '../lib/api';
+import { getAddresses, createAddress, createOrder, createPaymentOrder, verifyPayment, getStore, getProducts, estimateShipping } from '../lib/api';
 
 const CartPage = () => {
   const { storeId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
   const { cart, removeFromCart, updateCartItemQty, cartTotal, cartCount } = useCart(storeId);
+  const taxAmount = cart?.total_tax || 0;
+  
   const [store, setStore] = useState(null);
   const [products, setProducts] = useState({});
   const [addresses, setAddresses] = useState([]);
   const [selectedAddress, setSelectedAddress] = useState('');
+  const [shipping, setShipping] = useState(null);
+  const [calculatingShipping, setCalculatingShipping] = useState(false);
   const [showNewAddress, setShowNewAddress] = useState(false);
   const [processingPayment, setProcessingPayment] = useState(false);
   const [newAddress, setNewAddress] = useState({
     label: 'Home', full_name: '', phone: '', address_line1: '', address_line2: '',
     city: '', state: '', postal_code: '', country: 'India', special_instructions: '', is_default: false
   });
+
+  const finalTotal = cartTotal + taxAmount + (shipping?.shipping_charges || 0);
 
   // Load Razorpay script
   useEffect(() => {
@@ -97,6 +104,36 @@ const CartPage = () => {
     loadAddresses();
   }, [user]);
 
+  // Auto-calculate shipping when address changes
+  useEffect(() => {
+    const checkShipping = async () => {
+        if (!selectedAddress || !cart?.items?.length) {
+            setShipping(null);
+            return;
+        }
+        
+        const addr = addresses.find(a => a.id === selectedAddress);
+        if (!addr || !addr.postal_code) return;
+
+        setCalculatingShipping(true);
+        try {
+            const res = await estimateShipping(storeId, {
+                items: cart.items.map(i => ({ product_id: i.product_id, quantity: i.quantity })),
+                postal_code: addr.postal_code
+            });
+            setShipping(res.data);
+        } catch (error) {
+            console.error("Shipping calc error", error);
+            // Don't clear shipping immediately if previous was valid? 
+            // Better to show error.
+            setShipping({ shipping_charges: 0, error: true });
+        } finally {
+            setCalculatingShipping(false);
+        }
+    };
+    checkShipping();
+  }, [selectedAddress, cart?.items, addresses, storeId]);
+
   const updateQuantity = async (itemId, delta) => {
     const items = cart.items || [];
     const item = items.find(it => it.id === itemId);
@@ -153,7 +190,7 @@ const CartPage = () => {
 
       // Create Razorpay payment order
       const paymentRes = await createPaymentOrder({
-        amount: cartTotal,
+        amount: finalTotal,
         currency: store.currency || 'INR',
         description: `Order ${orderRes.data.id}`,
         store_id: storeId,
@@ -163,7 +200,7 @@ const CartPage = () => {
       // Open Razorpay checkout
       const options = {
         key: store.razorpay_key_id,
-        amount: Math.round(cartTotal * 100), // Amount in paise
+        amount: Math.round(finalTotal * 100), // Amount in paise
         currency: store.currency || 'INR',
         name: store.name || 'Store',
         description: `Order ${orderRes.data.id}`,
@@ -264,6 +301,11 @@ const CartPage = () => {
                           <div className="min-w-0">
                             <p className="font-medium truncate">{product?.name || 'Product'}</p>
                             <p className="text-sm text-muted-foreground">{formatCurrency(item.price)} × {item.quantity}</p>
+                            {item.tax_info && (item.tax_info.cgst > 0 || item.tax_info.igst > 0) && (
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                + Tax: {formatCurrency(item.tax_info.cgst + item.tax_info.igst)}
+                              </p>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
@@ -287,10 +329,49 @@ const CartPage = () => {
 
             <div>
               <Card className="border">
-                <CardContent className="p-6 space-y-4">
-                  <div className="flex justify-between text-lg font-semibold">
-                    <span>Total</span>
-                    <span className="gold-text">{formatCurrency(cartTotal)}</span>
+                <CardContent className="p-6 space-y-4 relative">
+                  {calculatingShipping && (
+                    <div className="absolute inset-0 bg-background/80 z-20 flex items-center justify-center backdrop-blur-[1px] rounded-lg">
+                        <div className="flex flex-col items-center gap-2">
+                             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                             <span className="text-xs font-medium">Checking Delivery...</span>
+                        </div>
+                    </div>
+                  )}
+                  <div className="space-y-2 pb-4 border-b">
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Subtotal</span>
+                      <span>{formatCurrency(cartTotal)}</span>
+                    </div>
+                    {taxAmount > 0 && (
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>Tax</span>
+                        <span>{formatCurrency(taxAmount)}</span>
+                      </div>
+                    )}
+                    
+                    <div className="flex justify-between text-muted-foreground">
+                        <span>Shipping</span>
+                        {calculatingShipping ? (
+                            <span>Calculating...</span>
+                        ) : shipping ? (
+                            shipping.error ? <span className="text-destructive text-xs">Unavailable</span> :
+                            <span>{shipping.shipping_charges === 0 ? 'Free' : formatCurrency(shipping.shipping_charges)}</span>
+                        ) : (
+                            <span>-</span>
+                        )}
+                    </div>
+
+                    <div className="flex justify-between text-lg font-semibold pt-2">
+                      <span>Total</span>
+                      <span className="gold-text">{formatCurrency(finalTotal)}</span>
+                    </div>
+                    {shipping && shipping.etd && !shipping.error && (
+                      <div className="flex justify-between text-sm text-green-600 mt-1">
+                        <span>Estimated Delivery</span>
+                        <span>{shipping.etd}</span>
+                      </div>
+                    )}
                   </div>
 
                   {user ? (
@@ -379,10 +460,17 @@ const CartPage = () => {
                         </form>
                       )}
 
-                      <Button className="w-full gold-gradient text-white" onClick={handleCheckout} disabled={!selectedAddress || cart.length === 0 || processingPayment}>
+                      <Button className="w-full gold-gradient text-white" onClick={handleCheckout} disabled={!selectedAddress || cart.length === 0 || processingPayment || calculatingShipping || (shipping && shipping.error)}>
                         {processingPayment ? 'Processing...' : 'Proceed to Payment'}
                       </Button>
                       <p className="text-xs text-muted-foreground">Secure payment powered by Razorpay</p>
+                      
+                      {shipping && shipping.error && (
+                          <div className="p-2 text-xs text-red-600 bg-red-50 rounded border border-red-100 flex items-center gap-2">
+                              <AlertTriangle className="w-3 h-3" />
+                              Shipping unavailable for this address
+                          </div>
+                      )}
                     </div>
                   ) : (
                     <Button className="w-full gold-gradient text-white" onClick={() => navigate(`/store/${storeId}/login`)}>
@@ -391,7 +479,7 @@ const CartPage = () => {
                   )}
 
                   <div className="text-xs text-muted-foreground">
-                    Prices include taxes where applicable. Shipping calculated at checkout.
+                    Taxes added as applicable.
                   </div>
                 </CardContent>
               </Card>
@@ -401,6 +489,7 @@ const CartPage = () => {
       </main>
 
       <StoreFooter store={store} storeId={storeId} />
+      <LoadingOverlay isLoading={processingPayment} />
     </div>
   );
 };

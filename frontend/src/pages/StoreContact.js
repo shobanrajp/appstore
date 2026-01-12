@@ -8,16 +8,14 @@ import { Phone, Mail, MapPin, Clock, MessageCircle } from 'lucide-react';
 import { setPageTitle } from '../lib/utils';
 import StoreHeader from '../components/StoreHeader';
 import StoreFooter from '../components/StoreFooter';
+import { useCart } from '../context/CartContext';
 
 const StoreContact = () => {
     const { storeId } = useParams();
+    const { cartCount } = useCart(storeId);
     const [store, setStore] = useState(null);
     const [pageConfig, setPageConfig] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [cart, setCart] = useState(() => {
-        const saved = localStorage.getItem(`cart_${storeId}`);
-        return saved ? JSON.parse(saved) : [];
-    });
 
     useEffect(() => {
         loadData();
@@ -46,8 +44,6 @@ const StoreContact = () => {
         }
     };
 
-    const cartTotal = cart.reduce((sum, item) => sum + item.quantity, 0);
-
     const getWhatsAppLink = () => {
         if (!store?.contact_phone) return null;
         const phone = store.contact_phone.replace(/[^0-9]/g, '');
@@ -65,7 +61,7 @@ const StoreContact = () => {
 
     return (
         <div className="min-h-screen bg-background flex flex-col w-full overflow-x-hidden">
-            <StoreHeader store={store} storeId={storeId} cartTotal={cartTotal} activeTab="contact" />
+            <StoreHeader store={store} storeId={storeId} cartTotal={cartCount} activeTab="contact" />
 
             <main className="max-w-4xl mx-auto px-4 py-12 flex-1 w-full box-sizing-border-box">
                 <h2 className="text-4xl font-serif text-center mb-4">Contact Us</h2>

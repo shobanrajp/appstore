@@ -2,21 +2,33 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useNavigate, Link, useSearchParams, useParams } from 'react-router-dom';
-import { getMyOrders, getMySubscriptions, getAddresses, createAddress, deleteAddress, updateProfile, updatePassword, paySubscription, getProduct, getStore } from '../lib/api';
+import { getMyOrders, getMySubscriptions, getAddresses, createAddress, deleteAddress, updateProfile, updatePassword, paySubscription, getProduct, getStore, getSubscriptionDetails, getSubscriptionPlans, getStoreTaxConfig, getMarketPrices, getSubscriptionTransactions, createPaymentOrder, verifyPayment, previewClosure, initiateClosure } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Progress } from '../components/ui/progress';
 import { toast } from 'sonner';
-import { User, Package, CreditCard, MapPin, LogOut, Plus, Trash2, Edit2, IndianRupee } from 'lucide-react';
-import { formatCurrency, formatDate, getStatusColor, setPageTitle } from '../lib/utils';
+import { User, Package, CreditCard, MapPin, LogOut, Plus, Trash2, Edit2, IndianRupee, History } from 'lucide-react';
+import { formatCurrency, formatDate, getStatusColor, setPageTitle, formatDateTime } from '../lib/utils';
 import StoreHeader from '../components/StoreHeader';
 import StoreFooter from '../components/StoreFooter';
+import LoadingOverlay from '../components/LoadingOverlay';
+
+const loadRazorpay = () => {
+    return new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+        script.onload = () => resolve(true);
+        script.onerror = () => resolve(false);
+        document.body.appendChild(script);
+    });
+};
 
 const CustomerPortal = () => {
     const { storeId } = useParams();
@@ -27,6 +39,7 @@ const CustomerPortal = () => {
     const [store, setStore] = useState(null);
     const [orders, setOrders] = useState([]);
     const [subscriptions, setSubscriptions] = useState([]);
+    const [plans, setPlans] = useState([]);
     const [addresses, setAddresses] = useState([]);
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('orders');
@@ -36,6 +49,13 @@ const CustomerPortal = () => {
     const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
     const [selectedSubscription, setSelectedSubscription] = useState(null);
     const [paymentProcessing, setPaymentProcessing] = useState(false);
+    // Closure State
+    const [closureDialogOpen, setClosureDialogOpen] = useState(false);
+    const [closureStep, setClosureStep] = useState(1);
+    const [closurePreview, setClosurePreview] = useState(null);
+    const [selectedAddressId, setSelectedAddressId] = useState('');
+    const [closureLoading, setClosureLoading] = useState(false);
+
     const [newAddress, setNewAddress] = useState({
         label: 'Home', full_name: '', phone: '', address_line1: '', address_line2: '',
         city: '', state: '', postal_code: '', country: 'India', special_instructions: '', is_default: false
@@ -45,6 +65,14 @@ const CustomerPortal = () => {
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [updatingProfile, setUpdatingProfile] = useState(false);
+    const [flexibleAmount, setFlexibleAmount] = useState('');
+    const [taxConfig, setTaxConfig] = useState(null);
+    const [marketPrices, setMarketPrices] = useState(null);
+    
+    // Transactions View
+    const [transactionDialogOpen, setTransactionDialogOpen] = useState(false);
+    const [transactionList, setTransactionList] = useState([]);
+    const [viewingSubscription, setViewingSubscription] = useState(null);
 
     useEffect(() => {
         // Wait for auth to initialize before checking user
@@ -61,24 +89,56 @@ const CustomerPortal = () => {
             setSelectedOrderId(orderIdParam);
             setActiveTab('orders');
         }
+
+        const tabParam = searchParams.get('tab');
+        if (tabParam) {
+            setActiveTab(tabParam);
+        }
+
         loadData();
     }, [authLoading, user, searchParams, navigate]);
 
+    // If subscriptions tab becomes unavailable (no plans), switch to orders tab
+    useEffect(() => {
+        if (!loading && plans.length === 0 && activeTab === 'subscriptions') {
+            setActiveTab('orders');
+        }
+    }, [plans, activeTab, loading]);
+
     const loadData = async () => {
         try {
-            const [storeRes, ordersRes, subsRes, addrsRes] = await Promise.all([
+            const [storeRes, ordersRes, subsRes, addrsRes, plansRes, taxRes, pricesRes] = await Promise.all([
                 getStore(storeId),
                 getMyOrders(),
                 getMySubscriptions(),
-                getAddresses()
+                getAddresses(),
+                getSubscriptionPlans(storeId).catch(() => ({ data: [] })),
+                getStoreTaxConfig(storeId).catch(() => ({ data: null })),
+                getMarketPrices(storeId).catch(() => ({ data: { prices: {} } }))
             ]);
             setStore(storeRes.data);
             setPageTitle(storeRes.data, 'Account');
+            setPlans(plansRes.data || []);
+            setTaxConfig(taxRes.data);
+            setMarketPrices(pricesRes.data?.prices || {});
             const rawOrders = ordersRes.data || [];
             // Sort orders by created_at timestamp (most recent first)
             rawOrders.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
             setOrders(rawOrders);
-            setSubscriptions(subsRes.data);
+            
+            // Fetch payment history for each subscription
+            const subsWithPayments = await Promise.all(
+                (subsRes.data || []).map(async (sub) => {
+                    try {
+                        const txnRes = await getSubscriptionTransactions(sub.id);
+                        return { ...sub, payments: txnRes.data || [] };
+                    } catch (e) {
+                        console.error(`Failed to load payments for subscription ${sub.id}`, e);
+                        return { ...sub, payments: [] };
+                    }
+                })
+            );
+            setSubscriptions(subsWithPayments);
             setAddresses(addrsRes.data);
 
             // Hydrate order items with images if missing
@@ -201,19 +261,231 @@ const CustomerPortal = () => {
         }
     };
 
+    const getMetalPrice = (plan) => {
+        if (!plan || !marketPrices) return 0;
+        const metal = (plan.target_metal || '').toLowerCase();
+        if (metal === 'gold') return marketPrices.gold_22 || marketPrices.gold_24 || 0;
+        if (metal === 'silver') return marketPrices.silver_1g || 0;
+        if (metal === 'platinum') return marketPrices.platinum_1g || 0;
+        return 0;
+    };
+
+    const handleOpenClosure = (sub) => {
+        setSelectedSubscription(sub);
+        setClosureStep(1);
+        setClosurePreview(null);
+        // Default select default address
+        const defaultAddr = addresses.find(a => a.is_default) || addresses[0];
+        if (defaultAddr) setSelectedAddressId(defaultAddr.id);
+        setClosureDialogOpen(true);
+    };
+
+    const handlePreviewClosure = async () => {
+        if (!selectedAddressId) {
+            toast.error("Please select a delivery address");
+            return;
+        }
+        setClosureLoading(true);
+        try {
+            const res = await previewClosure(selectedSubscription.id, { address_id: selectedAddressId });
+            setClosurePreview(res.data);
+            setClosureStep(2);
+        } catch (error) {
+            console.error(error);
+            toast.error(error.response?.data?.detail || "Failed to calculate closure details");
+        } finally {
+            setClosureLoading(false);
+        }
+    };
+
+    const handleConfirmClosure = async () => {
+        setPaymentProcessing(true);
+        try {
+             // Close 'Step' dialog
+             setClosureDialogOpen(false); 
+             
+             const res = await loadRazorpay();
+             if (!res) {
+                 toast.error('Razorpay SDK failed to load');
+                 setPaymentProcessing(false);
+                 return;
+             }
+             
+             const { data: paymentOrder } = await initiateClosure(selectedSubscription.id, { address_id: selectedAddressId });
+             
+             // If amount is 0 (unlikely for closure unless fully paid and free shipping), handle directly? 
+             // Backend currently ensures shipping is charged or returns MockPayment order structure anyway.
+             
+             const options = {
+                 key: paymentOrder.razorpay_key_id,
+                 amount: Math.floor(paymentOrder.amount * 100),
+                 currency: "INR",
+                 name: store?.name || "Store Payment",
+                 description: paymentOrder.description,
+                 order_id: paymentOrder.razorpay_order_id,
+                 handler: async function (response) {
+                     try {
+                         const verifyData = {
+                             razorpay_order_id: response.razorpay_order_id,
+                             razorpay_payment_id: response.razorpay_payment_id,
+                             razorpay_signature: response.razorpay_signature,
+                             payment_id: paymentOrder.id
+                         };
+                         
+                         await verifyPayment(verifyData);
+                         toast.success('Subscription Closed Successfully!');
+                         window.location.href = `/store/${storeId}/portal?tab=orders`; // Redirect to orders to see the redemtion order
+                     } catch (verifyErr) {
+                         console.error(verifyErr);
+                         toast.error('Payment verification failed');
+                         setPaymentProcessing(false);
+                     }
+                 },
+                 modal: {
+                    ondismiss: function() {
+                        setPaymentProcessing(false);
+                        // Re-open dialog maybe?
+                    },
+                    backdropclose: false,
+                    escape: false
+                 },
+                 prefill: {
+                     name: user?.name,
+                     email: user?.email,
+                     contact: user?.phone
+                 },
+                 theme: {
+                     color: "#d4af37"
+                 }
+             };
+             // Check for Mock Order (Test Mode without valid keys)
+             if (paymentOrder.razorpay_order_id && paymentOrder.razorpay_order_id.startsWith("order_mock_")) {
+                 console.log("Mock Payment Detected");
+                 // Simulate user payment interaction delay
+                 setTimeout(async () => {
+                      const mockResponse = {
+                          razorpay_order_id: paymentOrder.razorpay_order_id,
+                          razorpay_payment_id: "pay_mock_" + Math.random().toString(36).substring(7),
+                          razorpay_signature: "mock_signature_bypass"
+                      };
+                      await options.handler(mockResponse);
+                 }, 1500);
+                 return;
+             }
+             
+             const rzp = new window.Razorpay(options);
+             rzp.open();
+            
+        } catch (error) {
+            console.error(error);
+            toast.error('Failed to initiate closure');
+            setPaymentProcessing(false);
+        }
+    };
+
     const handlePaySubscription = async () => {
         if (!selectedSubscription) return;
         setPaymentProcessing(true);
         try {
-            await paySubscription(selectedSubscription.id, selectedSubscription.monthly_amount);
-            toast.success('Payment successful!');
-            setPaymentDialogOpen(false);
-            setSelectedSubscription(null);
-            loadData();
+            const isFlexible = selectedSubscription.scheme_type === 'flexible';
+            const amountToPay = isFlexible ? parseFloat(flexibleAmount) : selectedSubscription.monthly_amount;
+            
+            if (isFlexible && (!amountToPay || amountToPay <= 0)) {
+                toast.error("Please enter a valid amount");
+                setPaymentProcessing(false);
+                return;
+            }
+
+            // Unified Razorpay Flow for both Fixed and Flexible
+            const res = await loadRazorpay();
+            if (!res) {
+                 toast.error('Razorpay SDK failed to load. Are you online?');
+                 setPaymentProcessing(false);
+                 return;
+            }
+             
+             const orderData = {
+                 amount: floatAmount(amountToPay),
+                 description: `Payment for subscription`,
+                 subscription_id: selectedSubscription.id,
+                 order_id: selectedSubscription.id, 
+                 store_id: selectedSubscription.store_id
+             };
+             
+             // Helper for float check
+             function floatAmount(val) { return parseFloat(val); }
+
+             const { data: paymentOrder } = await createPaymentOrder(orderData);
+             
+             const options = {
+                 key: paymentOrder.razorpay_key_id,
+                 amount: paymentOrder.amount * 100, // Amount is in paise
+                 currency: "INR",
+                 name: store?.name || "Store Payment",
+                 description: paymentOrder.description,
+                 order_id: paymentOrder.razorpay_order_id,
+                 handler: async function (response) {
+                     try {
+                         const verifyData = {
+                             razorpay_order_id: response.razorpay_order_id,
+                             razorpay_payment_id: response.razorpay_payment_id,
+                             razorpay_signature: response.razorpay_signature,
+                             payment_id: paymentOrder.id
+                         };
+                         
+                         await verifyPayment(verifyData);
+                         toast.success('Payment successful!');
+                         window.location.href = `/store/${storeId}/portal?tab=subscriptions`;
+                     } catch (verifyErr) {
+                         console.error(verifyErr);
+                         toast.error(verifyErr.response?.data?.detail || 'Payment verification failed');
+                     } finally {
+                         setPaymentProcessing(false);
+                     }
+                 },
+                 prefill: {
+                     name: user?.name,
+                     email: user?.email,
+                     contact: user?.phone
+                 },
+                 theme: {
+                     color: store?.settings?.primary_color || "#3399cc"
+                 },
+                 modal: {
+                     backdropclose: false,
+                     escape: false,
+                     ondismiss: function() {
+                         setPaymentProcessing(false);
+                     }
+                 }
+             };
+             
+             const rzp1 = new window.Razorpay(options);
+             rzp1.on('payment.failed', function (response){
+                    toast.error(response.error.description);
+                    setPaymentProcessing(false);
+             });
+             
+             // Close dialog to prevent overlay interference with Razorpay popup
+             setPaymentDialogOpen(false);
+             rzp1.open();
+
         } catch (error) {
+            console.error(error);
             toast.error(error.response?.data?.detail || 'Payment failed');
-        } finally {
             setPaymentProcessing(false);
+        }
+    };
+
+    const viewTransactions = async (sub) => {
+        setViewingSubscription(sub);
+        setTransactionList([]);
+        setTransactionDialogOpen(true);
+        try {
+            const res = await getSubscriptionTransactions(sub.id);
+            setTransactionList(res.data);
+        } catch (err) {
+            toast.error('Failed to load transactions');
         }
     };
 
@@ -221,6 +493,87 @@ const CustomerPortal = () => {
         setSelectedSubscription(subscription);
         setPaymentDialogOpen(true);
     };
+
+    // Check if subscription has already been paid for current month
+    const hasAlreadyPaidThisMonth = (subscription) => {
+        if (!subscription) return false;
+        // Logic only applies to fixed/monthly schemes. Flexible can pay anytime.
+        if (subscription.scheme_type === 'flexible') return false; 
+        
+        const now = new Date();
+        const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+        const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+        // 1. Check direct payments list
+        if (subscription.payments && Array.isArray(subscription.payments)) {
+            const hasPaymentThisMonth = subscription.payments.some(payment => {
+                const dateStr = payment.payment_date || payment.created_at || payment.date;
+                if (!dateStr) return false;
+                
+                const d = new Date(dateStr);
+                // If it comes from getSubscriptionTransactions, it matches our current API.
+                // Assuming filtering by 'completed' status is done by backend or explicit check here
+                const isCompleted = payment.status === 'completed' || payment.type === 'payment';
+                
+                return d >= currentMonthStart && d <= currentMonthEnd && isCompleted;
+            });
+            if (hasPaymentThisMonth) return true;
+        }
+
+        // 2. Fallback: Check 'last_payment_date' or similar field if backend provides it
+        // Or if the subscription was just created this month and has > 0 payments
+        // We need to trust the backend's data. If user made a payment today, it should appear in the payments list or updated stats.
+        
+        // This logic is mostly client-side estimation. 
+        // For robustness, let's rely on the `payments` array which we load via getSubscriptionTransactions or similar in loadData
+        // But loadData() creates `subsWithPayments` by calling `getSubscriptionDetails` which includes payments logic.
+        
+        // If we don't have payments array but payments_made > 0, we can't be sure WHEN it was paid unless we check dates.
+        // Assuming `subscriptions` state here HAS payments array populated from loadData()
+        
+        return false;
+    };
+
+    const getFlexibleTaxDetails = () => {
+        if (!selectedSubscription || selectedSubscription.scheme_type !== 'flexible' || !flexibleAmount || !taxConfig) {
+            return null;
+        }
+        
+        const amount = parseFloat(flexibleAmount);
+        if (isNaN(amount) || amount <= 0) return null;
+        
+        const plan = plans.find(p => p.id === selectedSubscription.plan_id);
+        const targetMetal = plan?.target_metal || selectedSubscription.target_metal || 'gold';
+        const metalTax = taxConfig.metal_taxes?.find(m => m.metal === targetMetal && m.is_enabled);
+        
+        if (!metalTax) return null;
+        
+        const cgstRate = metalTax.tax_rate.cgst || 0;
+        const igstRate = metalTax.tax_rate.igst || 0;
+        const totalTaxRate = (cgstRate + igstRate) / 100;
+        
+        // Backend logic: net_amount = amount / (1 + total_tax_rate)
+        // so Tax = amount - net_amount
+        const netAmount = amount / (1 + totalTaxRate);
+        const taxAmount = amount - netAmount;
+        
+        // Split tax based on rates proportional contribution
+        const totalRate = cgstRate + igstRate;
+        if (totalRate === 0) return { cgst: 0, igst: 0, total: 0 };
+
+        const cgstAmount = taxAmount * (cgstRate / totalRate);
+        const igstAmount = taxAmount * (igstRate / totalRate);
+
+        return {
+            cgst: cgstAmount,
+            igst: igstAmount,
+            total: taxAmount,
+            cgstRate,
+            igstRate
+        };
+    };
+
+    const taxDetails = getFlexibleTaxDetails();
 
     const handleLogout = () => {
         logout();
@@ -302,9 +655,11 @@ const CustomerPortal = () => {
 
                 {/* Tabs */}
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-                    <TabsList className="grid w-full max-w-md grid-cols-3">
+                    <TabsList className={`grid w-full max-w-md ${plans.length > 0 ? 'grid-cols-3' : 'grid-cols-2'}`}>
                         <TabsTrigger value="orders" data-testid="orders-tab">Orders</TabsTrigger>
-                        <TabsTrigger value="subscriptions" data-testid="subscriptions-tab">Subscriptions</TabsTrigger>
+                        {plans.length > 0 && (
+                            <TabsTrigger value="subscriptions" data-testid="subscriptions-tab">Subscriptions</TabsTrigger>
+                        )}
                         <TabsTrigger value="addresses" data-testid="addresses-tab">Addresses</TabsTrigger>
                     </TabsList>
 
@@ -605,37 +960,71 @@ const CustomerPortal = () => {
                                             </CardTitle>
                                         </CardHeader>
                                         <CardContent className="space-y-4">
-                                            <div>
-                                                <div className="flex justify-between text-sm mb-1">
-                                                    <span>Progress</span>
-                                                    <span>{sub.payments_made} of 11 payments</span>
+                                            {sub.scheme_type === 'flexible' ? (
+                                                <div>
+                                                    <div className="flex justify-between text-sm mb-1">
+                                                        <span className="text-muted-foreground">Accumulated {sub.target_metal ? (sub.target_metal.charAt(0).toUpperCase() + sub.target_metal.slice(1)) : 'Metal'}</span>
+                                                        <span className="font-bold">{(sub.accumulated_weight_grams || 0).toFixed(4)} g</span>
+                                                    </div>
                                                 </div>
-                                                <Progress value={(sub.payments_made / 11) * 100} className="h-2" />
-                                            </div>
+                                            ) : (
+                                                <div className="space-y-2">
+                                                    <div>
+                                                        <div className="flex justify-between text-sm mb-1">
+                                                            <span>Progress</span>
+                                                            <span>{sub.payments_made} of 11 payments</span>
+                                                        </div>
+                                                        <Progress value={(sub.payments_made / 11) * 100} className="h-2" />
+                                                    </div>
+                                                    <div className="flex justify-between text-sm pt-1">
+                                                        <span className="text-muted-foreground">Accumulated {sub.target_metal ? (sub.target_metal.charAt(0).toUpperCase() + sub.target_metal.slice(1)) : 'Metal'}</span>
+                                                        <span className="font-bold">{(sub.accumulated_weight_grams || 0).toFixed(4)} g</span>
+                                                    </div>
+                                                </div>
+                                            )}
                                             <div className="grid grid-cols-2 gap-4 text-sm">
                                                 <div>
                                                     <span className="text-muted-foreground">Total Paid</span>
                                                     <p className="font-semibold gold-text">{formatCurrency(sub.total_paid)}</p>
                                                 </div>
-                                                <div>
-                                                    <span className="text-muted-foreground">Maturity Date</span>
-                                                    <p className="font-semibold">{formatDate(sub.maturity_date)}</p>
-                                                </div>
+                                                {sub.scheme_type !== 'flexible' && (
+                                                    <div>
+                                                        <span className="text-muted-foreground">Maturity Date</span>
+                                                        <p className="font-semibold">{formatDate(sub.maturity_date)}</p>
+                                                    </div>
+                                                )}
                                             </div>
                                             <div className="text-sm">
                                                 <span className="text-muted-foreground">Started</span>
                                                 <p>{formatDate(sub.start_date)}</p>
                                             </div>
                                             {sub.status === 'active' && (
-                                                <Button 
-                                                    onClick={() => openPaymentDialog(sub)} 
-                                                    className="w-full gold-gradient text-white"
-                                                    data-testid={`pay-subscription-${sub.id}`}
-                                                >
-                                                    <IndianRupee className="w-4 h-4 mr-2" />
-                                                    Pay Monthly Installment ({formatCurrency(sub.monthly_amount)})
-                                                </Button>
+                                                <div className="space-y-2">
+                                                    <Button 
+                                                        onClick={() => openPaymentDialog(sub)} 
+                                                        disabled={hasAlreadyPaidThisMonth(sub) && sub.scheme_type !== 'flexible'}
+                                                        className={`w-full text-white ${hasAlreadyPaidThisMonth(sub) && sub.scheme_type !== 'flexible' ? 'opacity-50 cursor-not-allowed' : 'gold-gradient'}`}
+                                                        data-testid={`pay-subscription-${sub.id}`}
+                                                    >
+                                                        <IndianRupee className="w-4 h-4 mr-2" />
+                                                        {hasAlreadyPaidThisMonth(sub) && sub.scheme_type !== 'flexible' 
+                                                            ? 'Subscription already paid this month' 
+                                                            : (sub.scheme_type === 'flexible' ? 'Pay Amount' : `Pay Monthly Installment (${formatCurrency(sub.monthly_amount)})`)}
+                                                    </Button>
+                                                    {sub.scheme_type === 'flexible' && (sub.accumulated_weight_grams || 0) > 0 && (
+                                                        <Button
+                                                            variant="secondary"
+                                                            className="w-full text-gold bg-gold/10 hover:bg-gold/20 border border-gold/20"
+                                                            onClick={() => handleOpenClosure(sub)}
+                                                        >
+                                                            Close & Buy {sub.target_metal ? (sub.target_metal.charAt(0).toUpperCase() + sub.target_metal.slice(1)) : 'Gold'} Coins ({(sub.accumulated_weight_grams || 0).toFixed(4)}g)
+                                                        </Button>
+                                                    )}
+                                                </div>
                                             )}
+                                            <Button variant="outline" className="w-full mt-2 border-gold/30 hover:border-gold/60 text-foreground" onClick={() => viewTransactions(sub)}>
+                                                 <History className="w-4 h-4 mr-2" /> View Transactions
+                                            </Button>
                                         </CardContent>
                                     </Card>
                                 ))
@@ -885,19 +1274,74 @@ const CustomerPortal = () => {
                                     <span className="text-muted-foreground">Plan</span>
                                     <span className="font-medium">{selectedSubscription.plan_name}</span>
                                 </div>
-                                <div className="flex justify-between">
-                                    <span className="text-muted-foreground">Payments Made</span>
-                                    <span className="font-medium">{selectedSubscription.payments_made} / 11</span>
-                                </div>
+                                {selectedSubscription.scheme_type === 'flexible' ? (
+                                    <>
+                                        <div className="flex justify-between">
+                                            <span className="text-muted-foreground">Accumulated Weight</span>
+                                            <span className="font-medium">{(selectedSubscription.accumulated_weight_grams || 0).toFixed(4)} g</span>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="flex justify-between">
+                                        <span className="text-muted-foreground">Payments Made</span>
+                                        <span className="font-medium">{selectedSubscription.payments_made} / 11</span>
+                                    </div>
+                                )}
                                 <div className="flex justify-between">
                                     <span className="text-muted-foreground">Total Paid So Far</span>
                                     <span className="font-medium">{formatCurrency(selectedSubscription.total_paid)}</span>
                                 </div>
                                 <hr className="border-border" />
-                                <div className="flex justify-between text-lg">
-                                    <span className="font-semibold">Amount Due</span>
-                                    <span className="font-bold gold-text">{formatCurrency(selectedSubscription.monthly_amount)}</span>
-                                </div>
+                                {selectedSubscription.scheme_type === 'flexible' ? (
+                                    <div className="space-y-2 pt-2">
+                                        <Label>Enter Amount to Pay</Label>
+                                        <Input
+                                            type="number"
+                                            value={flexibleAmount}
+                                            onChange={(e) => setFlexibleAmount(e.target.value)}
+                                            placeholder="Enter amount"
+                                            className="text-lg font-bold"
+                                        />
+                                        <p className="text-xs text-muted-foreground">Inclusive of GST</p>
+                                        
+                                        {taxDetails && (
+                                            <div className="bg-secondary/20 p-2 rounded text-sm space-y-1 mt-2">
+                                                <div className="flex justify-between">
+                                                    <span>Net Amount (to convert)</span>
+                                                    <span>{formatCurrency(parseFloat(flexibleAmount) - taxDetails.total)}</span>
+                                                </div>
+                                                {(() => {
+                                                    const plan = plans.find(p => p.id === selectedSubscription.plan_id);
+                                                    const price = getMetalPrice(plan);
+                                                    const netAmount = parseFloat(flexibleAmount) - taxDetails.total;
+                                                    if (price > 0 && netAmount > 0) {
+                                                        const weight = netAmount / price;
+                                                        return (
+                                                             <div className="flex justify-between font-medium pt-1 pb-1 border-b border-border/50 mb-1">
+                                                                <span>Est. Gold/Silver ({formatCurrency(price)}/g)</span>
+                                                                <span className="gold-text">{weight.toFixed(4)} g</span>
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return null;
+                                                })()}
+                                                <div className="flex justify-between text-muted-foreground text-xs">
+                                                    <span>CGST ({taxDetails.cgstRate}%)</span>
+                                                    <span>{formatCurrency(taxDetails.cgst)}</span>
+                                                </div>
+                                                <div className="flex justify-between text-muted-foreground text-xs">
+                                                    <span>IGST ({taxDetails.igstRate}%)</span>
+                                                    <span>{formatCurrency(taxDetails.igst)}</span>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="flex justify-between text-lg">
+                                        <span className="font-semibold">Amount Due</span>
+                                        <span className="font-bold gold-text">{formatCurrency(selectedSubscription.monthly_amount)}</span>
+                                    </div>
+                                )}
                             </div>
                             
                             <div className="flex gap-3">
@@ -920,14 +1364,185 @@ const CustomerPortal = () => {
                             </div>
                             
                             <p className="text-xs text-center text-muted-foreground">
-                                Payment will be processed securely. This is a MOCK payment for demonstration.
+                                Payment will be processed securely.
                             </p>
                         </div>
                     )}
                 </DialogContent>
             </Dialog>
 
+            {/* Closure Dialog */}
+            <Dialog open={closureDialogOpen} onOpenChange={setClosureDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Close Subscription & Buy Coins</DialogTitle>
+                    </DialogHeader>
+                    {selectedSubscription && (
+                        <div className="space-y-4">
+                            {closureStep === 1 ? (
+                                <>
+                                    {(() => {
+                                        const acc = selectedSubscription.accumulated_weight_grams || 0;
+                                        const step = 0.25;
+                                        // Handle potential floating point quirks by fixing input precision
+                                        const accFixed = parseFloat(acc.toFixed(4));
+                                        const tgt = Math.ceil(accFixed / step) * step;
+                                        const diff = Math.max(0, tgt - accFixed);
+                                        
+                                        if (diff < 0.0001) return (
+                                             <div className="bg-green-100 dark:bg-green-900/20 p-3 rounded-md text-sm mb-4 border border-green-200 dark:border-green-800">
+                                                <p className="font-semibold text-green-800 dark:text-green-200">Ready for Redemption</p>
+                                                <p className="text-green-700 dark:text-green-300">
+                                                    You have accumulated <strong>{accFixed.toFixed(4)}g</strong>. This is a valid coin denomination.
+                                                    Proceed to select a delivery address for shipping.
+                                                </p>
+                                            </div>
+                                        );
+
+                                        return (
+                                            <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md text-sm mb-4 border border-blue-200 dark:border-blue-800">
+                                              <p className="font-semibold text-blue-800 dark:text-blue-200">Redemption Status</p>
+                                              <p className="text-blue-700 dark:text-blue-300 mt-1">
+                                                Current accumulated value is <strong>{accFixed.toFixed(4)}g</strong>. 
+                                              </p>
+                                              <p className="text-blue-700 dark:text-blue-300 mt-1">
+                                                You will have to purchase the remaining <strong>{diff.toFixed(4)} grams</strong> to reach the valid grams of <strong>{tgt.toFixed(4)}</strong>.
+                                              </p>
+                                            </div>
+                                        );
+                                    })()}
+                                    <div className="space-y-2">
+                                        <Label>Select Delivery Address</Label>
+                                        <Select value={selectedAddressId} onValueChange={setSelectedAddressId}>
+                                            <SelectTrigger><SelectValue placeholder="Select address" /></SelectTrigger>
+                                            <SelectContent>
+                                                {addresses.map(a => (
+                                                    <SelectItem key={a.id} value={a.id}>{a.label} - {a.address_line1}, {a.city}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <Button variant="link" onClick={() => setAddressDialogOpen(true)} className="px-0 h-auto">
+                                            + Add New Address
+                                        </Button>
+                                    </div>
+                                    <Button onClick={handlePreviewClosure} disabled={closureLoading || !selectedAddressId} className="w-full">
+                                        {closureLoading ? 'Calculating...' : 'Proceed to Preview'}
+                                    </Button>
+                                </>
+                            ) : (
+                                <>
+                                    {closurePreview && (
+                                        <div className="space-y-3 border p-4 rounded-lg bg-muted/20">
+                                            {closurePreview.needed_grams > 0 ? (
+                                                <>
+                                                    <div className="bg-yellow-100 dark:bg-yellow-900/20 p-3 rounded-md text-sm mb-3">
+                                                        <p className="font-semibold text-yellow-800 dark:text-yellow-200">Weight Adjustment Required</p>
+                                                        <p className="text-yellow-700 dark:text-yellow-300">
+                                                            Your accumulated metal ({closurePreview.accumulated_grams.toFixed(4)}g) is not a standard coin denomination. 
+                                                            You need to purchase an additional <strong>{closurePreview.needed_grams.toFixed(4)}g</strong> to round off to the nearest valid coin size ({closurePreview.target_grams.toFixed(2)}g).
+                                                        </p>
+                                                    </div>
+                                                    <div className="flex justify-between">
+                                                        <span>Accumulated Weight</span>
+                                                        <span className="font-bold">{parseFloat(closurePreview.accumulated_grams.toFixed(4))} g</span>
+                                                    </div>
+                                                    <div className="flex justify-between text-muted-foreground">
+                                                        <span>Rounding Up To</span>
+                                                        <span>{parseFloat(closurePreview.target_grams.toFixed(4))} g</span>
+                                                    </div>
+                                                    <div className="flex justify-between text-gold font-medium border-t pt-2">
+                                                        <span>Additional Gold Needed</span>
+                                                        <span>{parseFloat(closurePreview.needed_grams.toFixed(4))} g</span>
+                                                    </div>
+                                                    
+                                                    <div className="border-t my-2"></div>
+                                                    
+                                                    <div className="space-y-1 text-sm">
+                                                        <div className="flex justify-between">
+                                                            <span>Gold Cost ({formatCurrency(closurePreview.gold_rate)}/g)</span>
+                                                            <span>{formatCurrency(closurePreview.gold_cost)}</span>
+                                                        </div>
+                                                        <div className="flex justify-between">
+                                                            <span>Tax</span>
+                                                            <span>{formatCurrency(closurePreview.tax_amount)}</span>
+                                                        </div>
+                                                    </div>
+                                                </>
+                                            ) : (
+                                                <div className="bg-green-100 dark:bg-green-900/20 p-3 rounded-md text-sm mb-3">
+                                                    <p className="font-semibold text-green-800 dark:text-green-200">Ready for Redemption</p>
+                                                    <p className="text-green-700 dark:text-green-300">
+                                                        Your accumulated metal ({closurePreview.accumulated_grams.toFixed(4)}g) matches a valid coin denomination. You only need to pay for shipping.
+                                                    </p>
+                                                </div>
+                                            )}
+                                            
+                                            <div className="flex justify-between text-sm py-2">
+                                                <span>Shipping Charges</span>
+                                                <span>{formatCurrency(closurePreview.shipping_charges)}</span>
+                                            </div>
+                                            
+                                            <div className="flex justify-between font-bold text-lg pt-2 border-t mt-2">
+                                                <span>Total Payable</span>
+                                                <span className="gold-text">{formatCurrency(closurePreview.total_amount)}</span>
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div className="flex gap-2">
+                                        <Button variant="outline" onClick={() => setClosureStep(1)} className="flex-1">Back</Button>
+                                        <Button onClick={handleConfirmClosure} disabled={paymentProcessing} className="flex-1 gold-gradient text-white">
+                                            {paymentProcessing ? 'Processing...' : 'Pay & Close'}
+                                        </Button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
+
+            {/* Transaction History Dialog */}
+            <Dialog open={transactionDialogOpen} onOpenChange={setTransactionDialogOpen}>
+                <DialogContent className="max-w-3xl">
+                    <DialogHeader>
+                        <DialogTitle className="font-serif">Transaction History{viewingSubscription ? ` - ${viewingSubscription.plan_name}` : ''}</DialogTitle>
+                    </DialogHeader>
+                    {transactionList.length > 0 ? (
+                        <div className="max-h-[60vh] overflow-auto">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Date</TableHead>
+                                        <TableHead>Amount</TableHead>
+                                        <TableHead>Rate</TableHead>
+                                        <TableHead>Grams Purchased</TableHead>
+                                        <TableHead>Transaction ID</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {transactionList.map((t) => (
+                                        <TableRow key={t.id}>
+                                            <TableCell>{formatDateTime(t.date)}</TableCell>
+                                            <TableCell className="font-medium text-gold">{formatCurrency(t.amount)}</TableCell>
+                                            <TableCell className="text-muted-foreground">{t.metal_rate ? formatCurrency(t.metal_rate) + '/g' : '-'}</TableCell>
+                                            <TableCell className="font-bold">{t.grams ? `${t.grams.toFixed(4)} g` : '-'}</TableCell>
+                                            <TableCell className="font-mono text-xs text-muted-foreground">{t.id}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    ) : (
+                        <div className="text-center py-8 text-muted-foreground">
+                            <History className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                            <p>No transactions found for this subscription.</p>
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
+
             <StoreFooter store={store} storeId={storeId} />
+            <LoadingOverlay isLoading={paymentProcessing} />
         </div>
     );
 };

@@ -3,6 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { estimateShipping, getStore, getAddresses } from '../lib/api';
 import { Button } from './ui/button';
 import { Plus, Minus, X, CreditCard } from 'lucide-react';
 import { formatCurrency } from '../lib/utils';
@@ -16,6 +19,11 @@ const CartDrawer = () => {
     const currentStoreId = paramStoreId || fallbackStore;
     const { cart, updateCartItemQty, removeFromCart, cartOpen, setCartOpen, cartTotal } = useCart(currentStoreId);
     const [store, setStore] = useState(null);
+    const [pincode, setPincode] = useState('');
+    const [shipping, setShipping] = useState(null);
+    const [calculating, setCalculating] = useState(false);
+    const [defaultAddress, setDefaultAddress] = useState(null);
+    const { user } = useAuth();
 
     useEffect(() => {
         let mounted = true;
@@ -26,25 +34,54 @@ const CartDrawer = () => {
                 if (mounted) setStore(res.data);
             } catch (e) {}
         };
+        const loadUserAddress = async () => {
+             if (user) {
+                 try {
+                     const res = await getAddresses();
+                     if (res.data && res.data.length > 0) {
+                         const def = res.data.find(a => a.is_default) || res.data[0];
+                         if (def && mounted) {
+                             if (def.postal_code) setPincode(def.postal_code);
+                             setDefaultAddress(def);
+                         }
+                     }
+                 } catch (e) {}
+             }
+        };
+        
         load();
+        loadUserAddress();
+        
         return () => { mounted = false; };
-    }, [currentStoreId]);
+    }, [currentStoreId, user]);
 
-    const updateQuantity = (itemId, delta) => {
-        const item = (cart?.items || []).find(i => i.id === itemId);
-        if (item) {
-            const newQty = item.quantity + delta;
-            if (newQty > 0) {
-                updateCartItemQty(itemId, newQty);
-            } else {
-                removeFromCart(itemId);
-            }
+    useEffect(() => {
+        if (pincode && pincode.length >= 6 && cart?.items?.length > 0 && cartOpen) {
+            // Auto check shipping if pincode is present (e.g. from user profile)
+            // But verify we haven't already checked (unless cart changed?)
+            // For simplicity, just check it.
+            checkShipping();
         }
-    };
+    }, [pincode, cartOpen]); // Depend on pincode (loaded from user) and drawer open
 
     const navigate = useNavigate();
 
-    const { user } = useAuth();
+    const checkShipping = async () => {
+        if (!pincode || pincode.length < 6) return;
+        setCalculating(true);
+        try {
+            const res = await estimateShipping(currentStoreId, {
+                items: cart.items.map(i => ({ product_id: i.product_id, quantity: i.quantity })),
+                postal_code: pincode
+            });
+            setShipping(res.data);
+        } catch (error) {
+            console.error("Shipping calc error", error);
+            setShipping({ shipping_charges: 0, error: true });
+        } finally {
+            setCalculating(false);
+        }
+    };
 
     const handleCheckout = () => {
         if (!user) {
@@ -100,10 +137,48 @@ const CartDrawer = () => {
                                 </div>
                             ))}
 
-                            <div className="border-t pt-4">
+                            <div className="pt-4 border-t space-y-3">
+                                <div className="space-y-2">
+                                    <Label className="text-xs">Estimate Shipping</Label>
+                                    
+                                    {defaultAddress && (
+                                        <div className="text-xs text-muted-foreground bg-muted/30 p-2 rounded mb-2 border border-border/50">
+                                            <p className="font-semibold text-foreground mb-1">Delivering to:</p>
+                                            <p>{defaultAddress.address_line1}</p>
+                                            {defaultAddress.address_line2 && <p>{defaultAddress.address_line2}</p>}
+                                            <p>{defaultAddress.city}, {defaultAddress.state} {defaultAddress.postal_code}</p>
+                                        </div>
+                                    )}
+
+                                    <div className="flex gap-2">
+                                        <Input 
+                                            placeholder="Enter Pincode" 
+                                            value={pincode} 
+                                            onChange={(e) => setPincode(e.target.value)}
+                                            maxLength={6}
+                                            className="h-8"
+                                        />
+                                        <Button size="sm" variant="secondary" onClick={checkShipping} disabled={calculating || pincode.length < 6} className="h-8">
+                                            {calculating ? '...' : 'Check'}
+                                        </Button>
+                                    </div>
+                                    {shipping && (
+                                        <div className="text-sm flex justify-between items-center text-muted-foreground bg-muted/50 p-2 rounded">
+                                            {shipping.error ? (
+                                                <span className="text-destructive">Shipping not available for this area</span>
+                                            ) : (
+                                                <>
+                                                    <span>{shipping.courier_name || 'Standard Shipping'}</span>
+                                                    <span className="font-medium text-foreground">{formatCurrency(shipping.shipping_charges, store?.currency)}</span>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
                                 <div className="flex justify-between text-lg font-semibold">
                                     <span>Total</span>
-                                    <span className="gold-text">{formatCurrency(cartTotal, store?.currency)}</span>
+                                    <span className="gold-text">{formatCurrency(cartTotal + (shipping?.shipping_charges || 0), store?.currency)}</span>
                                 </div>
                             </div>
 

@@ -14,6 +14,7 @@ import {
     getStoreStaff, createStaff, updateStaff, deleteStaff, getStaffActivity,
     getStoreCustomers, getCustomerDetails, updateCustomer, deleteCustomer
 } from '../lib/api';
+import StoreShippingSettings from '../components/admin/StoreShippingSettings';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -30,9 +31,13 @@ import { toast } from 'sonner';
 import {
     Plus, Trash2, Package, ShoppingCart, Users, Settings, LogOut,
     Box, Truck, DollarSign, CreditCard, Edit2, LayoutDashboard, Palette, Eye, Building2,
-    BarChart3, Filter, Calendar, UserCog, Contact, Activity, Shield
+    BarChart3, Filter, Calendar, UserCog, Contact, Activity, Shield, FileText
 } from 'lucide-react';
 import { formatCurrency, formatDate, formatDateTime, getStatusColor, setPageTitle } from '../lib/utils';
+import MarketPriceSettings from '../components/MarketPriceSettings';
+import StoreSettings from '../components/StoreSettings';
+import StoreTaxConfig from '../components/StoreTaxConfig';
+import ShiprocketLogs from '../components/admin/ShiprocketLogs';
 
 const StoreAdminDashboard = () => {
     const { user, logout } = useAuth();
@@ -66,6 +71,7 @@ const StoreAdminDashboard = () => {
     const [posDialogOpen, setPosDialogOpen] = useState(false);
     const [planDialogOpen, setPlanDialogOpen] = useState(false);
     const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+    const [marketPricesSidebarOpen, setMarketPricesSidebarOpen] = useState(false);
     const [storeEditDialogOpen, setStoreEditDialogOpen] = useState(false);
     const [orderDetailOpen, setOrderDetailOpen] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState(null);
@@ -101,7 +107,7 @@ const StoreAdminDashboard = () => {
     const [posItems, setPosItems] = useState([{ product_id: '', quantity: 1, price: 0 }]);
     const [posPaymentMethod, setPosPaymentMethod] = useState('cash');
     const [posCustomer, setPosCustomer] = useState({ name: '', phone: '' });
-    const [newPlan, setNewPlan] = useState({ name: '', plan_type: '', duration_months: 11, min_amount: 500, max_amount: 100000, bonus_percentage: 0, benefits: [], description: '' });
+    const [newPlan, setNewPlan] = useState({ name: '', plan_type: '', duration_months: 11, min_amount: 500, max_amount: 100000, bonus_percentage: 0, benefits: [], description: '', scheme_type: 'fixed', target_metal: 'gold' });
     const [currency, setCurrency] = useState('INR');
     const [subscribers, setSubscribers] = useState([]);
     const [selectedSubscription, setSelectedSubscription] = useState(null);
@@ -684,7 +690,7 @@ const StoreAdminDashboard = () => {
                 toast.success('Plan created');
             }
             setPlanDialogOpen(false);
-            setNewPlan({ name: '', plan_type: '', duration_months: 11, min_amount: 500, max_amount: 100000, bonus_percentage: 0, benefits: [], description: '' });
+            setNewPlan({ name: '', plan_type: '', duration_months: 11, min_amount: 500, max_amount: 100000, bonus_percentage: 0, benefits: [], description: '', scheme_type: 'fixed', target_metal: 'gold' });
             loadData();
         } catch (error) {
             toast.error(error.response?.data?.detail || 'Failed to save plan');
@@ -696,6 +702,8 @@ const StoreAdminDashboard = () => {
         setNewPlan({
             name: plan.name,
             plan_type: plan.plan_type || '',
+            scheme_type: plan.scheme_type || 'fixed',
+            target_metal: plan.target_metal || 'gold',
             duration_months: plan.duration_months,
             min_amount: plan.min_amount || 500,
             max_amount: plan.max_amount || 100000,
@@ -841,6 +849,7 @@ const StoreAdminDashboard = () => {
                                 { key: 'purchase-orders', label: 'Purchase Orders', icon: DollarSign, testId: 'nav-po' },
                                 { key: 'plans', label: 'Subscription Plans', icon: DollarSign, testId: 'nav-plans' },
                                 { key: 'reporting', label: 'Reporting', icon: BarChart3, testId: 'nav-reporting', onClick: () => { setActiveTab('reporting'); loadReport(); } },
+                                { key: 'settings', label: 'Settings', icon: Settings, testId: 'nav-settings' },
                             ];
                             
                             const filteredMenuItems = menuItems.filter(item => 
@@ -881,6 +890,20 @@ const StoreAdminDashboard = () => {
                                 >
                                     <Contact className="w-4 h-4 mr-2" /> Website Customers
                                 </Button>
+                                <Button
+                                    variant={activeTab === 'tax' ? 'secondary' : 'ghost'}
+                                    className="w-full justify-start"
+                                    onClick={() => setActiveTab('tax')}
+                                >
+                                    <Settings className="w-4 h-4 mr-2" /> Tax Configuration
+                                </Button>
+                                <Button
+                                    variant={activeTab === 'shiprocket-logs' ? 'secondary' : 'ghost'}
+                                    className="w-full justify-start"
+                                    onClick={() => setActiveTab('shiprocket-logs')}
+                                >
+                                    <FileText className="w-4 h-4 mr-2" /> Shiprocket Logs
+                                </Button>
                                 <div className="border-t my-4" />
                                 <Link to={`/store/${store.id}/page-editor`}>
                                     <Button variant="ghost" className="w-full justify-start" data-testid="nav-page-editor">
@@ -896,9 +919,9 @@ const StoreAdminDashboard = () => {
                                     <Building2 className="w-4 h-4 mr-2" /> Store Info
                                 </Button>
                                 <Button
-                                    variant="ghost"
+                                    variant={activeTab === 'settings' ? 'secondary' : 'ghost'}
                                     className="w-full justify-start"
-                                    onClick={() => setSettingsDialogOpen(true)}
+                                    onClick={() => setActiveTab('settings')}
                                     data-testid="nav-settings"
                                 >
                                     <Settings className="w-4 h-4 mr-2" /> Settings
@@ -907,6 +930,17 @@ const StoreAdminDashboard = () => {
                         )}
                     </nav>
                 </ScrollArea>
+                {marketPricesSidebarOpen && store && (
+                    <div className="p-4 border-t">
+                        <div className="flex items-center justify-between mb-2">
+                            <h3 className="text-sm font-semibold">Market Prices</h3>
+                            <Button variant="ghost" size="sm" onClick={() => setMarketPricesSidebarOpen(false)}>Close</Button>
+                        </div>
+                        <div className="max-h-[60vh] overflow-auto">
+                            <MarketPriceSettings storeId={store.id} />
+                        </div>
+                    </div>
+                )}
                 <div className="p-4 border-t">
                     <Button variant="outline" className="w-full" onClick={handleLogout} data-testid="logout-btn">
                         <LogOut className="w-4 h-4 mr-2" /> Logout
@@ -2409,7 +2443,7 @@ const StoreAdminDashboard = () => {
                                     <h2 className="text-2xl font-serif font-semibold">Subscription Plans</h2>
                                     <p className="text-muted-foreground">Manage Flexi Plans</p>
                                 </div>
-                                <Dialog open={planDialogOpen} onOpenChange={(open) => { setPlanDialogOpen(open); if (!open) { setEditingPlan(null); setNewPlan({ name: '', plan_type: '', duration_months: 11, min_amount: 500, max_amount: 100000, bonus_percentage: 0, benefits: [], description: '' }); } }}>
+                                <Dialog open={planDialogOpen} onOpenChange={(open) => { setPlanDialogOpen(open); if (!open) { setEditingPlan(null); setNewPlan({ name: '', plan_type: '', duration_months: 11, min_amount: 500, max_amount: 100000, bonus_percentage: 0, benefits: [], description: '', scheme_type: 'fixed', target_metal: 'gold' }); } }}>
                                     <DialogTrigger asChild>
                                         <Button className="gold-gradient text-white" data-testid="create-plan-btn">
                                             <Plus className="w-4 h-4 mr-2" /> Create Plan
@@ -2432,37 +2466,75 @@ const StoreAdminDashboard = () => {
                                                     />
                                                 </div>
                                                 <div className="space-y-2">
-                                                    <Label>Plan Type</Label>
+                                                    <Label>Scheme Type</Label>
+                                                    <Select
+                                                        value={newPlan.scheme_type || 'fixed'}
+                                                        onValueChange={(v) => setNewPlan({ ...newPlan, scheme_type: v })}
+                                                    >
+                                                        <SelectTrigger>
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="fixed">Fixed Monthly</SelectItem>
+                                                            <SelectItem value="flexible">Flexible (Pay Any)</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                            </div>
+                                            
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label>Plan Type (Label)</Label>
                                                     <Input
                                                         value={newPlan.plan_type}
                                                         onChange={(e) => setNewPlan({ ...newPlan, plan_type: e.target.value })}
                                                         required
-                                                        placeholder="e.g., Gold, Silver, Platinum"
+                                                        placeholder="e.g., Gold, Silver"
                                                         data-testid="plan-type-input"
                                                     />
                                                 </div>
+                                                {newPlan.scheme_type === 'flexible' && (
+                                                    <div className="space-y-2">
+                                                        <Label>Target Metal</Label>
+                                                        <Select
+                                                            value={newPlan.target_metal || 'gold'}
+                                                            onValueChange={(v) => setNewPlan({ ...newPlan, target_metal: v })}
+                                                        >
+                                                            <SelectTrigger>
+                                                                <SelectValue />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                <SelectItem value="gold">Gold</SelectItem>
+                                                                <SelectItem value="silver">Silver</SelectItem>
+                                                                <SelectItem value="platinum">Platinum</SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                )}
                                             </div>
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div className="space-y-2">
-                                                    <Label>Duration (months)</Label>
-                                                    <Input
-                                                        type="number"
-                                                        value={newPlan.duration_months}
-                                                        onChange={(e) => setNewPlan({ ...newPlan, duration_months: parseInt(e.target.value) })}
-                                                        required
-                                                        data-testid="plan-duration-input"
-                                                    />
+                                            {newPlan.scheme_type === 'fixed' && (
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div className="space-y-2">
+                                                        <Label>Duration (months)</Label>
+                                                        <Input
+                                                            type="number"
+                                                            value={newPlan.duration_months}
+                                                            onChange={(e) => setNewPlan({ ...newPlan, duration_months: parseInt(e.target.value) })}
+                                                            required
+                                                            data-testid="plan-duration-input"
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label>Bonus %</Label>
+                                                        <Input
+                                                            type="number"
+                                                            value={newPlan.bonus_percentage}
+                                                            onChange={(e) => setNewPlan({ ...newPlan, bonus_percentage: e.target.value })}
+                                                            data-testid="plan-bonus-input"
+                                                        />
+                                                    </div>
                                                 </div>
-                                                <div className="space-y-2">
-                                                    <Label>Bonus %</Label>
-                                                    <Input
-                                                        type="number"
-                                                        value={newPlan.bonus_percentage}
-                                                        onChange={(e) => setNewPlan({ ...newPlan, bonus_percentage: e.target.value })}
-                                                        data-testid="plan-bonus-input"
-                                                    />
-                                                </div>
-                                            </div>
+                                            )}
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div className="space-y-2">
                                                     <Label>Min Amount (₹)</Label>
@@ -2623,6 +2695,37 @@ const StoreAdminDashboard = () => {
                             </div>
                         </div>
                     )}
+
+                    {activeTab === 'tax' && (
+                        <div className="space-y-6">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-2xl font-serif font-semibold">Tax Configuration</h2>
+                                    <p className="text-muted-foreground">Manage taxes for products and metals.</p>
+                                </div>
+                            </div>
+                            <StoreTaxConfig storeId={store.id} />
+                        </div>
+                    )}
+
+                    {activeTab === 'shiprocket-logs' && (
+                        <div className="space-y-6">
+                            <ShiprocketLogs storeId={store.id} />
+                        </div>
+                    )}
+
+                    {activeTab === 'settings' && (
+                        <div className="space-y-6">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-2xl font-serif font-semibold">Store Settings</h2>
+                                    <p className="text-muted-foreground">Manage order settings, currency, and other configurations.</p>
+                                </div>
+                            </div>
+                            <StoreSettings storeId={store.id} />
+                            <StoreShippingSettings storeId={store.id} />
+                        </div>
+                    )}
                 </div>
             </main>
 
@@ -2744,6 +2847,10 @@ const StoreAdminDashboard = () => {
                                     <SelectItem value="EUR">EUR (€)</SelectItem>
                                 </SelectContent>
                             </Select>
+                        </div>
+                        <div>
+                            <p className="text-sm">Manage market prices inline in the sidebar.</p>
+                            <Button className="mt-2" onClick={() => { setSettingsDialogOpen(false); setMarketPricesSidebarOpen(true); }}>Open Market Prices</Button>
                         </div>
                         <Button onClick={handleUpdateSettings} className="w-full gold-gradient text-white" data-testid="save-settings-btn">
                             Save Settings

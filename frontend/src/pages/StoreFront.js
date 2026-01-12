@@ -273,7 +273,7 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                                 <div className="relative w-full">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 opacity-60" />
                                     <Input
-                                        placeholder="Search products & plans..."
+                                        placeholder={plans && plans.length > 0 ? "Search products & plans..." : "Search products..."}
                                         value={localSearch}
                                         onChange={(e) => { setLocalSearch(e.target.value); setHighlightIndex(-1); }}
                                         onKeyDown={handleKeyDownSearch}
@@ -319,7 +319,9 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                         <nav className="hidden md:flex gap-6 items-center">
                             <Link to={`/store/${storeId}`} className="hover:opacity-80 cursor-pointer">Home</Link>
                             <Link to={`/store/${storeId}/products`} className="hover:opacity-80 cursor-pointer">Products</Link>
-                            <Link to={`/store/${storeId}/plans`} className="hover:opacity-80 cursor-pointer">Plans</Link>
+                            {plans && plans.length > 0 && (
+                                <Link to={`/store/${storeId}/plans`} className="hover:opacity-80 cursor-pointer">Plans</Link>
+                            )}
                             <Link to={`/store/${storeId}/contact`} className="hover:opacity-80 cursor-pointer">Contact</Link>
                         </nav>
 
@@ -418,7 +420,7 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                             <div className="relative">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                                 <Input
-                                    placeholder="Search products & plans..."
+                                    placeholder={plans && plans.length > 0 ? "Search products & plans..." : "Search products..."}
                                     value={localSearch}
                                     onChange={(e) => { setLocalSearch(e.target.value); setHighlightIndex(-1); }}
                                     onKeyDown={handleKeyDownSearch}
@@ -1275,7 +1277,9 @@ const StoreFront = () => {
                             <nav className="hidden md:flex gap-6">
                                 <Link to={`/store/${storeId}`} className="hover:opacity-80 cursor-pointer">Home</Link>
                                 <Link to={`/store/${storeId}/products`} className="hover:opacity-80 cursor-pointer">Products</Link>
-                                <Link to={`/store/${storeId}/plans`} className="hover:opacity-80 cursor-pointer">Plans</Link>
+                                {plans && plans.length > 0 && (
+                                    <Link to={`/store/${storeId}/plans`} className="hover:opacity-80 cursor-pointer">Plans</Link>
+                                )}
                                 <Link to={`/store/${storeId}/contact`} className="hover:opacity-80 cursor-pointer">Contact</Link>
                             </nav>
                         </div>

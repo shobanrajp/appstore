@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getStore, getSubscriptionPlans, subscribeToPlan, createPaymentOrder, verifyPayment } from '../lib/api';
+import { getStore, getSubscriptionPlans, subscribeToPlan, createPaymentOrder, verifyPayment, getMarketPrices, getStoreTaxConfig } from '../lib/api';
 import { formatCurrency, setPageTitle } from '../lib/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -11,6 +11,7 @@ import { Separator } from '../components/ui/separator';
 import { toast } from 'sonner';
 import StoreHeader from '../components/StoreHeader';
 import StoreFooter from '../components/StoreFooter';
+import LoadingOverlay from '../components/LoadingOverlay';
 import { useCart } from '../context/CartContext';
 
 const clampNumber = (val, min, max) => {
@@ -30,13 +31,50 @@ const PlanDetail = () => {
     const [amount, setAmount] = useState(0);
     const [months, setMonths] = useState(0);
     const [processingPayment, setProcessingPayment] = useState(false);
+    const [marketPrices, setMarketPrices] = useState(null);
+    const [taxConfig, setTaxConfig] = useState(null);
 
     const minAmount = useMemo(() => Number(plan?.min_amount) || 500, [plan]);
     const maxAmount = useMemo(() => Number(plan?.max_amount) || 100000, [plan]);
     const maxMonths = useMemo(() => Number(plan?.duration_months) || 11, [plan]);
 
-    const normalizedAmount = useMemo(() => clampNumber(Number(amount), minAmount, maxAmount), [amount, minAmount, maxAmount]);
+    const normalizedAmount = useMemo(() => {
+        const val = Number(amount);
+        return Number.isFinite(val) ? val : 0;
+    }, [amount]);
     const normalizedMonths = useMemo(() => clampNumber(Number(months), 1, maxMonths), [months, maxMonths]);
+
+    const isAmountValid = useMemo(() => {
+        return normalizedAmount >= minAmount && normalizedAmount <= maxAmount;
+    }, [normalizedAmount, minAmount, maxAmount]);
+
+    const amountError = useMemo(() => {
+        if (!store) return null;
+        if (normalizedAmount < minAmount) return `Minimum amount is ${formatCurrency(minAmount, store.currency)}`;
+        if (normalizedAmount > maxAmount) return `Maximum amount is ${formatCurrency(maxAmount, store.currency)}`;
+        return null;
+    }, [normalizedAmount, minAmount, maxAmount, store]);
+
+    const estimatedGrams = useMemo(() => {
+        if (!marketPrices || !normalizedAmount || !plan) return '0.000';
+        
+        const metal = (plan.target_metal || 'gold').toLowerCase();
+        let price = 0;
+
+        // Map metal type to market price key
+        if (metal === 'gold') {
+            price = Number(marketPrices.gold_24 || marketPrices.gold_22 || 0);
+        } else if (metal === 'silver') {
+            price = Number(marketPrices.silver_1g || 0);
+        } else if (metal === 'platinum') {
+            price = Number(marketPrices.platinum_1g || 0);
+        }
+
+        if (!price) return '0.000';
+        const taxRate = taxConfig?.gst_rate || 3;
+        const cost = normalizedAmount / (1 + taxRate / 100);
+        return (cost / price).toFixed(4);
+    }, [normalizedAmount, marketPrices, plan, taxConfig]);
 
     const maturityValue = useMemo(() => {
         const totalContribution = normalizedAmount * normalizedMonths;
@@ -75,62 +113,93 @@ const PlanDetail = () => {
 
         setProcessingPayment(true);
         try {
-            const subRes = await subscribeToPlan(storeId, {
-                plan_id: plan.id,
-                monthly_amount: amountValue
-            });
+            // Updated code to ensure Razorpay is triggered properly
+            // 1. Check if Razorpay is loaded (load if not)
+            if (!window.Razorpay) {
+                const script = document.createElement('script');
+                script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+                script.onload = () => { createSubOrder(); };
+                script.onerror = () => { 
+                   toast.error('Razorpay SDK failed to load. Are you online?');
+                   setProcessingPayment(false);
+                };
+                document.body.appendChild(script);
+            } else {
+                createSubOrder();
+            }
 
-            console.log('[PlanDetail] Subscription created:', subRes.data);
+            async function createSubOrder() {
+                try {
+                    const subRes = await subscribeToPlan(storeId, {
+                        plan_id: plan.id,
+                        monthly_amount: amountValue
+                    });
 
-            const paymentRes = await createPaymentOrder({
-                amount: amountValue,
-                currency: store.currency || 'INR',
-                description: `${plan.name} - First Installment`,
-                store_id: storeId,
-                subscription_id: subRes.data.id,
-                order_id: subRes.data.order_id  // Include subscription's order_id
-            });
+                    console.log('[PlanDetail] Subscription created:', subRes.data);
 
-            const options = {
-                key: store.razorpay_key_id,
-                amount: Math.round(amountValue * 100),
-                currency: store.currency || 'INR',
-                name: store.name || 'Store',
-                description: `${plan.name} - First Installment`,
-                order_id: paymentRes.data.razorpay_order_id,
-                handler: async function (response) {
-                    try {
-                        await verifyPayment({
-                            razorpay_order_id: response.razorpay_order_id,
-                            razorpay_payment_id: response.razorpay_payment_id,
-                            razorpay_signature: response.razorpay_signature,
-                            payment_id: paymentRes.data.id,
-                        });
-                        toast.success('Subscribed successfully! First payment completed.');
-                        navigate(`/store/${storeId}/portal?tab=subscriptions`);
-                    } catch (error) {
-                        toast.error('Payment verification failed');
-                    } finally {
-                        setProcessingPayment(false);
-                    }
-                },
-                prefill: {
-                    name: user.name,
-                    email: user.email,
-                },
-                theme: {
-                    color: '#D4AF37',
-                },
-                modal: {
-                    ondismiss: function() {
-                        setProcessingPayment(false);
-                        toast.error('Payment cancelled');
-                    }
+                    const paymentRes = await createPaymentOrder({
+                        amount: amountValue,
+                        currency: store.currency || 'INR',
+                        description: `${plan.name} - First Installment`,
+                        store_id: storeId,
+                        subscription_id: subRes.data.id,
+                        order_id: subRes.data.order_id 
+                    });
+
+                    const options = {
+                        key: paymentRes.data.razorpay_key_id, // Use key from backend response
+                        amount: Math.round(amountValue * 100),
+                        currency: store.currency || 'INR',
+                        name: store.name || 'Store',
+                        description: `${plan.name} - First Installment`,
+                        order_id: paymentRes.data.razorpay_order_id,
+                        handler: async function (response) {
+                            try {
+                                await verifyPayment({
+                                    razorpay_order_id: response.razorpay_order_id,
+                                    razorpay_payment_id: response.razorpay_payment_id,
+                                    razorpay_signature: response.razorpay_signature,
+                                    payment_id: paymentRes.data.id,
+                                });
+                                toast.success('Subscribed successfully! First payment completed.');
+                                window.location.href = `/store/${storeId}/portal?tab=subscriptions`;
+                            } catch (error) {
+                                console.error(error);
+                                toast.error('Payment verification failed');
+                            } finally {
+                                setProcessingPayment(false);
+                            }
+                        },
+                        prefill: {
+                            name: user.name,
+                            email: user.email,
+                            contact: user.phone 
+                        },
+                        theme: {
+                            color: store.settings?.primary_color || '#D4AF37',
+                        },
+                        modal: {
+                            backdropclose: false,
+                            escape: false,
+                            ondismiss: function() {
+                                setProcessingPayment(false);
+                                toast.error('Payment cancelled');
+                            }
+                        }
+                    };
+
+                    const rzp = new window.Razorpay(options);
+                    rzp.on('payment.failed', function (response){
+                            toast.error(response.error.description);
+                            setProcessingPayment(false);
+                    });
+                    rzp.open();
+                } catch (err) {
+                    console.error(err);
+                    setProcessingPayment(false);
+                    toast.error(err.response?.data?.detail || 'Subscription failed');
                 }
-            };
-
-            const rzp = new window.Razorpay(options);
-            rzp.open();
+            }
         } catch (error) {
             setProcessingPayment(false);
             toast.error(error.response?.data?.detail || 'Subscription failed');
@@ -140,12 +209,17 @@ const PlanDetail = () => {
     const loadData = async () => {
         setLoading(true);
         try {
-            const [storeRes, plansRes] = await Promise.all([
+            const [storeRes, plansRes, pricesRes, taxRes] = await Promise.all([
                 getStore(storeId),
-                getSubscriptionPlans(storeId)
+                getSubscriptionPlans(storeId),
+                getMarketPrices(storeId).catch(() => ({ data: { prices: {} } })),
+                getStoreTaxConfig(storeId).catch(() => ({ data: null }))
             ]);
             const planList = plansRes.data || [];
             const match = planList.find((p) => p.id?.toString() === planId?.toString());
+            
+            setMarketPrices(pricesRes.data?.prices || {});
+            setTaxConfig(taxRes.data);
 
             setStore(storeRes.data);
             setPageTitle(storeRes.data, match ? match.name : 'Plan Detail');
@@ -203,7 +277,7 @@ const PlanDetail = () => {
                 <section className="bg-gradient-to-br from-primary/10 via-background to-background border-b">
                     <div className="max-w-6xl mx-auto px-4 py-12 grid md:grid-cols-2 gap-8 items-center">
                         <div className="space-y-4">
-                            <Badge className="gold-gradient text-white w-fit">1 month free</Badge>
+                            {plan.scheme_type !== 'flexible' && <Badge className="gold-gradient text-white w-fit">1 month free</Badge>}
                             <h1 className="text-4xl font-serif leading-tight">{plan.name}</h1>
                             <p className="text-muted-foreground text-lg">{plan.description || 'Flexible monthly plan to lock today\'s gold rate and earn a free last installment.'}</p>
                             <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
@@ -211,10 +285,12 @@ const PlanDetail = () => {
                                     <span className="text-gold font-semibold">{formatCurrency(plan.min_amount || 500, store.currency)}</span>
                                     <span>minimum monthly</span>
                                 </div>
-                                <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-white shadow-sm border">
-                                    <span className="text-gold font-semibold">{plan.duration_months || 11}</span>
-                                    <span>month tenure</span>
-                                </div>
+                                {plan.scheme_type !== 'flexible' && (
+                                    <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-white shadow-sm border">
+                                        <span className="text-gold font-semibold">{plan.duration_months || 11}</span>
+                                        <span>month tenure</span>
+                                    </div>
+                                )}
                                 <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-white shadow-sm border">
                                     <span className="text-gold font-semibold">{formatCurrency(plan.max_amount || 100000, store.currency)}</span>
                                     <span>max monthly</span>
@@ -229,20 +305,24 @@ const PlanDetail = () => {
                             <CardContent className="p-6 space-y-4">
                                 <div className="flex items-baseline gap-2">
                                     <span className="text-5xl font-serif text-gold">{formatCurrency(plan.min_amount || 500, store.currency)}</span>
-                                    <span className="text-muted-foreground">starts at / month</span>
+                                    {plan.scheme_type !== 'flexible' && <span className="text-muted-foreground">starts at / month</span>}
                                 </div>
-                                <p className="text-sm text-muted-foreground">Join today and get your last month waived automatically.</p>
-                                <Separator />
-                                <div className="grid grid-cols-2 gap-3 text-sm text-muted-foreground">
-                                    <div>
-                                        <div className="text-foreground font-semibold">{plan.duration_months || 11} months</div>
-                                        <div>Flexible purchase plan</div>
-                                    </div>
-                                    <div>
-                                        <div className="text-foreground font-semibold">Free last installment</div>
-                                        <div>No hidden fees</div>
-                                    </div>
-                                </div>
+                                {plan.scheme_type !== 'flexible' && (
+                                    <>
+                                        <p className="text-sm text-muted-foreground">Join today and get your last month waived automatically.</p>
+                                        <Separator />
+                                        <div className="grid grid-cols-2 gap-3 text-sm text-muted-foreground">
+                                            <div>
+                                                <div className="text-foreground font-semibold">{plan.duration_months || 11} months</div>
+                                                <div>Flexible purchase plan</div>
+                                            </div>
+                                            <div>
+                                                <div className="text-foreground font-semibold">Free last installment</div>
+                                                <div>No hidden fees</div>
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
                             </CardContent>
                         </Card>
                     </div>
@@ -251,13 +331,19 @@ const PlanDetail = () => {
                 <section className="max-w-6xl mx-auto px-4 py-12 grid lg:grid-cols-2 gap-10">
                     <Card className="shadow-xl">
                         <CardHeader>
-                            <CardTitle className="font-serif text-2xl">Plan calculator</CardTitle>
-                            <CardDescription>Adjust your monthly deposit and tenure to see your maturity value. Last month is free.</CardDescription>
+                            <CardTitle className="font-serif text-2xl">
+                                {plan.scheme_type === 'flexible' ? 'Start Investing' : 'Plan calculator'}
+                            </CardTitle>
+                            <CardDescription>
+                                {plan.scheme_type === 'flexible'
+                                    ? 'Enter your initial amount. You can pay any amount subsequently.'
+                                    : 'Adjust your monthly deposit and tenure to see your maturity value. Last month is free.'}
+                            </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-6">
                             <div className="space-y-2">
                                 <div className="flex justify-between text-sm text-muted-foreground">
-                                    <span>Monthly deposit</span>
+                                    <span>{plan.scheme_type === 'flexible' ? 'Initial Payment' : 'Monthly deposit'}</span>
                                     <span className="text-foreground font-medium">{formatCurrency(normalizedAmount, store.currency)}</span>
                                 </div>
                                 <Input
@@ -271,45 +357,64 @@ const PlanDetail = () => {
                                     <span>Min {formatCurrency(minAmount, store.currency)}</span>
                                     <span>Max {formatCurrency(maxAmount, store.currency)}</span>
                                 </div>
+                                {amountError && (
+                                    <p className="text-xs text-destructive font-medium mt-1">{amountError}</p>
+                                )}
+                                {plan.scheme_type === 'flexible' && (
+                                    <div className="pt-2 text-right animate-in fade-in slide-in-from-top-2">
+                                        <p className="text-3xl font-serif text-gold">{estimatedGrams} g</p>
+                                        <p className="text-xs text-muted-foreground">approx. weight after tax</p>
+                                    </div>
+                                )}
                             </div>
 
-                            <div className="space-y-2">
-                                <div className="flex justify-between text-sm text-muted-foreground">
-                                    <span>Tenure (months)</span>
-                                    <span className="text-foreground font-medium">{normalizedMonths}</span>
+                            {plan.scheme_type !== 'flexible' && (
+                                <div className="space-y-2">
+                                    <div className="flex justify-between text-sm text-muted-foreground">
+                                        <span>Tenure (months)</span>
+                                        <span className="text-foreground font-medium">{normalizedMonths}</span>
+                                    </div>
+                                    <Input
+                                        type="number"
+                                        value={months}
+                                        min={1}
+                                        max={maxMonths}
+                                        onChange={(e) => setMonths(Number(e.target.value))}
+                                    />
+                                    <div className="flex justify-between text-xs text-muted-foreground">
+                                        <span>Min 1 month</span>
+                                        <span>Max {maxMonths} months</span>
+                                    </div>
                                 </div>
-                                <Input
-                                    type="number"
-                                    value={months}
-                                    min={1}
-                                    max={maxMonths}
-                                    onChange={(e) => setMonths(Number(e.target.value))}
-                                />
-                                <div className="flex justify-between text-xs text-muted-foreground">
-                                    <span>Min 1 month</span>
-                                    <span>Max {maxMonths} months</span>
-                                </div>
-                            </div>
+                            )}
 
                             <Separator />
 
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <div className="p-4 rounded-lg bg-muted/60">
-                                    <p className="text-xs text-muted-foreground">Total you invest</p>
-                                    <p className="text-xl font-semibold">{formatCurrency(maturityValue.totalContribution, store.currency)}</p>
+                            {plan.scheme_type !== 'flexible' ? (
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="p-4 rounded-lg bg-muted/60">
+                                        <p className="text-xs text-muted-foreground">Total you invest</p>
+                                        <p className="text-xl font-semibold">{formatCurrency(maturityValue.totalContribution, store.currency)}</p>
+                                    </div>
+                                    <div className="p-4 rounded-lg bg-muted/60">
+                                        <p className="text-xs text-muted-foreground">Free last month</p>
+                                        <p className="text-xl font-semibold text-gold">+{formatCurrency(maturityValue.bonusValue, store.currency)}</p>
+                                        <p className="text-xs text-muted-foreground">We waive the final installment.</p>
+                                    </div>
+                                    <div className="p-4 rounded-lg bg-muted/60">
+                                        <p className="text-xs text-muted-foreground">Maturity value</p>
+                                        <p className="text-xl font-semibold">{formatCurrency(maturityValue.maturity, store.currency)}</p>
+                                    </div>
                                 </div>
+                            ) : (
                                 <div className="p-4 rounded-lg bg-muted/60">
-                                    <p className="text-xs text-muted-foreground">Free last month</p>
-                                    <p className="text-xl font-semibold text-gold">+{formatCurrency(maturityValue.bonusValue, store.currency)}</p>
-                                    <p className="text-xs text-muted-foreground">We waive the final installment.</p>
+                                    <p className="text-sm">
+                                        This amount will be converted to {plan.target_metal || 'gold'} grams based on the current market rate after tax deduction.
+                                    </p>
                                 </div>
-                                <div className="p-4 rounded-lg bg-muted/60">
-                                    <p className="text-xs text-muted-foreground">Maturity value</p>
-                                    <p className="text-xl font-semibold">{formatCurrency(maturityValue.maturity, store.currency)}</p>
-                                </div>
-                            </div>
+                            )}
 
-                            <Button className="w-full gold-gradient text-white" onClick={proceedToSubscribe} disabled={processingPayment}>
+                            <Button className="w-full gold-gradient text-white" onClick={proceedToSubscribe} disabled={processingPayment || !isAmountValid}>
                                 {processingPayment ? 'Processing...' : 'Proceed to subscribe'}
                             </Button>
                             <p className="text-xs text-muted-foreground text-center">No interest, no hidden charges. Redeem in-store or via live gold rate.</p>
@@ -320,67 +425,102 @@ const PlanDetail = () => {
                         <Card>
                             <CardHeader>
                                 <CardTitle className="font-serif text-xl">Why this plan works</CardTitle>
-                                <CardDescription>Protect yourself from rising gold prices while keeping monthly deposits flexible.</CardDescription>
+                                <CardDescription>
+                                    {plan.scheme_type === 'flexible'
+                                        ? `Accumulate ${plan.target_metal || 'gold'} securely with flexible payments.`
+                                        : 'Protect yourself from rising gold prices while keeping monthly deposits flexible.'}
+                                </CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-3 text-sm text-muted-foreground">
-                                <div className="flex gap-3">
-                                    <span className="text-gold font-semibold">01</span>
-                                    <div>
-                                        <p className="text-foreground font-medium">Lock today&apos;s rate every month</p>
-                                        <p>You purchase grams monthly at the current rate, avoiding the risk of paying higher prices later.</p>
-                                    </div>
-                                </div>
-                                <div className="flex gap-3">
-                                    <span className="text-gold font-semibold">02</span>
-                                    <div>
-                                        <p className="text-foreground font-medium">Automatic last-month waiver</p>
-                                        <p>Your final installment is free, effectively giving you one extra month of savings.</p>
-                                    </div>
-                                </div>
-                                <div className="flex gap-3">
-                                    <span className="text-gold font-semibold">03</span>
-                                    <div>
-                                        <p className="text-foreground font-medium">Flexible monthly deposits</p>
-                                        <p>Choose any amount between your configured minimum and maximum without penalties.</p>
-                                    </div>
-                                </div>
+                                {plan.scheme_type === 'flexible' ? (
+                                    <>
+                                        <div className="flex gap-3">
+                                            <span className="text-gold font-semibold">01</span>
+                                            <div>
+                                                <p className="text-foreground font-medium">Lock today&apos;s rate every time you purchase {plan.target_metal || 'gold'}</p>
+                                                <p>You purchase grams at the current rate with every payment, avoiding the risk of paying higher prices later.</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-3">
+                                            <span className="text-gold font-semibold">02</span>
+                                            <div>
+                                                <p className="text-foreground font-medium">Buy {plan.target_metal || 'gold'} coins anytime</p>
+                                                <p>Buy {plan.target_metal || 'gold'} coins anytime for the accumulated weight.</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-3">
+                                            <span className="text-gold font-semibold">03</span>
+                                            <div>
+                                                <p className="text-foreground font-medium">Tax efficient</p>
+                                                <p>Tax paid upfront and no tax while buying {plan.target_metal || 'gold'} coins.</p>
+                                            </div>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="flex gap-3">
+                                            <span className="text-gold font-semibold">01</span>
+                                            <div>
+                                                <p className="text-foreground font-medium">Lock today&apos;s rate every month</p>
+                                                <p>You purchase grams monthly at the current rate, avoiding the risk of paying higher prices later.</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-3">
+                                            <span className="text-gold font-semibold">02</span>
+                                            <div>
+                                                <p className="text-foreground font-medium">Automatic last-month waiver</p>
+                                                <p>Your final installment is free, effectively giving you one extra month of savings.</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-3">
+                                            <span className="text-gold font-semibold">03</span>
+                                            <div>
+                                                <p className="text-foreground font-medium">Flexible monthly deposits</p>
+                                                <p>Choose any amount between your configured minimum and maximum without penalties.</p>
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
                             </CardContent>
                         </Card>
 
-                        <Card>
-                            <CardHeader>
-                                <CardTitle className="font-serif text-xl">How to redeem</CardTitle>
-                                <CardDescription>Simple steps to complete your plan.</CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-4 text-sm text-muted-foreground">
-                                <div className="flex gap-3">
-                                    <span className="text-foreground font-semibold">1</span>
-                                    <div>
-                                        <p className="text-foreground font-medium">Pay monthly</p>
-                                        <p>Deposit your chosen amount every month and watch your grams accumulate.</p>
+                        {plan.scheme_type !== 'flexible' && (
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="font-serif text-xl">How to redeem</CardTitle>
+                                    <CardDescription>Simple steps to complete your plan.</CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-4 text-sm text-muted-foreground">
+                                    <div className="flex gap-3">
+                                        <span className="text-foreground font-semibold">1</span>
+                                        <div>
+                                            <p className="text-foreground font-medium">Pay monthly</p>
+                                            <p>Deposit your chosen amount every month and watch your grams accumulate.</p>
+                                        </div>
                                     </div>
-                                </div>
-                                <div className="flex gap-3">
-                                    <span className="text-foreground font-semibold">2</span>
-                                    <div>
-                                        <p className="text-foreground font-medium">Get bonus weight</p>
-                                        <p>Your last installment is waived, giving you additional gold weight for free.</p>
+                                    <div className="flex gap-3">
+                                        <span className="text-foreground font-semibold">2</span>
+                                        <div>
+                                            <p className="text-foreground font-medium">Get bonus weight</p>
+                                            <p>Your last installment is waived, giving you additional gold weight for free.</p>
+                                        </div>
                                     </div>
-                                </div>
-                                <div className="flex gap-3">
-                                    <span className="text-foreground font-semibold">3</span>
-                                    <div>
-                                        <p className="text-foreground font-medium">Purchase at maturity</p>
-                                        <p>Redeem at the live gold rate or convert into jewellery with assured quality and buyback.</p>
+                                    <div className="flex gap-3">
+                                        <span className="text-foreground font-semibold">3</span>
+                                        <div>
+                                            <p className="text-foreground font-medium">Purchase at maturity</p>
+                                            <p>Redeem at the live gold rate or convert into jewellery with assured quality and buyback.</p>
+                                        </div>
                                     </div>
-                                </div>
-                            </CardContent>
-                        </Card>
+                                </CardContent>
+                            </Card>
+                        )}
                     </div>
                 </section>
             </main>
 
             <StoreFooter store={store} />
+            <LoadingOverlay isLoading={processingPayment} />
         </div>
     );
 };

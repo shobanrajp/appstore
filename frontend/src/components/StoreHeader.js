@@ -5,6 +5,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { ShoppingCart, User, LogIn, Search, Menu } from 'lucide-react';
 import { useCartContext } from '../context/CartContext';
+import MarketPriceWidget from './MarketPriceWidget';
 
 const StoreHeader = ({ 
     store, 
@@ -83,7 +84,8 @@ const StoreHeader = ({
                 title: overrideTitle
             });
         }
-    }, [storeId, style, iconColor]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [storeId, JSON.stringify(style), iconColor]);
 
     useEffect(() => {
         // keep localSearch in sync when parent provides a controlled searchTerm
@@ -172,6 +174,7 @@ const StoreHeader = ({
 
                 {/* Desktop Navigation */}
                 <nav className="hidden md:flex gap-6 items-center">
+                    <MarketPriceWidget storeId={storeId} />
                     {navItems.map((item) => (
                         <a 
                             key={item.key} 
@@ -252,7 +255,10 @@ const StoreHeader = ({
                                             <line x1="6" y1="6" x2="18" y2="18"></line>
                                         </svg>
                                     </button>
-                                    <nav className="flex flex-col gap-4 mt-8">
+                                    <div className="mt-8 mb-4 px-1">
+                                         <MarketPriceWidget storeId={storeId} />
+                                    </div>
+                                    <nav className="flex flex-col gap-4">
                                         {navItems.map((item) => (
                                             <a 
                                                 key={item.key} 

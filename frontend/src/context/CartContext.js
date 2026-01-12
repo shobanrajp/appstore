@@ -228,6 +228,13 @@ export const useCart = (storeId) => {
     const { loadCart, setCartForStore, addToCart, removeFromCart, updateCartItemQty, clearCart, getCartCount, getCartTotal } = ctx;
     const cart = ctx.carts[storeId] || { items: [] };
     
+    // Load cart when storeId changes
+    React.useEffect(() => {
+        if (storeId) {
+            loadCart(storeId);
+        }
+    }, [storeId, loadCart]);
+    
     const updateQuantityLocal = (productId, delta) => {
         const items = cart.items || [];
         const itemIndex = items.findIndex(it => it.id);

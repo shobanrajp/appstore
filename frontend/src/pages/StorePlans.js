@@ -8,18 +8,16 @@ import { Clock, Calendar } from 'lucide-react';
 import { formatCurrency, setPageTitle } from '../lib/utils';
 import StoreHeader from '../components/StoreHeader';
 import StoreFooter from '../components/StoreFooter';
+import { useCart } from '../context/CartContext';
 
 const StorePlans = () => {
     const { storeId } = useParams();
     const navigate = useNavigate();
+    const { cartCount } = useCart(storeId);
     const [store, setStore] = useState(null);
     const [plans, setPlans] = useState([]);
     const [loading, setLoading] = useState(true);
     const [recentlyViewed, setRecentlyViewed] = useState([]);
-    const [cart, setCart] = useState(() => {
-        const saved = localStorage.getItem(`cart_${storeId}`);
-        return saved ? JSON.parse(saved) : [];
-    });
 
     useEffect(() => {
         loadData();
@@ -63,8 +61,6 @@ const StorePlans = () => {
         navigate(`/store/${storeId}/plan/${plan.id}`);
     };
 
-    const cartTotal = cart.reduce((sum, item) => sum + item.quantity, 0);
-
     if (loading) {
         return (
             <div className="min-h-screen flex items-center justify-center">
@@ -75,44 +71,9 @@ const StorePlans = () => {
 
     return (
         <div className="min-h-screen bg-background flex flex-col w-full overflow-x-hidden">
-            <StoreHeader store={store} storeId={storeId} cartTotal={cartTotal} activeTab="plans" />
+            <StoreHeader store={store} storeId={storeId} cartTotal={cartCount} activeTab="plans" />
 
             <main className="max-w-7xl mx-auto px-4 py-8 flex-1 w-full box-sizing-border-box">
-                {/* Recently Viewed Plans */}
-                {recentlyViewed.length > 0 && (
-                    <section className="mb-12">
-                        <h2 className="text-2xl font-serif mb-6 flex items-center gap-2">
-                            <Clock className="w-5 h-5" /> Recently Viewed
-                        </h2>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {recentlyViewed.map((plan) => (
-                                <Card key={plan.id} className="luxury-card border-gold/20">
-                                    <CardHeader>
-                                        <CardTitle className="font-serif">{plan.name}</CardTitle>
-                                        <CardDescription>{plan.plan_type}</CardDescription>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <div className="flex items-center gap-2 text-muted-foreground mb-4">
-                                            <Calendar className="w-4 h-4" />
-                                            <span>{plan.duration_months} months</span>
-                                        </div>
-                                        {(plan.min_amount || plan.max_amount) && (
-                                            <p className="text-sm text-muted-foreground mb-4">
-                                                {plan.min_amount && `Min: ${formatCurrency(plan.min_amount, store?.currency)}`}
-                                                {plan.min_amount && plan.max_amount && ' - '}
-                                                {plan.max_amount && `Max: ${formatCurrency(plan.max_amount, store?.currency)}`}
-                                            </p>
-                                        )}
-                                        <Button className="w-full gold-gradient text-white" onClick={() => openSubscribeDialog(plan)}>
-                                            View Plan
-                                        </Button>
-                                    </CardContent>
-                                </Card>
-                            ))}
-                        </div>
-                    </section>
-                )}
-
                 {/* All Plans */}
                 <section>
                     <h2 className="text-3xl font-serif text-center mb-8">Subscription Plans</h2>
@@ -134,10 +95,12 @@ const StorePlans = () => {
                                     </CardHeader>
                                     <CardContent className="space-y-4">
                                         <div className="text-center">
-                                            <div className="flex items-center justify-center gap-2 text-muted-foreground">
-                                                <Calendar className="w-5 h-5" />
-                                                <span className="text-lg">{plan.duration_months} months duration</span>
-                                            </div>
+                                            {plan.scheme_type !== 'flexible' && (
+                                                <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                                                    <Calendar className="w-5 h-5" />
+                                                    <span className="text-lg">{plan.duration_months} months duration</span>
+                                                </div>
+                                            )}
                                         </div>
                                         
                                         {(plan.min_amount || plan.max_amount) && (

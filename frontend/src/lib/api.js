@@ -49,7 +49,9 @@ export const getStore = (id) => api.get(`/stores/${id}`);
 export const createStore = (data) => api.post('/stores', data);
 export const updateStore = (id, data) => api.put(`/stores/${id}`, data);
 export const deleteStore = (id) => api.delete(`/stores/${id}`);
-export const updateStoreSettings = (id, currency) => api.put(`/stores/${id}/settings?currency=${currency}`);
+// New: support full settings update with body
+export const updateStoreSettings = (id, data) => api.put(`/stores/${id}/settings`, data);
+export const getMarketPrices = (storeId) => api.get(`/stores/${storeId}/market-prices`);
 
 // Users
 export const getUsers = () => api.get('/users');
@@ -142,6 +144,7 @@ export const createSubscriptionPlan = (storeId, data) => api.post(`/stores/${sto
 export const updateSubscriptionPlan = (storeId, planId, data) => api.put(`/stores/${storeId}/subscription-plans/${planId}`, data);
 export const subscribeToPlan = (storeId, data) => api.post(`/stores/${storeId}/subscribe`, data);
 export const getMySubscriptions = () => api.get('/my-subscriptions');
+export const getSubscriptionTransactions = (subscriptionId) => api.get(`/subscriptions/${subscriptionId}/transactions`);
 
 // Store Admin - Subscribers
 export const getStoreSubscribers = (storeId) => api.get(`/stores/${storeId}/subscribers`);
@@ -151,6 +154,8 @@ export const deleteSubscription = (storeId, subscriptionId) => api.delete(`/stor
 
 // End User - Pay subscription
 export const paySubscription = (subscriptionId, amount) => api.post(`/subscriptions/${subscriptionId}/pay`, { subscription_id: subscriptionId, amount });
+export const previewClosure = (subscriptionId, data) => api.post(`/subscriptions/${subscriptionId}/preview-closure`, data);
+export const initiateClosure = (subscriptionId, data) => api.post(`/subscriptions/${subscriptionId}/initiate-closure`, data);
 
 // Store Payment Config (Super Admin)
 export const getStorePaymentConfig = (storeId) => api.get(`/stores/${storeId}/payment-config`);
@@ -167,3 +172,11 @@ export const createPaymentOrder = (data) => api.post('/payments/create-order', d
 export const verifyPayment = (data) => api.post('/payments/verify', data);
 
 export default api;
+
+export const getStoreTaxConfig = (storeId) => api.get(`/stores/${storeId}/tax-config`);
+export const updateStoreTaxConfig = (storeId, data) => api.put(`/stores/${storeId}/tax-config`, data);
+
+export const getShiprocketLogs = (storeId, limit = 100) => api.get(`/stores/${storeId}/shiprocket-logs?limit=${limit}`);
+
+export const estimateShipping = (storeId, data) => api.post(`/stores/${storeId}/shipping/estimate`, data);
+

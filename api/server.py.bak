@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -1744,11 +1744,41 @@ async def update_profile(name: str, user: dict = Depends(get_current_user)):
 # ==================== SETTINGS ENDPOINTS ====================
 
 @api_router.put("/stores/{store_id}/settings")
-async def update_store_settings(store_id: str, currency: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+async def update_store_settings(store_id: str, request: Request, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
     if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
         raise HTTPException(status_code=403, detail="Cannot update settings for other stores")
-    
-    await db.stores.update_one({"id": store_id}, {"$set": {"currency": currency}})
+
+    # Read incoming JSON body once
+    payload = {}
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    update_data = {}
+    if payload.get("currency") is not None:
+        update_data["currency"] = payload.get("currency")
+    if payload.get("order_prefix") is not None:
+        # ensure uppercase and trimmed to 3 chars
+        pref = str(payload.get("order_prefix") or "").upper().strip()[:3]
+        if pref:
+            update_data["order_prefix"] = pref
+
+    if update_data:
+        await db.stores.update_one({"id": store_id}, {"$set": update_data})
+
+    # Persist market_prices separately into `store_market_prices` collection if provided
+    market_prices = payload.get("market_prices")
+    if market_prices is not None:
+        now = datetime.now(timezone.utc).isoformat()
+        doc = {
+            "store_id": store_id,
+            "enabled": bool(market_prices.get("enabled", False)),
+            "prices": market_prices.get("prices", {}) if isinstance(market_prices, dict) else {},
+            "updated_at": now
+        }
+        await db.store_market_prices.update_one({"store_id": store_id}, {"$set": doc}, upsert=True)
+
     return {"message": "Settings updated"}
 
 # Include router

@@ -88,6 +88,10 @@ function AppRoutes() {
                 }
             />
 
+
+
+            {/* Market prices are now edited inline in the admin dashboard sidebar */}
+
             {/* Landing Page */}
             <Route path="/landing" element={<Landing />} />
             <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
