@@ -7,7 +7,7 @@ import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr, model_validator
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Union
 import uuid
 from datetime import datetime, timezone, timedelta
 import jwt
@@ -182,6 +182,13 @@ class ProductResponse(BaseModel):
     metal_type: Optional[str] = None
     featured: bool = False
     created_at: str
+
+class PaginatedProductResponse(BaseModel):
+    items: List[ProductResponse]
+    total: int
+    page: int
+    limit: int
+    pages: int
 
 class InventoryCreate(BaseModel):
     product_id: str
@@ -518,6 +525,13 @@ class StaffResponse(BaseModel):
     is_active: bool
     created_at: str
 
+class PaginatedStaffResponse(BaseModel):
+    items: List[StaffResponse]
+    total: int
+    page: int
+    limit: int
+    pages: int
+
 class ActivityLog(BaseModel):
     id: str
     user_id: str
@@ -537,6 +551,13 @@ class CustomerResponse(BaseModel):
     order_count: int = 0
     total_spent: float = 0
     subscription_count: int = 0
+
+class PaginatedCustomerResponse(BaseModel):
+    items: List[CustomerResponse]
+    total: int
+    page: int
+    limit: int
+    pages: int
 
 # ==================== AUTH HELPERS ====================
 
@@ -996,20 +1017,14 @@ async def create_product(store_id: str, product_data: ProductCreate, user: dict 
     product_doc = {
         "id": product_id,
         "store_id": store_id,
-        **product_data.model_dump(),
-        "created_at": now
-    }
-    
-    await db.products.insert_one(product_doc)
-    return ProductResponse(**{k: v for k, v in product_doc.items() if k != "_id"})
-
-@api_router.get("/stores/{store_id}/products", response_model=List[ProductResponse])
+        **product_data.model_dump(),Union[List[ProductResponse], PaginatedProductResponse])
 async def get_products(
     store_id: str,
     category: Optional[str] = None,
     active_only: bool = True,
     featured: Optional[bool] = None,
-    limit: int = 100
+    limit: int = 100,
+    page: Optional[int] = Query(None, ge=1)
 ):
     query = {"store_id": store_id}
     if active_only:
@@ -1021,6 +1036,26 @@ async def get_products(
 
     # Clamp limit to a safe maximum (100)
     try:
+        limit_val = int(limit)
+    except Exception:
+        limit_val = 100
+    limit_val = max(1, min(100, limit_val))
+
+    if page is not None:
+        skip = (page - 1) * limit_val
+        total = await db.products.count_documents(query)
+        products = await db.products.find(query, {"_id": 0}).skip(skip).limit(limit_val).to_list(limit_val)
+        
+        return PaginatedProductResponse(
+            items=[ProductResponse(**p) for p in products],
+            total=total,
+            page=page,
+            limit=limit_val,
+            pages=ceil(total / limit_val)
+        )
+    else:
+        products = await db.products.find(query, {"_id": 0}).to_list(limit_val)
+        try:
         limit_val = int(limit)
     except Exception:
         limit_val = 100
@@ -1059,11 +1094,26 @@ async def delete_product(store_id: str, product_id: str, user: dict = Depends(re
 async def create_inventory(store_id: str, inv_data: InventoryCreate, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))):
     if user["role"] in [UserRole.STORE_ADMIN, UserRole.STORE_USER] and user.get("store_id") != store_id:
         raise HTTPException(status_code=403, detail="Cannot manage inventory for other stores")
+    Union[List[InventoryResponse], PaginatedInventoryResponse])
+async def get_inventory(store_id: str, page: Optional[int] = Query(None, ge=1), limit: int = Query(100, ge=1, le=1000)):
+    # Public endpoint - anyone can view inventory levels for product availability
+    query = {"store_id": store_id}
     
-    inv_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
-    
-    inv_doc = {
+    if page is not None:
+        skip = (page - 1) * limit
+        total = await db.inventory.count_documents(query)
+        inventory = await db.inventory.find(query, {"_id": 0}).skip(skip).limit(limit).to_list(limit)
+
+        return PaginatedInventoryResponse(
+            items=[InventoryResponse(**inv) for inv in inventory],
+            total=total,
+            page=page,
+            limit=limit,
+            pages=ceil(total / limit)
+        )
+    else:
+        inventory = await db.inventory.find(query, {"_id": 0}).to_list(1000)
+        inv_doc = {
         "id": inv_id,
         "store_id": store_id,
         **inv_data.model_dump(),
@@ -1083,13 +1133,33 @@ async def get_inventory(store_id: str):
 async def update_inventory(store_id: str, inv_id: str, inv_data: InventoryCreate, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))):
     if user["role"] in [UserRole.STORE_ADMIN, UserRole.STORE_USER] and user.get("store_id") != store_id:
         raise HTTPException(status_code=403, detail="Cannot update inventory for other stores")
+    Union[List[VendorResponse], PaginatedVendorResponse])
+async def get_vendors(
+    store_id: str, 
+    page: Optional[int] = Query(None, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))
+):
+    if user["role"] in [UserRole.STORE_ADMIN, UserRole.STORE_USER] and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot view vendors from other stores")
     
-    now = datetime.now(timezone.utc).isoformat()
-    update_data = {**inv_data.model_dump(), "updated_at": now}
-    await db.inventory.update_one({"id": inv_id, "store_id": store_id}, {"$set": update_data})
-    
-    inv = await db.inventory.find_one({"id": inv_id}, {"_id": 0})
-    return InventoryResponse(**inv)
+    query = {"store_id": store_id, "is_active": True}
+
+    if page is not None:
+        skip = (page - 1) * limit
+        total = await db.vendors.count_documents(query)
+        vendors = await db.vendors.find(query, {"_id": 0}).skip(skip).limit(limit).to_list(limit)
+
+        return PaginatedVendorResponse(
+            items=[VendorResponse(**v) for v in vendors],
+            total=total,
+            page=page,
+            limit=limit,
+            pages=ceil(total / limit)
+        )
+    else:
+        vendors = await db.vendors.find(query, {"_id": 0}).to_list(1000)
+        return InventoryResponse(**inv)
 
 # ==================== VENDOR ENDPOINTS ====================
 
@@ -1129,13 +1199,33 @@ async def update_vendor(store_id: str, vendor_id: str, vendor_data: VendorCreate
     vendor = await db.vendors.find_one({"id": vendor_id}, {"_id": 0})
     return VendorResponse(**vendor)
 
-@api_router.delete("/stores/{store_id}/vendors/{vendor_id}")
-async def delete_vendor(store_id: str, vendor_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))):
+@api_router.delete("/stores/{store_id}/vendors/{vendor_id}")Union[List[PurchaseOrderResponse], PaginatedPurchaseOrderResponse])
+async def get_purchase_orders(
+    store_id: str, 
+    page: Optional[int] = Query(None, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))
+):
     if user["role"] in [UserRole.STORE_ADMIN, UserRole.STORE_USER] and user.get("store_id") != store_id:
-        raise HTTPException(status_code=403, detail="Cannot delete vendors from other stores")
+        raise HTTPException(status_code=403, detail="Cannot view POs from other stores")
     
-    await db.vendors.update_one({"id": vendor_id, "store_id": store_id}, {"$set": {"is_active": False}})
-    return {"message": "Vendor deactivated"}
+    query = {"store_id": store_id}
+
+    if page is not None:
+        skip = (page - 1) * limit
+        total = await db.purchase_orders.count_documents(query)
+        pos = await db.purchase_orders.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+
+        return PaginatedPurchaseOrderResponse(
+            items=[PurchaseOrderResponse(**po) for po in pos],
+            total=total,
+            page=page,
+            limit=limit,
+            pages=ceil(total / limit)
+        )
+    else:
+        pos = await db.purchase_orders.find(query, {"_id": 0}).to_list(1000)
+        return {"message": "Vendor deactivated"}
 
 # ==================== PURCHASE ORDER ENDPOINTS ====================
 
@@ -1152,13 +1242,33 @@ async def create_purchase_order(store_id: str, po_data: PurchaseOrderCreate, use
     
     po_doc = {
         "id": po_id,
-        "store_id": store_id,
-        "vendor_id": po_data.vendor_id,
-        "items": items,
-        "total_amount": total,
-        "status": "pending",
-        "notes": po_data.notes,
-        "created_at": now
+        "store_id": store_id,Union[List[POSTransactionResponse], PaginatedPOSTransactionResponse])
+async def get_pos_transactions(
+    store_id: str, 
+    page: Optional[int] = Query(None, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))
+):
+    if user["role"] in [UserRole.STORE_ADMIN, UserRole.STORE_USER] and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot view transactions from other stores")
+    
+    query = {"store_id": store_id}
+
+    if page is not None:
+        skip = (page - 1) * limit
+        total = await db.pos_transactions.count_documents(query)
+        txs = await db.pos_transactions.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+
+        return PaginatedPOSTransactionResponse(
+            items=[POSTransactionResponse(**tx) for tx in txs],
+            total=total,
+            page=page,
+            limit=limit,
+            pages=ceil(total / limit)
+        )
+    else:
+        txs = await db.pos_transactions.find(query, {"_id": 0}).to_list(1000)
+            "created_at": now
     }
     
     await db.purchase_orders.insert_one(po_doc)
@@ -1285,17 +1395,33 @@ async def get_store_reports(store_id: str, start_date: str = None, end_date: str
         if "created_at" in date_filter:
             date_filter["created_at"]["$lte"] = end_date
         else:
-            date_filter["created_at"] = {"$lte": end_date}
+            date_filter["created_at"] = {", response_model=Union[List[StaffResponse], PaginatedStaffResponse])
+async def get_store_staff(
+    store_id: str, 
+    page: Optional[int] = Query(None, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))
+):
+    if user["role"] != UserRole.SUPER_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot view staff for other stores")
     
-    # Get orders for the period
-    orders = await db.orders.find(date_filter, {"_id": 0}).to_list(10000)
-    total_sales = sum(o.get("total_amount", 0) for o in orders)
-    total_orders = len(orders)
-    
-    # Get POS transactions
-    pos_txs = await db.pos_transactions.find(date_filter, {"_id": 0}).to_list(10000)
-    pos_sales = sum(tx.get("total_amount", 0) for tx in pos_txs)
-    
+    query = {"store_id": store_id, "role": UserRole.STORE_USER}
+
+    if page is not None:
+        skip = (page - 1) * limit
+        total = await db.users.count_documents(query)
+        staff = await db.users.find(query, {"_id": 0, "hashed_password": 0}).skip(skip).limit(limit).to_list(limit)
+
+        return PaginatedStaffResponse(
+            items=[StaffResponse(**s) for s in staff],
+            total=total,
+            page=page,
+            limit=limit,
+            pages=ceil(total / limit)
+        )
+    else:
+        staff = await db.users.find(query, {"_id": 0, "hashed_password": 0}).to_list(1000)
+        return [StaffResponse(**s) for s in staff]
     # Get purchase orders (expenditures)
     po_filter = {"store_id": store_id}
     if start_date:
@@ -1404,24 +1530,96 @@ async def update_staff(store_id: str, staff_id: str, staff_data: StaffUpdate, us
         update_data["phone"] = staff_data.phone
     if staff_data.menu_access is not None:
         update_data["menu_access"] = staff_data.menu_access
-    if staff_data.is_active is not None:
-        update_data["is_active"] = staff_data.is_active
-    if staff_data.password is not None and staff_data.password.strip():
-        update_data["password_hash"] = hash_password(staff_data.password)
+    if staff_data.is_active is not None:, response_model=Union[List[CustomerResponse], PaginatedCustomerResponse])
+async def get_store_customers(
+    store_id: str, 
+    page: Optional[int] = Query(None, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))
+):
+    if user["role"] != UserRole.SUPER_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot view customers for other stores")
     
-    if not update_data:
-        raise HTTPException(status_code=400, detail="No data to update")
+    # Get all unique customer IDs from orders and subscriptions
+    pipeline = [
+        {"$match": {"store_id": store_id}},
+        {"$group": {"_id": "$user_id"}}
+    ]
     
-    result = await db.users.update_one(
-        {"id": staff_id, "store_id": store_id, "role": UserRole.STORE_USER},
-        {"$set": update_data}
-    )
+    order_users = await db.orders.aggregate(pipeline).to_list(10000)
+    sub_users = await db.user_subscriptions.aggregate(pipeline).to_list(10000)
     
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Staff not found")
+    customer_ids = set()
+    for u in order_users:
+        if u.get("_id"):
+            customer_ids.add(u["_id"])
+    for u in sub_users:
+        if u.get("_id"):
+            customer_ids.add(u["_id"])
+            
+    customer_ids_list = list(customer_ids)
     
-    # Log activity
-    try:
+    if page is not None:
+        total = len(customer_ids)
+        start = (page - 1) * limit
+        end = start + limit
+        paged_ids = customer_ids_list[start:end]
+        
+        users_list = []
+        if paged_ids:
+             users_list = await db.users.find({"id": {"$in": paged_ids}}, {"_id": 0}).to_list(len(paged_ids))
+
+        # We need to fill in stats for these users
+        results = []
+        for u in users_list:
+            u_id = u["id"]
+            # Stats for this specific user in this store
+            o_count = await db.orders.count_documents({"store_id": store_id, "user_id": u_id})
+            # To get sum, we need aggregation or just sum in python for this page (efficient enough for 20 users)
+            o_sum_cur = await db.orders.aggregate([
+                {"$match": {"store_id": store_id, "user_id": u_id}},
+                {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}}
+            ]).to_list(1)
+            spent = o_sum_cur[0]["total"] if o_sum_cur else 0
+            
+            s_count = await db.user_subscriptions.count_documents({"store_id": store_id, "user_id": u_id})
+            
+            results.append(CustomerResponse(
+                **u,
+                order_count=o_count,
+                total_spent=spent,
+                subscription_count=s_count
+            ))
+
+        return PaginatedCustomerResponse(
+            items=results,
+            total=total,
+            page=page,
+            limit=limit,
+            pages=ceil(total / limit)
+        )
+    else:
+        # Fallback to old inefficient method (but clamped)
+        # For simplicity in this non-paginated path, we limit to 100 to avoid crash
+        top_ids = customer_ids_list[:100]
+        users_list = await db.users.find({"id": {"$in": top_ids}}, {"_id": 0}).to_list(100)
+        results = []
+        for u in users_list:
+            u_id = u["id"]
+            o_count = await db.orders.count_documents({"store_id": store_id, "user_id": u_id})
+            o_sum_cur = await db.orders.aggregate([
+                {"$match": {"store_id": store_id, "user_id": u_id}},
+                {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}}
+            ]).to_list(1)
+            spent = o_sum_cur[0]["total"] if o_sum_cur else 0
+            s_count = await db.user_subscriptions.count_documents({"store_id": store_id, "user_id": u_id})
+            results.append(CustomerResponse(
+                **u,
+                order_count=o_count,
+                total_spent=spent,
+                subscription_count=s_count
+            ))
+        return result
         await log_activity(user["id"], store_id, "staff_updated", {"staff_id": staff_id, "updates": list(update_data.keys())})
     except Exception:
         pass
@@ -1670,18 +1868,37 @@ async def create_order(store_id: str, order_data: OrderCreate, user: dict = Depe
                 try:
                     res = {}
                     await log_shiprocket(store_id, "token_request", "pending", {"email": ship_config["email"]})
-                    token = await get_shiprocket_token(ship_config["email"], ship_config["password"])
-                    
-                    await log_shiprocket(store_id, "serviceability_check", "pending", {
-                        "pickup": pickup_zip, "dest": dest_zip, "weight": total_weight_kg
-                    })
-                    res = await check_serviceability(token, pickup_zip, dest_zip, total_weight_kg) or {}
-                    
-                    if res and "rate" in res:
-                        shipping_charges = float(res["rate"])
-                        await log_shiprocket(store_id, "serviceability_check", "success", response=res)
-                    else:
-                        await log_shiprocket(store_id, "serviceability_check", "failed", error="No rate found", response=res)
+                    token = await get_shiprocket_token(ship_Union[List[OrderResponse], PaginatedOrderResponse])
+async def get_orders(
+    store_id: str, 
+    page: Optional[int] = Query(None, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    user: dict = Depends(get_current_user)
+):
+    if user["role"] == UserRole.END_USER:
+        query = {"store_id": store_id, "user_id": user["id"]}
+    elif user["role"] in [UserRole.STORE_ADMIN, UserRole.STORE_USER]:
+        if user.get("store_id") != store_id:
+            raise HTTPException(status_code=403, detail="Cannot view orders from other stores")
+        query = {"store_id": store_id}
+    else:
+        query = {"store_id": store_id}
+    
+    if page is not None:
+        skip = (page - 1) * limit
+        total = await db.orders.count_documents(query)
+        orders = await db.orders.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+        
+        return PaginatedOrderResponse(
+            items=[OrderResponse(**o) for o in orders],
+            total=total,
+            page=page,
+            limit=limit,
+            pages=ceil(total / limit)
+        )
+    else:
+        orders = await db.orders.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+                            await log_shiprocket(store_id, "serviceability_check", "failed", error="No rate found", response=res)
                 except Exception as e:
                     logger.error(f"Shiprocket error in create_order: {e}")
                     await log_shiprocket(store_id, "shipping_init_error", "error", error=str(e))
