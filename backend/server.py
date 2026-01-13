@@ -3606,25 +3606,22 @@ async def create_payment_link(payment_data: PaymentLinkCreate, user: dict = Depe
         base_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
         callback_url = payment_data.callback_url or f"{base_url}/payment/callback"
         
-        razorpay_url = "https://api.razorpay.com/v2/payment_links"
+        razorpay_url = "https://api.razorpay.com/v1/payment_links"
         razorpay_request = {
             "amount": amount_paise,
             "currency": "INR",
-            "accept_partial": False,
-            "first_min_partial_amount": 0,
             "expire_by": int((datetime.now(timezone.utc) + timedelta(hours=24)).timestamp()),
             "reference_id": payment_id,
             "description": payment_data.description,
             "customer": {
                 "name": payment_data.customer_name,
                 "email": payment_data.customer_email,
-                "contact": payment_data.customer_contact
+                "contact": payment_data.customer_contact or ""
             },
             "notify": {
                 "sms": True,
                 "email": True
             },
-            "reminder_enable": True,
             "notes": {
                 "store_id": store_id,
                 "order_id": payment_data.order_id,
