@@ -3550,6 +3550,10 @@ async def create_payment_link(payment_data: PaymentLinkCreate, user: dict = Depe
     payment_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     
+    # Check database connection
+    if not db:
+        raise HTTPException(status_code=500, detail="Database connection not available")
+    
     print(f"[create_payment_link] Received: store_id={payment_data.store_id}, order_id={payment_data.order_id}, subscription_id={payment_data.subscription_id}")
     
     # Get store to fetch Razorpay credentials
