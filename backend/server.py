@@ -7,7 +7,7 @@ import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr, model_validator
-from typing import List, Optional, Any, Union
+from typing import List, Optional, Any
 import uuid
 from datetime import datetime, timezone, timedelta
 import jwt
@@ -182,13 +182,6 @@ class ProductResponse(BaseModel):
     metal_type: Optional[str] = None
     featured: bool = False
     created_at: str
-
-class PaginatedProductResponse(BaseModel):
-    items: List[ProductResponse]
-    total: int
-    page: int
-    limit: int
-    pages: int
 
 class InventoryCreate(BaseModel):
     product_id: str
@@ -560,13 +553,6 @@ class StaffResponse(BaseModel):
     is_active: bool
     created_at: str
 
-class PaginatedStaffResponse(BaseModel):
-    items: List[StaffResponse]
-    total: int
-    page: int
-    limit: int
-    pages: int
-
 class ActivityLog(BaseModel):
     id: str
     user_id: str
@@ -586,13 +572,6 @@ class CustomerResponse(BaseModel):
     order_count: int = 0
     total_spent: float = 0
     subscription_count: int = 0
-
-class PaginatedCustomerResponse(BaseModel):
-    items: List[CustomerResponse]
-    total: int
-    page: int
-    limit: int
-    pages: int
 
 # ==================== AUTH HELPERS ====================
 
@@ -1053,6 +1032,7 @@ async def create_product(store_id: str, product_data: ProductCreate, user: dict 
         "id": product_id,
         "store_id": store_id,
         **product_data.model_dump(),
+<<<<<<< HEAD
         "created_at": now,
         "updated_at": now
     }
@@ -1061,14 +1041,22 @@ async def create_product(store_id: str, product_data: ProductCreate, user: dict 
     return product_doc
 
 @api_router.get("/stores/{store_id}/products", response_model=Union[List[ProductResponse], PaginatedProductResponse])
+=======
+        "created_at": now
+    }
+    
+    await db.products.insert_one(product_doc)
+    return ProductResponse(**{k: v for k, v in product_doc.items() if k != "_id"})
+
+@api_router.get("/stores/{store_id}/products", response_model=List[ProductResponse])
+>>>>>>> parent of 8787e9c (Implement pagination in backend endpoints)
 async def get_products(
     store_id: str,
     category: Optional[str] = None,
     search: Optional[str] = None,
     active_only: bool = True,
     featured: Optional[bool] = None,
-    limit: int = 100,
-    page: Optional[int] = Query(None, ge=1)
+    limit: int = 100
 ):
     query = {"store_id": store_id}
     if active_only:
@@ -1091,6 +1079,7 @@ async def get_products(
         limit_val = 100
     limit_val = max(1, min(100, limit_val))
 
+<<<<<<< HEAD
     if page is not None:
         skip = (page - 1) * limit_val
         total = await db.products.count_documents(query)
@@ -1106,6 +1095,10 @@ async def get_products(
     else:
         products = await db.products.find(query, {"_id": 0}).to_list(limit_val)
         return [ProductResponse(**p) for p in products]
+=======
+    products = await db.products.find(query, {"_id": 0}).to_list(limit_val)
+    return [ProductResponse(**p) for p in products]
+>>>>>>> parent of 8787e9c (Implement pagination in backend endpoints)
 
 @api_router.get("/stores/{store_id}/products/{product_id}", response_model=ProductResponse)
 async def get_product(store_id: str, product_id: str):
@@ -1137,6 +1130,7 @@ async def delete_product(store_id: str, product_id: str, user: dict = Depends(re
 async def create_inventory(store_id: str, inv_data: InventoryCreate, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))):
     if user["role"] in [UserRole.STORE_ADMIN, UserRole.STORE_USER] and user.get("store_id") != store_id:
         raise HTTPException(status_code=403, detail="Cannot manage inventory for other stores")
+<<<<<<< HEAD
     
     inv_id = str(ObjectId())
     now = datetime.now(timezone.utc).isoformat()
@@ -1170,11 +1164,33 @@ async def get_inventory(store_id: str, page: Optional[int] = Query(None, ge=1), 
     else:
         inventory = await db.inventory.find(query, {"_id": 0}).to_list(1000)
         return [InventoryResponse(**inv) for inv in inventory]
+=======
+    
+    inv_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    
+    inv_doc = {
+        "id": inv_id,
+        "store_id": store_id,
+        **inv_data.model_dump(),
+        "updated_at": now
+    }
+    
+    await db.inventory.insert_one(inv_doc)
+    return InventoryResponse(**{k: v for k, v in inv_doc.items() if k != "_id"})
+
+@api_router.get("/stores/{store_id}/inventory", response_model=List[InventoryResponse])
+async def get_inventory(store_id: str):
+    # Public endpoint - anyone can view inventory levels for product availability
+    inventory = await db.inventory.find({"store_id": store_id}, {"_id": 0}).to_list(1000)
+    return [InventoryResponse(**inv) for inv in inventory]
+>>>>>>> parent of 8787e9c (Implement pagination in backend endpoints)
 
 @api_router.put("/stores/{store_id}/inventory/{inv_id}", response_model=InventoryResponse)
 async def update_inventory(store_id: str, inv_id: str, inv_data: InventoryCreate, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))):
     if user["role"] in [UserRole.STORE_ADMIN, UserRole.STORE_USER] and user.get("store_id") != store_id:
         raise HTTPException(status_code=403, detail="Cannot update inventory for other stores")
+<<<<<<< HEAD
 
     await db.inventory.update_one(
         {"id": inv_id, "store_id": store_id},
@@ -1214,6 +1230,15 @@ async def get_vendors(
     else:
         vendors = await db.vendors.find(query, {"_id": 0}).to_list(1000)
         return [VendorResponse(**v) for v in vendors]
+=======
+    
+    now = datetime.now(timezone.utc).isoformat()
+    update_data = {**inv_data.model_dump(), "updated_at": now}
+    await db.inventory.update_one({"id": inv_id, "store_id": store_id}, {"$set": update_data})
+    
+    inv = await db.inventory.find_one({"id": inv_id}, {"_id": 0})
+    return InventoryResponse(**inv)
+>>>>>>> parent of 8787e9c (Implement pagination in backend endpoints)
 
 # ==================== VENDOR ENDPOINTS ====================
 
@@ -1246,6 +1271,7 @@ async def update_vendor(store_id: str, vendor_id: str, vendor_data: VendorCreate
     return VendorResponse(**vendor)
 
 @api_router.delete("/stores/{store_id}/vendors/{vendor_id}")
+<<<<<<< HEAD
 async def delete_vendor(store_id: str, vendor_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
     if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
         raise HTTPException(status_code=403, detail="Cannot delete vendors from other stores")
@@ -1260,9 +1286,13 @@ async def get_purchase_orders(
     limit: int = Query(20, ge=1, le=100),
     user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))
 ):
+=======
+async def delete_vendor(store_id: str, vendor_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))):
+>>>>>>> parent of 8787e9c (Implement pagination in backend endpoints)
     if user["role"] in [UserRole.STORE_ADMIN, UserRole.STORE_USER] and user.get("store_id") != store_id:
-        raise HTTPException(status_code=403, detail="Cannot view POs from other stores")
+        raise HTTPException(status_code=403, detail="Cannot delete vendors from other stores")
     
+<<<<<<< HEAD
     query = {"store_id": store_id}
 
     if page is not None:
@@ -1280,6 +1310,10 @@ async def get_purchase_orders(
     else:
         pos = await db.purchase_orders.find(query, {"_id": 0}).to_list(1000)
         return [PurchaseOrderResponse(**po) for po in pos]
+=======
+    await db.vendors.update_one({"id": vendor_id, "store_id": store_id}, {"$set": {"is_active": False}})
+    return {"message": "Vendor deactivated"}
+>>>>>>> parent of 8787e9c (Implement pagination in backend endpoints)
 
 # ==================== PURCHASE ORDER ENDPOINTS ====================
 
@@ -1442,6 +1476,7 @@ async def get_store_reports(store_id: str, start_date: str = None, end_date: str
             date_filter["created_at"]["$lte"] = end_date
         else:
             date_filter["created_at"] = {"$lte": end_date}
+<<<<<<< HEAD
 
     # Calculate Total Sales (Online Orders)
     pipeline = [
@@ -1476,24 +1511,18 @@ async def get_store_staff(
 ):
     if user["role"] != UserRole.SUPER_ADMIN and user.get("store_id") != store_id:
         raise HTTPException(status_code=403, detail="Cannot view staff for other stores")
+=======
     
-    query = {"store_id": store_id, "role": UserRole.STORE_USER}
-
-    if page is not None:
-        skip = (page - 1) * limit
-        total = await db.users.count_documents(query)
-        staff = await db.users.find(query, {"_id": 0, "hashed_password": 0}).skip(skip).limit(limit).to_list(limit)
-
-        return PaginatedStaffResponse(
-            items=[StaffResponse(**s) for s in staff],
-            total=total,
-            page=page,
-            limit=limit,
-            pages=ceil(total / limit)
-        )
-    else:
-        staff = await db.users.find(query, {"_id": 0, "hashed_password": 0}).to_list(1000)
-        return [StaffResponse(**s) for s in staff]
+    # Get orders for the period
+    orders = await db.orders.find(date_filter, {"_id": 0}).to_list(10000)
+    total_sales = sum(o.get("total_amount", 0) for o in orders)
+    total_orders = len(orders)
+    
+    # Get POS transactions
+    pos_txs = await db.pos_transactions.find(date_filter, {"_id": 0}).to_list(10000)
+    pos_sales = sum(tx.get("total_amount", 0) for tx in pos_txs)
+>>>>>>> parent of 8787e9c (Implement pagination in backend endpoints)
+    
     # Get purchase orders (expenditures)
     po_filter = {"store_id": store_id}
     if start_date:
@@ -1604,6 +1633,7 @@ async def update_staff(store_id: str, staff_id: str, staff_data: StaffUpdate, us
         update_data["menu_access"] = staff_data.menu_access
     if staff_data.is_active is not None:
         update_data["is_active"] = staff_data.is_active
+<<<<<<< HEAD
         
     if not update_data:
         raise HTTPException(status_code=400, detail="No data provided to update")
@@ -1625,26 +1655,23 @@ async def get_store_customers(
 ):
     if user["role"] != UserRole.SUPER_ADMIN and user.get("store_id") != store_id:
         raise HTTPException(status_code=403, detail="Cannot view customers for other stores")
+=======
+    if staff_data.password is not None and staff_data.password.strip():
+        update_data["password_hash"] = hash_password(staff_data.password)
+>>>>>>> parent of 8787e9c (Implement pagination in backend endpoints)
     
-    # Get all unique customer IDs from orders and subscriptions
-    pipeline = [
-        {"$match": {"store_id": store_id}},
-        {"$group": {"_id": "$user_id"}}
-    ]
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No data to update")
     
-    order_users = await db.orders.aggregate(pipeline).to_list(10000)
-    sub_users = await db.user_subscriptions.aggregate(pipeline).to_list(10000)
+    result = await db.users.update_one(
+        {"id": staff_id, "store_id": store_id, "role": UserRole.STORE_USER},
+        {"$set": update_data}
+    )
     
-    customer_ids = set()
-    for u in order_users:
-        if u.get("_id"):
-            customer_ids.add(u["_id"])
-    for u in sub_users:
-        if u.get("_id"):
-            customer_ids.add(u["_id"])
-            
-    customer_ids_list = list(customer_ids)
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Staff not found")
     
+<<<<<<< HEAD
     if page is not None:
         total = len(customer_ids)
         start = (page - 1) * limit
@@ -1707,6 +1734,16 @@ async def get_store_customers(
             ))
         return results
 
+=======
+    # Log activity
+    try:
+        await log_activity(user["id"], store_id, "staff_updated", {"staff_id": staff_id, "updates": list(update_data.keys())})
+    except Exception:
+        pass
+    
+    staff = await db.users.find_one({"id": staff_id}, {"_id": 0, "password_hash": 0})
+    return staff
+>>>>>>> parent of 8787e9c (Implement pagination in backend endpoints)
 
 @api_router.delete("/stores/{store_id}/staff/{staff_id}")
 async def delete_staff(store_id: str, staff_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
@@ -1950,6 +1987,7 @@ async def create_order(store_id: str, order_data: OrderCreate, user: dict = Depe
                     res = {}
                     await log_shiprocket(store_id, "token_request", "pending", {"email": ship_config["email"]})
                     token = await get_shiprocket_token(ship_config["email"], ship_config["password"])
+<<<<<<< HEAD
                     await log_shiprocket(store_id, "token_request", "success")
 
                     # Serviceability Check
@@ -2030,6 +2068,22 @@ async def get_orders(
     else:
         orders = await db.orders.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
         return [OrderResponse(**o) for o in orders]
+=======
+                    
+                    await log_shiprocket(store_id, "serviceability_check", "pending", {
+                        "pickup": pickup_zip, "dest": dest_zip, "weight": total_weight_kg
+                    })
+                    res = await check_serviceability(token, pickup_zip, dest_zip, total_weight_kg) or {}
+                    
+                    if res and "rate" in res:
+                        shipping_charges = float(res["rate"])
+                        await log_shiprocket(store_id, "serviceability_check", "success", response=res)
+                    else:
+                        await log_shiprocket(store_id, "serviceability_check", "failed", error="No rate found", response=res)
+                except Exception as e:
+                    logger.error(f"Shiprocket error in create_order: {e}")
+                    await log_shiprocket(store_id, "shipping_init_error", "error", error=str(e))
+>>>>>>> parent of 8787e9c (Implement pagination in backend endpoints)
 
 @api_router.get("/my-orders", response_model=PaginatedOrderResponse)
 async def get_my_orders(page: int = 1, limit: int = 20, user: dict = Depends(get_current_user)):
