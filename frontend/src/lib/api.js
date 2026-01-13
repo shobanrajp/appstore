@@ -1,6 +1,3 @@
-// Razorpay Logs
-export const getRazorpayLogs = (storeId, page = 1, limit = 20) =>
-    api.get(`/stores/${storeId}/razorpay-logs?page=${page}&limit=${limit}`);
 import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL + '/api';
@@ -181,7 +178,6 @@ export const updatePageConfig = (storeId, configId, data) => api.put(`/stores/${
 
 // Payments (Razorpay)
 export const createPaymentOrder = (data) => api.post('/payments/create-order', data);
-export const createPaymentLink = (data) => api.post('/payments/create-link', data);
 export const verifyPayment = (data) => api.post('/payments/verify', data);
 
 export default api;

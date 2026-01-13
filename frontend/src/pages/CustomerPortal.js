@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useNavigate, Link, useSearchParams, useParams } from 'react-router-dom';
-import { getMyOrders, getMySubscriptions, getAddresses, createAddress, deleteAddress, updateAddress, updateProfile, updatePassword, paySubscription, getProduct, getStore, getSubscriptionDetails, getSubscriptionPlans, getStoreTaxConfig, getMarketPrices, getSubscriptionTransactions, previewClosure, initiateClosure } from '../lib/api';
-import { createRazorpayPaymentLink } from '../lib/razorpay';
+import { getMyOrders, getMySubscriptions, getAddresses, createAddress, deleteAddress, updateAddress, updateProfile, updatePassword, paySubscription, getProduct, getStore, getSubscriptionDetails, getSubscriptionPlans, getStoreTaxConfig, getMarketPrices, getSubscriptionTransactions, createPaymentOrder, verifyPayment, previewClosure, initiateClosure } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -20,6 +19,16 @@ import { formatCurrency, formatDate, getStatusColor, setPageTitle, formatDateTim
 import StoreHeader from '../components/StoreHeader';
 import StoreFooter from '../components/StoreFooter';
 import LoadingOverlay from '../components/LoadingOverlay';
+
+const loadRazorpay = () => {
+    return new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+        script.onload = () => resolve(true);
+        script.onerror = () => resolve(false);
+        document.body.appendChild(script);
+    });
+};
 
 const CustomerPortal = () => {
     const { storeId } = useParams();
@@ -339,61 +348,81 @@ const CustomerPortal = () => {
     const handleConfirmClosure = async () => {
         setPaymentProcessing(true);
         try {
-            // Close 'Step' dialog
-            setClosureDialogOpen(false);
-
-            const { data: paymentOrder } = await initiateClosure(selectedSubscription.id, { address_id: selectedAddressId });
-
-            // Check for Mock Order (Test Mode without valid keys)
-            if (paymentOrder.razorpay_order_id && paymentOrder.razorpay_order_id.startsWith("order_mock_")) {
-                console.log("Mock Payment Detected");
-                // Simulate user payment interaction delay
-                setTimeout(async () => {
-                    const mockResponse = {
-                        razorpay_order_id: paymentOrder.razorpay_order_id,
-                        razorpay_payment_id: "pay_mock_" + Math.random().toString(36).substring(7),
-                        razorpay_signature: "mock_signature_bypass"
-                    };
-                    try {
-                        await verifyPayment({
-                            razorpay_order_id: mockResponse.razorpay_order_id,
-                            razorpay_payment_id: mockResponse.razorpay_payment_id,
-                            razorpay_signature: mockResponse.razorpay_signature,
-                            payment_id: paymentOrder.id
-                        });
-                        toast.success('Subscription Closed Successfully!');
-                        window.location.href = `/store/${storeId}/portal?tab=orders`;
-                    } catch (verifyErr) {
-                        console.error('Payment verification error:', verifyErr);
-                        toast.error('Payment verification failed');
+             // Close 'Step' dialog
+             setClosureDialogOpen(false); 
+             
+             const res = await loadRazorpay();
+             if (!res) {
+                 toast.error('Razorpay SDK failed to load');
+                 setPaymentProcessing(false);
+                 return;
+             }
+             
+             const { data: paymentOrder } = await initiateClosure(selectedSubscription.id, { address_id: selectedAddressId });
+             
+             // If amount is 0 (unlikely for closure unless fully paid and free shipping), handle directly? 
+             // Backend currently ensures shipping is charged or returns MockPayment order structure anyway.
+             
+             const options = {
+                 key: paymentOrder.razorpay_key_id,
+                 amount: Math.floor(paymentOrder.amount * 100),
+                 currency: "INR",
+                 name: store?.name || "Store Payment",
+                 description: paymentOrder.description,
+                 order_id: paymentOrder.razorpay_order_id,
+                 handler: async function (response) {
+                     try {
+                         const verifyData = {
+                             razorpay_order_id: response.razorpay_order_id,
+                             razorpay_payment_id: response.razorpay_payment_id,
+                             razorpay_signature: response.razorpay_signature,
+                             payment_id: paymentOrder.id
+                         };
+                         
+                         await verifyPayment(verifyData);
+                         toast.success('Subscription Closed Successfully!');
+                         window.location.href = `/store/${storeId}/portal?tab=orders`; // Redirect to orders to see the redemtion order
+                     } catch (verifyErr) {
+                         console.error(verifyErr);
+                         toast.error('Payment verification failed');
+                         setPaymentProcessing(false);
+                     }
+                 },
+                 modal: {
+                    ondismiss: function() {
                         setPaymentProcessing(false);
-                    }
-                }, 1500);
-                return;
-            }
-
-            // Create payment link using the new Razorpay utility
-            const paymentLinkData = await createRazorpayPaymentLink(
-                {
-                    amount: paymentOrder.amount,
-                    description: paymentOrder.description,
-                    store_id: storeId,
-                    order_id: paymentOrder.razorpay_order_id
-                },
-                {
-                    customer: {
-                        name: user?.name,
-                        email: user?.email,
-                        contact: user?.phone
+                        // Re-open dialog maybe?
                     },
-                    callback_url: `${window.location.origin}/store/${storeId}/payment/callback`
-                }
-            );
-
-            // Redirect to payment link
-            toast.info('Redirecting to payment page...');
-            window.location.href = paymentLinkData.shortUrl;
-
+                    backdropclose: false,
+                    escape: false
+                 },
+                 prefill: {
+                     name: user?.name,
+                     email: user?.email,
+                     contact: user?.phone
+                 },
+                 theme: {
+                     color: "#d4af37"
+                 }
+             };
+             // Check for Mock Order (Test Mode without valid keys)
+             if (paymentOrder.razorpay_order_id && paymentOrder.razorpay_order_id.startsWith("order_mock_")) {
+                 console.log("Mock Payment Detected");
+                 // Simulate user payment interaction delay
+                 setTimeout(async () => {
+                      const mockResponse = {
+                          razorpay_order_id: paymentOrder.razorpay_order_id,
+                          razorpay_payment_id: "pay_mock_" + Math.random().toString(36).substring(7),
+                          razorpay_signature: "mock_signature_bypass"
+                      };
+                      await options.handler(mockResponse);
+                 }, 1500);
+                 return;
+             }
+             
+             const rzp = new window.Razorpay(options);
+             rzp.open();
+            
         } catch (error) {
             console.error(error);
             toast.error('Failed to initiate closure');
@@ -407,49 +436,86 @@ const CustomerPortal = () => {
         try {
             const isFlexible = selectedSubscription.scheme_type === 'flexible';
             const amountToPay = isFlexible ? parseFloat(flexibleAmount) : selectedSubscription.monthly_amount;
-
+            
             if (isFlexible && (!amountToPay || amountToPay <= 0)) {
                 toast.error("Please enter a valid amount");
                 setPaymentProcessing(false);
                 return;
             }
 
-            const orderData = {
-                amount: amountToPay,
-                description: `Payment for subscription`,
-                subscription_id: selectedSubscription.id,
-                order_id: selectedSubscription.id,
-                store_id: selectedSubscription.store_id
-            };
+            // Unified Razorpay Flow for both Fixed and Flexible
+            const res = await loadRazorpay();
+            if (!res) {
+                 toast.error('Razorpay SDK failed to load. Are you online?');
+                 setPaymentProcessing(false);
+                 return;
+            }
+             
+             const orderData = {
+                 amount: floatAmount(amountToPay),
+                 description: `Payment for subscription`,
+                 subscription_id: selectedSubscription.id,
+                 order_id: selectedSubscription.id, 
+                 store_id: selectedSubscription.store_id
+             };
+             
+             // Helper for float check
+             function floatAmount(val) { return parseFloat(val); }
 
-            const { data: paymentOrder } = await createPaymentOrder(orderData);
-
-            // Close dialog to prevent overlay interference with Razorpay popup
-            setPaymentDialogOpen(false);
-
-            // Create payment link using the new Razorpay utility
-            const paymentLinkData = await createRazorpayPaymentLink(
-                {
-                    amount: amountToPay,
-                    description: paymentOrder.description,
-                    store_id: selectedSubscription.store_id,
-                    subscription_id: selectedSubscription.id,
-                    order_id: selectedSubscription.id
-                },
-                {
-                    customer: {
-                        name: user?.name,
-                        email: user?.email,
-                        contact: user?.phone
-                    },
-                    callback_url: `${window.location.origin}/store/${storeId}/payment/callback`
-                }
-            );
-
-            // Close dialog and redirect to payment link
-            setPaymentDialogOpen(false);
-            toast.info('Redirecting to payment page...');
-            window.location.href = paymentLinkData.shortUrl;
+             const { data: paymentOrder } = await createPaymentOrder(orderData);
+             
+             const options = {
+                 key: paymentOrder.razorpay_key_id,
+                 amount: paymentOrder.amount * 100, // Amount is in paise
+                 currency: "INR",
+                 name: store?.name || "Store Payment",
+                 description: paymentOrder.description,
+                 order_id: paymentOrder.razorpay_order_id,
+                 handler: async function (response) {
+                     try {
+                         const verifyData = {
+                             razorpay_order_id: response.razorpay_order_id,
+                             razorpay_payment_id: response.razorpay_payment_id,
+                             razorpay_signature: response.razorpay_signature,
+                             payment_id: paymentOrder.id
+                         };
+                         
+                         await verifyPayment(verifyData);
+                         toast.success('Payment successful!');
+                         window.location.href = `/store/${storeId}/portal?tab=subscriptions`;
+                     } catch (verifyErr) {
+                         console.error(verifyErr);
+                         toast.error(verifyErr.response?.data?.detail || 'Payment verification failed');
+                     } finally {
+                         setPaymentProcessing(false);
+                     }
+                 },
+                 prefill: {
+                     name: user?.name,
+                     email: user?.email,
+                     contact: user?.phone
+                 },
+                 theme: {
+                     color: store?.settings?.primary_color || "#3399cc"
+                 },
+                 modal: {
+                     backdropclose: false,
+                     escape: false,
+                     ondismiss: function() {
+                         setPaymentProcessing(false);
+                     }
+                 }
+             };
+             
+             const rzp1 = new window.Razorpay(options);
+             rzp1.on('payment.failed', function (response){
+                    toast.error(response.error.description);
+                    setPaymentProcessing(false);
+             });
+             
+             // Close dialog to prevent overlay interference with Razorpay popup
+             setPaymentDialogOpen(false);
+             rzp1.open();
 
         } catch (error) {
             console.error(error);

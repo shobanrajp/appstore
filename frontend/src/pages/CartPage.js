@@ -14,8 +14,7 @@ import { useCart } from '../context/CartContext';
 import { formatCurrency, setPageTitle, getImageUrl } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
-import { getAddresses, createAddress, createOrder, getStore, getProducts, estimateShipping } from '../lib/api';
-import { createRazorpayPaymentLink } from '../lib/razorpay';
+import { getAddresses, createAddress, createOrder, createPaymentOrder, verifyPayment, getStore, getProducts, estimateShipping } from '../lib/api';
 
 const CartPage = () => {
   const { storeId } = useParams();
@@ -32,8 +31,6 @@ const CartPage = () => {
   const [calculatingShipping, setCalculatingShipping] = useState(false);
   const [showNewAddress, setShowNewAddress] = useState(false);
   const [processingPayment, setProcessingPayment] = useState(false);
-  // Store the current payment order/token for the duration of a payment attempt
-  const [paymentOrder, setPaymentOrder] = useState(null);
   const [updatingCart, setUpdatingCart] = useState(false);
   const [newAddress, setNewAddress] = useState({
     label: 'Home', full_name: '', phone: '', address_line1: '', address_line2: '',
@@ -109,39 +106,36 @@ const CartPage = () => {
   }, [user]);
 
   // Auto-calculate shipping when address changes
-  // Helper to hash cart items for dependency optimization
-  function cartItemsHash(items) {
-    if (!items) return '';
-    return items.map(i => `${i.product_id}:${i.quantity}`).sort().join('|');
-  }
-
   useEffect(() => {
     const handler = setTimeout(() => {
-      const checkShipping = async () => {
-        if (!selectedAddress || !cart?.items?.length) {
-          setShipping(null);
-          return;
-        }
-        const addr = addresses.find(a => a.id === selectedAddress);
-        if (!addr || !addr.postal_code) return;
-        setCalculatingShipping(true);
-        try {
-          const res = await estimateShipping(storeId, {
-            items: cart.items.map(i => ({ product_id: i.product_id, quantity: i.quantity })),
-            postal_code: addr.postal_code
-          });
-          setShipping(res.data);
-        } catch (error) {
-          console.error("Shipping calc error", error);
-          setShipping({ shipping_charges: 0, error: true });
-        } finally {
-          setCalculatingShipping(false);
-        }
-      };
-      checkShipping();
+        const checkShipping = async () => {
+            if (!selectedAddress || !cart?.items?.length) {
+                setShipping(null);
+                return;
+            }
+            
+            const addr = addresses.find(a => a.id === selectedAddress);
+            if (!addr || !addr.postal_code) return;
+
+            setCalculatingShipping(true);
+            try {
+                const res = await estimateShipping(storeId, {
+                    items: cart.items.map(i => ({ product_id: i.product_id, quantity: i.quantity })),
+                    postal_code: addr.postal_code
+                });
+                setShipping(res.data);
+            } catch (error) {
+                console.error("Shipping calc error", error);
+                setShipping({ shipping_charges: 0, error: true });
+            } finally {
+                setCalculatingShipping(false);
+            }
+        };
+        checkShipping();
     }, 800); // Debounce for 800ms
+
     return () => clearTimeout(handler);
-  }, [selectedAddress, cartItemsHash(cart?.items), addresses, storeId]);
+  }, [selectedAddress, cart?.items, addresses, storeId]);
 
   const updateQuantity = async (itemId, delta) => {
     setUpdatingCart(true);
@@ -210,57 +204,80 @@ const CartPage = () => {
     setProcessingPayment(true);
 
     try {
-      // If a payment order is already in progress, reuse it
-      let orderRes, paymentRes;
-      if (paymentOrder) {
-        orderRes = paymentOrder.orderRes;
-        paymentRes = paymentOrder.paymentRes;
-      } else {
-        // Create order first
-        orderRes = await createOrder(storeId, {
-          items: (cart.items || []).map(item => ({ product_id: item.product_id, quantity: item.quantity, price: item.price })),
-          shipping_address_id: selectedAddress,
-          shipping_charges: shipping ? shipping.shipping_charges : 0, // Pass shipping charges explicitly
-        });
+      // Create order first
+      const orderRes = await createOrder(storeId, {
+        items: (cart.items || []).map(item => ({ product_id: item.product_id, quantity: item.quantity, price: item.price })),
+        shipping_address_id: selectedAddress,
+      });
 
-        // Create Razorpay payment order
-        paymentRes = await createPaymentOrder({
-          amount: finalTotal,
-          description: `Order ${orderRes.data.id}`,
-          store_id: storeId,
-          order_id: orderRes.data.id,
-        });
-        setPaymentOrder({ orderRes, paymentRes });
-      }
+      // Create Razorpay payment order
+      const paymentRes = await createPaymentOrder({
+        amount: finalTotal,
+        currency: store.currency || 'INR',
+        description: `Order ${orderRes.data.id}`,
+        store_id: storeId,
+        order_id: orderRes.data.id,
+      });
 
-      console.log('Razorpay Order:', paymentRes.data.razorpay_order_id, 'Amount:', paymentRes.data.razorpay_amount);
-
-      // Create payment link using the new Razorpay utility
-      const paymentLinkData = await createRazorpayPaymentLink(
-        {
-          amount: finalTotal,
-          description: `Order ${orderRes.data.id}`,
-          store_id: storeId,
-          order_id: orderRes.data.id,
+      // Open Razorpay checkout
+      const options = {
+        key: store.razorpay_key_id,
+        amount: Math.round(finalTotal * 100), // Amount in paise
+        currency: store.currency || 'INR',
+        name: store.name || 'Store',
+        description: `Order ${orderRes.data.id}`,
+        order_id: paymentRes.data.razorpay_order_id,
+        handler: async function (response) {
+          try {
+            // Verify payment on backend
+            await verifyPayment({
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              payment_id: paymentRes.data.id,
+            });
+            toast.success('Payment successful! Order placed.');
+            setCart([]);
+            // Ensure lastVisitedStore is saved for customer portal redirect
+            localStorage.setItem('lastVisitedStore', storeId);
+            // Redirect to order detail page with order ID
+            const orderDetailUrl = `/store/${storeId}/portal?tab=orders&order=${orderRes.data.id}`;
+            console.log('Redirecting to:', orderDetailUrl);
+            navigate(orderDetailUrl);
+          } catch (error) {
+            console.error('Payment verification error:', error);
+            toast.error('Payment verification failed');
+          } finally {
+            setProcessingPayment(false);
+          }
         },
-        {
-          customer: {
-            name: user.name,
-            email: user.email,
-            contact: user.phone || ''
+        prefill: {
+          name: user.name,
+          email: user.email,
+        },
+        theme: {
+          color: '#D4AF37',
+        },
+        modal: {
+          ondismiss: function() {
+            setProcessingPayment(false);
+            toast.info('Payment cancelled');
           },
-          callback_url: `${window.location.origin}/store/${storeId}/payment/callback`
+          escape: false,
+          backdropclose: false
         }
-      );
+      };
 
-      // Redirect to payment link
-      toast.info('Redirecting to payment page...');
-      window.location.href = paymentLinkData.shortUrl;
-
+      const rzp = new window.Razorpay(options);
+      rzp.on('payment.failed', function (response) {
+        console.error('Razorpay payment failed:', response.error);
+        setProcessingPayment(false);
+        toast.error(response.error.description || 'Payment failed');
+      });
+      rzp.open();
     } catch (error) {
       setProcessingPayment(false);
-      setPaymentOrder(null);
-      toast.error(error.response?.data?.detail || 'Payment link creation failed');
+      toast.error(error.response?.data?.detail || 'Checkout failed');
     }
   };
 

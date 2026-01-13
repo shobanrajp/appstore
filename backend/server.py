@@ -1,4 +1,3 @@
-# ==================== IMPORTS ====================
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Query, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
@@ -50,42 +49,6 @@ optional_security = HTTPBearer(auto_error=False)
 
 app = FastAPI(title="Dynamic Web App Configurator")
 api_router = APIRouter(prefix="/api")
-
-# ==================== RAZORPAY LOGGING ====================
-
-class RazorpayLog(BaseModel):
-    id: str
-    store_id: str
-    action: str
-    status: str
-    url: Optional[str] = None
-    request: Optional[dict] = None
-    response: Optional[dict] = None
-    error: Optional[str] = None
-    created_at: str
-
-class PaginatedRazorpayLogResponse(BaseModel):
-    items: List[RazorpayLog]
-    total: int
-    page: int
-    limit: int
-    pages: int
-
-async def log_razorpay(store_id: str, action: str, status: str, url: str = None, request: dict = None, response: dict = None, error: str = None):
-    try:
-        safe_request = request.copy() if request else None
-        await db.razorpay_logs.insert_one({
-            "store_id": store_id,
-            "action": action,
-            "status": status,
-            "url": url,
-            "request": safe_request,
-            "response": response,
-            "error": error,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
-    except Exception as e:
-        print(f"Failed to write razorpay log: {e}")
 
 # ==================== MODELS ====================
 
@@ -314,7 +277,6 @@ class OrderItemCreate(BaseModel):
 class OrderCreate(BaseModel):
     items: List[OrderItemCreate]
     shipping_address_id: str
-    shipping_charges: Optional[float] = 0.0
     notes: Optional[str] = None
 
 class OrderResponse(BaseModel):
@@ -652,30 +614,18 @@ def create_token(user_id: str, email: str, role: str, store_id: Optional[str] = 
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     try:
-        print(f"DEBUG: Received credentials: {credentials}")
-        if not credentials or not credentials.credentials:
-            print("DEBUG: No credentials provided")
-            raise HTTPException(status_code=401, detail="Not authenticated")
         payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         user_id = payload.get("sub")
         if not user_id:
-            print("DEBUG: No user_id in token")
             raise HTTPException(status_code=401, detail="Invalid token")
         user = await db.users.find_one({"id": user_id}, {"_id": 0})
         if not user:
-            print("DEBUG: User not found in database")
             raise HTTPException(status_code=401, detail="User not found")
-        print(f"DEBUG: Authenticated user: {user.get('email')}")
         return user
     except jwt.ExpiredSignatureError:
-        print("DEBUG: Token expired")
         raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError as e:
-        print(f"DEBUG: Invalid token: {e}")
+    except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
-    except Exception as e:
-        print(f"DEBUG: Unexpected error in get_current_user: {e}")
-        raise HTTPException(status_code=401, detail="Not authenticated")
 
 async def get_optional_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security)):
     if not credentials:
@@ -696,23 +646,6 @@ def require_roles(allowed_roles: List[str]):
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         return user
     return role_checker
-
-@api_router.get("/stores/{store_id}/razorpay-logs", response_model=PaginatedRazorpayLogResponse)
-async def get_razorpay_logs(store_id: str, page: int = 1, limit: int = 20, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
-    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    skip = (page - 1) * limit
-    total = await db.razorpay_logs.count_documents({"store_id": store_id})
-    logs = await db.razorpay_logs.find({"store_id": store_id}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
-    items = [RazorpayLog(id=str(l["_id"]), **{k:v for k,v in l.items() if k != "_id"}) for l in logs]
-    pages = ceil(total / limit)
-    return PaginatedRazorpayLogResponse(
-        items=items,
-        total=total,
-        page=page,
-        limit=limit,
-        pages=pages
-    )
 
 # ==================== AUTH ENDPOINTS ====================
 
@@ -1991,12 +1924,10 @@ async def create_order(store_id: str, order_data: OrderCreate, user: dict = Depe
             })
             total += item.quantity * item.price
     
-# Calculate Shipping - Use explicit charge if provided (calculated by frontend), else calculate again
-    shipping_charges = order_data.shipping_charges if order_data.shipping_charges is not None else 0.0
-    
-    # Optional: Re-calculate if security demands, but for now we trust the frontend calculation + display
-    ship_config = await db.store_shipping_config.find_one({"store_id": store_id}) 
-    if shipping_charges == 0 and ship_config and ship_config.get("is_enabled"):
+    # Calculate Shipping
+    shipping_charges = 0.0
+    ship_config = await db.store_shipping_config.find_one({"store_id": store_id})
+    if ship_config and ship_config.get("is_enabled"):
         pickup_zip = ship_config.get("pickup_pincode")
         dest_zip = address.get("postal_code")
         
@@ -3066,44 +2997,24 @@ async def create_payment_order(payment_data: MockPaymentCreate, user: dict = Dep
         receipt = f"order_{receipt_base[:max_receipt_len]}"
         if len(receipt_base) > max_receipt_len:
             print(f"[create_payment_order] Trimming receipt base from {len(receipt_base)} to {max_receipt_len} chars: {receipt}")
-        
-        # Consistent rounding for currency
-        amount_paise = int(round(payment_data.amount * 100))
-        
-        razorpay_url = "https://api.razorpay.com/v1/orders"
-        razorpay_request = {
-            "amount": amount_paise,
-            "currency": "INR",
-            "receipt": receipt,
-        }
         razorpay_response = requests.post(
-            razorpay_url,
+            "https://api.razorpay.com/v1/orders",
             auth=razorpay_auth,
-            json=razorpay_request
+            json={
+                "amount": int(payment_data.amount * 100),  # Convert to paise
+                "currency": "INR",
+                "receipt": receipt,
+            }
         )
-        print(f"[create_payment_order] Razorpay API call: URL={razorpay_url}, status={razorpay_response.status_code}")
-        print(f"[create_payment_order] Razorpay request: {razorpay_request}")
-        print(f"[create_payment_order] Razorpay response: {razorpay_response.text}")
         
-        # Log the Razorpay order creation API call
-        await log_razorpay(
-            store_id=store_id,
-            action="create_order",
-            status="success" if razorpay_response.status_code == 200 else "failed",
-            url=razorpay_url,
-            request=razorpay_request,
-            response=razorpay_response.json() if razorpay_response.content else None,
-            error=None if razorpay_response.status_code == 200 else razorpay_response.text
-        )
         if razorpay_response.status_code != 200:
-            print(f"[create_payment_order] ERROR: Razorpay order creation failed with status {razorpay_response.status_code}")
             raise HTTPException(
                 status_code=400, 
                 detail=f"Failed to create Razorpay order: {razorpay_response.text}"
             )
+        
         razorpay_order = razorpay_response.json()
         razorpay_order_id = razorpay_order["id"]
-        print(f"[create_payment_order] SUCCESS: Created Razorpay order {razorpay_order_id}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Payment gateway error: {str(e)}")
     
@@ -3111,7 +3022,7 @@ async def create_payment_order(payment_data: MockPaymentCreate, user: dict = Dep
         "id": payment_id,
         "user_id": user["id"],
         "amount": payment_data.amount,
-        "razorpay_amount": amount_paise,
+        "razorpay_amount": int(payment_data.amount * 100),
         "description": payment_data.description,
         "subscription_id": payment_data.subscription_id,
         "order_id": payment_data.order_id,
@@ -3193,19 +3104,13 @@ async def trigger_shiprocket_shipment(store_id: str, order_id: str):
         # Parse Date
         order_date = datetime.now().strftime("%Y-%m-%d %H:%M") # Current time as shipment creation time
         
-        # Ensure address fields are correctly mapped
-        billing_name = address.get("full_name") or address.get("name") or user.get("name", "Customer")
-        billing_address = address.get("address_line1") or address.get("street1") or ""
-        if address.get("address_line2") or address.get("street2"):
-            billing_address += " " + (address.get("address_line2") or address.get("street2"))
-        
         payload = {
             "order_id": order_id,
             "order_date": order_date,
             "pickup_location": "Primary", # User might need to configure this in settings but "Primary" is default
-            "billing_customer_name": billing_name,
+            "billing_customer_name": address.get("name") or user.get("name", "Customer"),
             "billing_last_name": "",
-            "billing_address": billing_address,
+            "billing_address": address.get("street1", "") + " " + address.get("street2", ""),
             "billing_city": address.get("city"),
             "billing_pincode": address.get("postal_code"),
             "billing_state": address.get("state"),
@@ -3294,10 +3199,9 @@ async def verify_payment(verification: PaymentVerification, user: dict = Depends
             store = await db.stores.find_one({"id": store_id})
     
     # Verify signature if we have store credentials
-    verification_result = "success"
-    verification_error = None
     if store and store.get("razorpay_key_secret"):
         secret = store["razorpay_key_secret"]
+        
         # Verify signature: HMAC(order_id|payment_id, secret) should equal signature
         message = f"{verification.razorpay_order_id}|{verification.razorpay_payment_id}"
         signature_generated = hmac.new(
@@ -3305,23 +3209,9 @@ async def verify_payment(verification: PaymentVerification, user: dict = Depends
             message.encode(),
             hashlib.sha256
         ).hexdigest()
+        
         if signature_generated != verification.razorpay_signature:
-            verification_result = "failed"
-            verification_error = "Invalid payment signature"
-            await log_razorpay(
-                store_id=store_id,
-                action="verify_payment",
-                status="failed",
-                url=None,
-                request={
-                    "razorpay_order_id": verification.razorpay_order_id,
-                    "razorpay_payment_id": verification.razorpay_payment_id,
-                    "razorpay_signature": verification.razorpay_signature,
-                },
-                response=None,
-                error=verification_error
-            )
-            raise HTTPException(status_code=400, detail=verification_error)
+            raise HTTPException(status_code=400, detail="Invalid payment signature")
     else:
         # If no store found or no secret, try environment variable (for testing)
         env_secret = os.getenv("RAZORPAY_KEY_SECRET")
@@ -3332,40 +3222,12 @@ async def verify_payment(verification: PaymentVerification, user: dict = Depends
                 message.encode(),
                 hashlib.sha256
             ).hexdigest()
+            
             if signature_generated != verification.razorpay_signature:
-                verification_result = "failed"
-                verification_error = "Invalid payment signature"
-                await log_razorpay(
-                    store_id=store_id,
-                    action="verify_payment",
-                    status="failed",
-                    url=None,
-                    request={
-                        "razorpay_order_id": verification.razorpay_order_id,
-                        "razorpay_payment_id": verification.razorpay_payment_id,
-                        "razorpay_signature": verification.razorpay_signature,
-                    },
-                    response=None,
-                    error=verification_error
-                )
-                raise HTTPException(status_code=400, detail=verification_error)
+                raise HTTPException(status_code=400, detail="Invalid payment signature")
+        # If no env var either, skip verification (not ideal but allows dev/test)
         else:
             print(f"[verify_payment] Warning: Could not verify signature for payment {verification.payment_id} - no store or env secret found")
-    # Log successful verification
-    if verification_result == "success":
-        await log_razorpay(
-            store_id=store_id,
-            action="verify_payment",
-            status="success",
-            url=None,
-            request={
-                "razorpay_order_id": verification.razorpay_order_id,
-                "razorpay_payment_id": verification.razorpay_payment_id,
-                "razorpay_signature": verification.razorpay_signature,
-            },
-            response={"message": "Payment verified"},
-            error=None
-        )
     
     # Update payment as completed
     await db.payments.update_one(
@@ -3522,317 +3384,6 @@ async def verify_payment(verification: PaymentVerification, user: dict = Depends
             )
     
     return {"message": "Payment verified successfully", "status": "completed"}
-
-class PaymentLinkCreate(BaseModel):
-    amount: float
-    description: str
-    customer_name: str
-    customer_email: str
-    customer_contact: str
-    subscription_id: Optional[str] = None
-    order_id: Optional[str] = None
-    store_id: Optional[str] = None
-    callback_url: Optional[str] = None
-    callback_method: Optional[str] = "get"
-
-class PaymentLinkResponse(BaseModel):
-    id: str
-    payment_link_id: str
-    short_url: str
-    amount: float
-    description: str
-    status: str
-    created_at: str
-
-@api_router.post("/payments/create-link", response_model=PaymentLinkResponse)
-async def create_payment_link(payment_data: PaymentLinkCreate, user: dict = Depends(get_current_user)):
-    """Create a Razorpay payment link"""
-    payment_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
-    
-    # Check database connection
-    if not db:
-        raise HTTPException(status_code=500, detail="Database connection not available")
-    
-    print(f"[create_payment_link] Received: store_id={payment_data.store_id}, order_id={payment_data.order_id}, subscription_id={payment_data.subscription_id}")
-    
-    # Get store to fetch Razorpay credentials
-    store = None
-    store_id = None
-    
-    # 1) Explicit store_id provided
-    if payment_data.store_id:
-        store = await db.stores.find_one({"id": payment_data.store_id})
-        store_id = payment_data.store_id
-        print(f"[create_payment_link] Step 1: Lookup by store_id={payment_data.store_id}, found={store is not None}")
-    
-    # 2) Derive from order_id
-    if not store and payment_data.order_id:
-        order = await db.orders.find_one({"id": payment_data.order_id})
-        if order:
-            store_id = order.get("store_id")
-            store = await db.stores.find_one({"id": store_id})
-            print(f"[create_payment_link] Step 2: Lookup by order.store_id, found={store is not None}")
-    
-    # 3) Derive from subscription_id
-    if not store and payment_data.subscription_id:
-        sub = await db.user_subscriptions.find_one({"id": payment_data.subscription_id})
-        if sub:
-            store_id = sub.get("store_id")
-            store = await db.stores.find_one({"id": store_id})
-            print(f"[create_payment_link] Step 3: Lookup by subscription.store_id, found={store is not None}")
-    
-    if not store:
-        raise HTTPException(status_code=400, detail="Store not found for payment")
-    
-    # Ensure we have Razorpay credentials
-    razorpay_key_id = store.get("razorpay_key_id")
-    razorpay_key_secret = store.get("razorpay_key_secret")
-    
-    if not razorpay_key_id or not razorpay_key_secret:
-        # Fallback to environment variables
-        env_key = os.getenv("RAZORPAY_KEY_ID")
-        env_secret = os.getenv("RAZORPAY_KEY_SECRET")
-        env = os.getenv("ENVIRONMENT", "development")
-        
-        if env_key and env_secret and env != "production":
-            razorpay_key_id = env_key
-            razorpay_key_secret = env_secret
-        else:
-            raise HTTPException(status_code=400, detail=f"Store payment configuration not found. Please configure Razorpay for store {store_id}")
-    
-    # Create Razorpay payment link
-    try:
-        razorpay_auth = (razorpay_key_id, razorpay_key_secret)
-        amount_paise = int(round(payment_data.amount * 100))
-        
-        # Build callback URL
-        base_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
-        callback_url = payment_data.callback_url or f"{base_url}/payment/callback"
-        
-        razorpay_url = "https://api.razorpay.com/v1/payment_links"
-        razorpay_request = {
-            "amount": amount_paise,
-            "currency": "INR",
-            "expire_by": int((datetime.now(timezone.utc) + timedelta(hours=24)).timestamp()),
-            "reference_id": payment_id,
-            "description": payment_data.description,
-            "customer": {
-                "name": payment_data.customer_name,
-                "email": payment_data.customer_email,
-                "contact": payment_data.customer_contact or ""
-            },
-            "notify": {
-                "sms": True,
-                "email": True
-            },
-            "notes": {
-                "store_id": store_id,
-                "order_id": payment_data.order_id,
-                "subscription_id": payment_data.subscription_id,
-                "user_id": user["id"]
-            },
-            "callback_url": callback_url,
-            "callback_method": payment_data.callback_method
-        }
-        
-        razorpay_response = requests.post(
-            razorpay_url,
-            auth=razorpay_auth,
-            json=razorpay_request
-        )
-        
-        print(f"[create_payment_link] Razorpay API call: URL={razorpay_url}, status={razorpay_response.status_code}")
-        print(f"[create_payment_link] Razorpay request: {razorpay_request}")
-        print(f"[create_payment_link] Razorpay response: {razorpay_response.text}")
-        
-        # Log the API call
-        await log_razorpay(
-            store_id=store_id,
-            action="create_payment_link",
-            status="success" if razorpay_response.status_code == 200 else "failed",
-            url=razorpay_url,
-            request=razorpay_request,
-            response=razorpay_response.json() if razorpay_response.content else None,
-            error=None if razorpay_response.status_code == 200 else razorpay_response.text
-        )
-        
-        if razorpay_response.status_code != 200:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Failed to create Razorpay payment link: {razorpay_response.text}"
-            )
-        
-        payment_link_data = razorpay_response.json()
-        
-        # Store payment link info in database
-        payment_link_doc = {
-            "id": payment_id,
-            "user_id": user["id"],
-            "amount": payment_data.amount,
-            "razorpay_amount": amount_paise,
-            "description": payment_data.description,
-            "subscription_id": payment_data.subscription_id,
-            "order_id": payment_data.order_id,
-            "store_id": store_id,
-            "status": "created",
-            "razorpay_payment_link_id": payment_link_data["id"],
-            "short_url": payment_link_data["short_url"],
-            "razorpay_key_id": razorpay_key_id,
-            "customer_name": payment_data.customer_name,
-            "customer_email": payment_data.customer_email,
-            "customer_contact": payment_data.customer_contact,
-            "created_at": now
-        }
-        
-        await db.payment_links.insert_one(payment_link_doc)
-        
-        return PaymentLinkResponse(
-            id=payment_id,
-            payment_link_id=payment_link_data["id"],
-            short_url=payment_link_data["short_url"],
-            amount=payment_data.amount,
-            description=payment_data.description,
-            status="created",
-            created_at=now
-        )
-        
-    except Exception as e:
-        print(f"[create_payment_link] ERROR: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Payment gateway error: {str(e)}")
-
-@api_router.post("/payments/links/verify")
-async def verify_payment_link(request: Request):
-    """Verify Razorpay payment link webhook"""
-    try:
-        # Get raw body for signature verification
-        body = await request.body()
-        signature = request.headers.get("X-Razorpay-Signature")
-        
-        if not signature:
-            raise HTTPException(status_code=400, detail="Missing signature")
-        
-        # For now, we'll trust the webhook and process the payment
-        # In production, you should verify the webhook signature
-        webhook_data = await request.json()
-        
-        print(f"[verify_payment_link] Webhook received: {webhook_data}")
-        
-        # Extract payment information
-        payment_entity = webhook_data.get("payment", {})
-        payment_link_entity = webhook_data.get("payment_link", {})
-        
-        if not payment_entity or not payment_link_entity:
-            return {"status": "ignored"}
-        
-        payment_link_id = payment_link_entity.get("id")
-        payment_id = payment_entity.get("id")
-        amount = payment_entity.get("amount", 0) / 100  # Convert from paise
-        status = payment_entity.get("status")
-        
-        # Find the payment link in our database
-        payment_link_doc = await db.payment_links.find_one({"razorpay_payment_link_id": payment_link_id})
-        if not payment_link_doc:
-            print(f"[verify_payment_link] Payment link not found: {payment_link_id}")
-            return {"status": "ignored"}
-        
-        # Update payment link status
-        await db.payment_links.update_one(
-            {"razorpay_payment_link_id": payment_link_id},
-            {"$set": {
-                "status": "paid" if status == "captured" else "failed",
-                "razorpay_payment_id": payment_id,
-                "paid_at": datetime.now(timezone.utc).isoformat()
-            }}
-        )
-        
-        # If payment was successful, create/update payment record and trigger business logic
-        if status == "captured":
-            # Create or update payment record
-            payment_doc = {
-                "id": payment_link_doc["id"],
-                "user_id": payment_link_doc["user_id"],
-                "amount": amount,
-                "razorpay_amount": payment_entity.get("amount", 0),
-                "description": payment_link_doc["description"],
-                "subscription_id": payment_link_doc.get("subscription_id"),
-                "order_id": payment_link_doc.get("order_id"),
-                "status": "completed",
-                "razorpay_payment_id": payment_id,
-                "razorpay_payment_link_id": payment_link_id,
-                "razorpay_key_id": payment_link_doc["razorpay_key_id"],
-                "created_at": payment_link_doc["created_at"],
-                "completed_at": datetime.now(timezone.utc).isoformat()
-            }
-            
-            # Check if payment already exists
-            existing_payment = await db.payments.find_one({"id": payment_link_doc["id"]})
-            if existing_payment:
-                await db.payments.update_one(
-                    {"id": payment_link_doc["id"]},
-                    {"$set": payment_doc}
-                )
-            else:
-                await db.payments.insert_one(payment_doc)
-            
-            # Trigger business logic (same as verify_payment)
-            await trigger_payment_completion_logic(payment_link_doc["id"])
-        
-        return {"status": "ok"}
-        
-    except Exception as e:
-        print(f"[verify_payment_link] ERROR: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Webhook processing error: {str(e)}")
-
-async def trigger_payment_completion_logic(payment_id: str):
-    """Trigger the same business logic as verify_payment"""
-    payment = await db.payments.find_one({"id": payment_id})
-    if not payment:
-        return
-    
-    # Update order status if it's an order payment
-    if payment.get("order_id"):
-        order = await db.orders.find_one({"id": payment["order_id"]})
-        if order:
-            await db.orders.update_one(
-                {"id": payment["order_id"]},
-                {"$set": {
-                    "status": "placed",
-                    "payment_status": "paid",
-                    "payment_method": "online"
-                }}
-            )
-            # Trigger Shiprocket
-            try:
-                await trigger_shiprocket_shipment(order["store_id"], payment["order_id"])
-            except Exception as e:
-                print(f"Async shiprocket trigger failed: {e}")
-    
-    # Update subscription if it's a subscription payment
-    if payment.get("subscription_id"):
-        sub = await db.user_subscriptions.find_one({"id": payment["subscription_id"]})
-        if sub:
-            # Handle different subscription payment types
-            if payment.get("type") == "closure":
-                # Handle closure payment logic (same as verify_payment)
-                pass
-            else:
-                # Handle regular subscription payment
-                new_payments = sub["payments_made"] + 1
-                new_total = sub["total_paid"] + payment["amount"]
-                
-                update_fields = {
-                    "payments_made": new_payments, 
-                    "total_paid": new_total
-                }
-                
-                # Add weight calculation logic here if needed
-                # (Same logic as in verify_payment)
-                
-                await db.user_subscriptions.update_one(
-                    {"id": payment["subscription_id"]},
-                    {"$set": update_fields}
-                )
 
 # ==================== PROFILE ENDPOINTS ====================
 

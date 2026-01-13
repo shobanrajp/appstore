@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, Link, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getStore, getProducts, getSubscriptionPlans, getPageConfig, subscribeToPlan, getInventory } from '../lib/api';
-import { createRazorpayPaymentLink } from '../lib/razorpay';
+import { getStore, getProducts, getSubscriptionPlans, getPageConfig, subscribeToPlan, createPaymentOrder, verifyPayment, getInventory } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -1149,32 +1148,59 @@ const StoreFront = () => {
                 monthly_amount: amount
             });
 
-            // Create payment link using the new Razorpay utility
-            const paymentLinkData = await createRazorpayPaymentLink(
-                {
-                    amount: amount,
-                    description: `${selectedPlan.name} - First Installment`,
-                    store_id: storeId,
-                    subscription_id: subRes.data.id,
-                    order_id: subRes.data.order_id
+            const paymentRes = await createPaymentOrder({
+                amount: amount,
+                currency: store.currency || 'INR',
+                description: `${selectedPlan.name} - First Installment`,
+                store_id: storeId,
+                subscription_id: subRes.data.id,
+                order_id: subRes.data.order_id // Include subscription order_id so backend can find store config reliably
+            });
+
+            // Open Razorpay checkout
+            const options = {
+                key: store.razorpay_key_id,
+                amount: Math.round(amount * 100), // Amount in paise
+                currency: store.currency || 'INR',
+                name: store.name || 'Store',
+                description: `${selectedPlan.name} - First Installment`,
+                order_id: paymentRes.data.razorpay_order_id,
+                handler: async function (response) {
+                    try {
+                        await verifyPayment({
+                            razorpay_order_id: response.razorpay_order_id,
+                            razorpay_payment_id: response.razorpay_payment_id,
+                            razorpay_signature: response.razorpay_signature,
+                            payment_id: paymentRes.data.id,
+                        });
+                        toast.success('Subscribed successfully! First payment completed.');
+                        setSubscribeOpen(false);
+                        setSelectedPlan(null);
+                        setChosenMonthlyAmount('');
+                        navigate(`/store/${storeId}/portal?tab=subscriptions`);
+                    } catch (error) {
+                        toast.error('Payment verification failed');
+                    } finally {
+                        setProcessingPayment(false);
+                    }
                 },
-                {
-                    customer: {
-                        name: user.name,
-                        email: user.email,
-                        contact: user.phone || ''
-                    },
-                    callback_url: `${window.location.origin}/store/${storeId}/payment/callback`
+                prefill: {
+                    name: user.name,
+                    email: user.email,
+                },
+                theme: {
+                    color: '#D4AF37',
+                },
+                modal: {
+                    ondismiss: function() {
+                        setProcessingPayment(false);
+                        toast.error('Payment cancelled');
+                    }
                 }
-            );
+            };
 
-            // Close dialog and redirect to payment link
-            setSubscribeOpen(false);
-            setSelectedPlan(null);
-            setChosenMonthlyAmount('');
-            toast.info('Redirecting to payment page...');
-            window.location.href = paymentLinkData.shortUrl;
-
+            const rzp = new window.Razorpay(options);
+            rzp.open();
         } catch (error) {
             setProcessingPayment(false);
             toast.error(error.response?.data?.detail || 'Subscription failed');

@@ -37,7 +37,6 @@ import MarketPriceSettings from '../components/MarketPriceSettings';
 import StoreSettings from '../components/StoreSettings';
 import StoreTaxConfig from '../components/StoreTaxConfig';
 import ShiprocketLogs from '../components/admin/ShiprocketLogs';
-import RazorpayLogs from '../components/admin/RazorpayLogs';
 import MediaLibrary from '../components/admin/MediaLibrary';
 import { Image as ImageIcon } from 'lucide-react';
 
@@ -1030,13 +1029,6 @@ const StoreAdminDashboard = () => {
                                     onClick={() => setActiveTab('shiprocket-logs')}
                                 >
                                     <FileText className="w-4 h-4 mr-2" /> Shiprocket Logs
-                                </Button>
-                                <Button
-                                    variant={activeTab === 'razorpay-logs' ? 'secondary' : 'ghost'}
-                                    className="w-full justify-start"
-                                    onClick={() => setActiveTab('razorpay-logs')}
-                                >
-                                    <FileText className="w-4 h-4 mr-2" /> Razorpay Logs
                                 </Button>
                                 <Button
                                     variant={activeTab === 'media' ? 'secondary' : 'ghost'}
@@ -2888,16 +2880,9 @@ const StoreAdminDashboard = () => {
                         </div>
                     )}
 
-
                     {activeTab === 'shiprocket-logs' && (
                         <div className="space-y-6">
                             <ShiprocketLogs storeId={store.id} />
-                        </div>
-                    )}
-
-                    {activeTab === 'razorpay-logs' && (
-                        <div className="space-y-6">
-                            <RazorpayLogs storeId={store.id} />
                         </div>
                     )}
 
