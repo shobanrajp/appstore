@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getStore, getSubscriptionPlans, subscribeToPlan, getMarketPrices, getStoreTaxConfig } from '../lib/api';
-import { createRazorpayPayment } from '../lib/razorpay';
+import { createRazorpayPaymentLink } from '../lib/razorpay';
 import { formatCurrency, setPageTitle } from '../lib/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -120,8 +120,8 @@ const PlanDetail = () => {
 
             console.log('[PlanDetail] Subscription created:', subRes.data);
 
-            // Create payment using the new Razorpay utility
-            await createRazorpayPayment(
+            // Create payment link using the new Razorpay utility
+            const paymentLinkData = await createRazorpayPaymentLink(
                 {
                     amount: amountValue,
                     description: `${plan.name} - First Installment`,
@@ -130,31 +130,18 @@ const PlanDetail = () => {
                     order_id: subRes.data.order_id
                 },
                 {
-                    name: store.name || 'Store',
-                    description: `${plan.name} - First Installment`,
-                    prefill: {
+                    customer: {
                         name: user.name,
                         email: user.email,
-                        contact: user.phone
+                        contact: user.phone || ''
                     },
-                    theme: {
-                        color: store.settings?.primary_color || '#D4AF37'
-                    },
-                    onSuccess: (response, orderData) => {
-                        toast.success('Subscribed successfully! First payment completed.');
-                        navigate(`/store/${storeId}/portal?tab=subscriptions`);
-                    },
-                    onError: (error) => {
-                        console.error('Payment failed:', error);
-                        toast.error(error?.description || error?.message || 'Payment failed');
-                        setProcessingPayment(false);
-                    },
-                    onCancel: () => {
-                        setProcessingPayment(false);
-                        toast.info('Payment cancelled');
-                    }
+                    callback_url: `${window.location.origin}/store/${storeId}/payment/callback`
                 }
             );
+
+            // Redirect to payment link
+            toast.info('Redirecting to payment page...');
+            window.location.href = paymentLinkData.shortUrl;
 
         } catch (error) {
             console.error('[PlanDetail] Subscription/payment failed:', error);

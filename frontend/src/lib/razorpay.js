@@ -1,4 +1,4 @@
-import { createPaymentOrder, verifyPayment } from './api';
+import { createPaymentOrder, createPaymentLink, verifyPayment } from './api';
 
 /**
  * Modern Razorpay Payment Integration
@@ -185,6 +185,45 @@ class RazorpayPayment {
     }
 
     /**
+     * Create a payment link and return the URL for redirection
+     * @param {Object} paymentData - Payment data
+     * @param {Object} options - Payment link options
+     * @returns {Promise} - Resolves with payment link data
+     */
+    async createPaymentLink(paymentData, options = {}) {
+        try {
+            console.log('[RazorpayPayment] Creating payment link:', paymentData);
+
+            // Create payment link on backend
+            const paymentLinkResponse = await createPaymentLink({
+                amount: paymentData.amount,
+                description: paymentData.description,
+                customer_name: options.customer?.name || '',
+                customer_email: options.customer?.email || '',
+                customer_contact: options.customer?.contact || '',
+                subscription_id: paymentData.subscription_id,
+                order_id: paymentData.order_id,
+                store_id: paymentData.store_id,
+                callback_url: options.callback_url,
+                callback_method: options.callback_method || 'get'
+            });
+
+            console.log('[RazorpayPayment] Payment link created:', paymentLinkResponse.data);
+
+            return {
+                paymentLinkId: paymentLinkResponse.data.payment_link_id,
+                shortUrl: paymentLinkResponse.data.short_url,
+                amount: paymentLinkResponse.data.amount,
+                description: paymentLinkResponse.data.description
+            };
+
+        } catch (error) {
+            console.error('[RazorpayPayment] Payment link creation failed:', error);
+            throw error;
+        }
+    }
+
+    /**
      * Close the current Razorpay checkout
      */
     close() {
@@ -201,6 +240,9 @@ export const razorpayPayment = new RazorpayPayment();
 // Export convenience functions
 export const createRazorpayPayment = (paymentData, options) =>
     razorpayPayment.createPayment(paymentData, options);
+
+export const createRazorpayPaymentLink = (paymentData, options) =>
+    razorpayPayment.createPaymentLink(paymentData, options);
 
 export const closeRazorpayPayment = () =>
     razorpayPayment.close();

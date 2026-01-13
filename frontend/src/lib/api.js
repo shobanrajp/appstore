@@ -181,6 +181,7 @@ export const updatePageConfig = (storeId, configId, data) => api.put(`/stores/${
 
 // Payments (Razorpay)
 export const createPaymentOrder = (data) => api.post('/payments/create-order', data);
+export const createPaymentLink = (data) => api.post('/payments/create-link', data);
 export const verifyPayment = (data) => api.post('/payments/verify', data);
 
 export default api;

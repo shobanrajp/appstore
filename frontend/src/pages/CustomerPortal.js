@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useNavigate, Link, useSearchParams, useParams } from 'react-router-dom';
 import { getMyOrders, getMySubscriptions, getAddresses, createAddress, deleteAddress, updateAddress, updateProfile, updatePassword, paySubscription, getProduct, getStore, getSubscriptionDetails, getSubscriptionPlans, getStoreTaxConfig, getMarketPrices, getSubscriptionTransactions, previewClosure, initiateClosure } from '../lib/api';
-import { createRazorpayPayment } from '../lib/razorpay';
+import { createRazorpayPaymentLink } from '../lib/razorpay';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -372,8 +372,8 @@ const CustomerPortal = () => {
                 return;
             }
 
-            // Create payment using the new Razorpay utility
-            await createRazorpayPayment(
+            // Create payment link using the new Razorpay utility
+            const paymentLinkData = await createRazorpayPaymentLink(
                 {
                     amount: paymentOrder.amount,
                     description: paymentOrder.description,
@@ -381,30 +381,18 @@ const CustomerPortal = () => {
                     order_id: paymentOrder.razorpay_order_id
                 },
                 {
-                    name: store?.name || "Store Payment",
-                    description: paymentOrder.description,
-                    prefill: {
+                    customer: {
                         name: user?.name,
                         email: user?.email,
                         contact: user?.phone
                     },
-                    theme: {
-                        color: "#d4af37"
-                    },
-                    onSuccess: (response, orderData) => {
-                        toast.success('Subscription Closed Successfully!');
-                        window.location.href = `/store/${storeId}/portal?tab=orders`;
-                    },
-                    onError: (error) => {
-                        console.error('Payment failed:', error);
-                        toast.error(error?.description || error?.message || 'Payment failed');
-                        setPaymentProcessing(false);
-                    },
-                    onCancel: () => {
-                        setPaymentProcessing(false);
-                    }
+                    callback_url: `${window.location.origin}/store/${storeId}/payment/callback`
                 }
             );
+
+            // Redirect to payment link
+            toast.info('Redirecting to payment page...');
+            window.location.href = paymentLinkData.shortUrl;
 
         } catch (error) {
             console.error(error);
@@ -439,8 +427,8 @@ const CustomerPortal = () => {
             // Close dialog to prevent overlay interference with Razorpay popup
             setPaymentDialogOpen(false);
 
-            // Create payment using the new Razorpay utility
-            await createRazorpayPayment(
+            // Create payment link using the new Razorpay utility
+            const paymentLinkData = await createRazorpayPaymentLink(
                 {
                     amount: amountToPay,
                     description: paymentOrder.description,
@@ -449,30 +437,19 @@ const CustomerPortal = () => {
                     order_id: selectedSubscription.id
                 },
                 {
-                    name: store?.name || "Store Payment",
-                    description: paymentOrder.description,
-                    prefill: {
+                    customer: {
                         name: user?.name,
                         email: user?.email,
                         contact: user?.phone
                     },
-                    theme: {
-                        color: store?.settings?.primary_color || "#3399cc"
-                    },
-                    onSuccess: (response, orderData) => {
-                        toast.success('Payment successful!');
-                        window.location.href = `/store/${storeId}/portal?tab=subscriptions`;
-                    },
-                    onError: (error) => {
-                        console.error('Payment failed:', error);
-                        toast.error(error?.description || error?.message || 'Payment failed');
-                        setPaymentProcessing(false);
-                    },
-                    onCancel: () => {
-                        setPaymentProcessing(false);
-                    }
+                    callback_url: `${window.location.origin}/store/${storeId}/payment/callback`
                 }
             );
+
+            // Close dialog and redirect to payment link
+            setPaymentDialogOpen(false);
+            toast.info('Redirecting to payment page...');
+            window.location.href = paymentLinkData.shortUrl;
 
         } catch (error) {
             console.error(error);

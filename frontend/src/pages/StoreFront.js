@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams, Link, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { getStore, getProducts, getSubscriptionPlans, getPageConfig, subscribeToPlan, getInventory } from '../lib/api';
-import { createRazorpayPayment } from '../lib/razorpay';
+import { createRazorpayPaymentLink } from '../lib/razorpay';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -1149,8 +1149,8 @@ const StoreFront = () => {
                 monthly_amount: amount
             });
 
-            // Create payment using the new Razorpay utility
-            await createRazorpayPayment(
+            // Create payment link using the new Razorpay utility
+            const paymentLinkData = await createRazorpayPaymentLink(
                 {
                     amount: amount,
                     description: `${selectedPlan.name} - First Installment`,
@@ -1159,33 +1159,21 @@ const StoreFront = () => {
                     order_id: subRes.data.order_id
                 },
                 {
-                    name: store.name || 'Store',
-                    description: `${selectedPlan.name} - First Installment`,
-                    prefill: {
+                    customer: {
                         name: user.name,
                         email: user.email,
+                        contact: user.phone || ''
                     },
-                    theme: {
-                        color: '#D4AF37',
-                    },
-                    onSuccess: (response, orderData) => {
-                        toast.success('Subscribed successfully! First payment completed.');
-                        setSubscribeOpen(false);
-                        setSelectedPlan(null);
-                        setChosenMonthlyAmount('');
-                        navigate(`/store/${storeId}/portal?tab=subscriptions`);
-                    },
-                    onError: (error) => {
-                        console.error('Payment failed:', error);
-                        toast.error(error?.description || error?.message || 'Payment failed');
-                        setProcessingPayment(false);
-                    },
-                    onCancel: () => {
-                        setProcessingPayment(false);
-                        toast.error('Payment cancelled');
-                    }
+                    callback_url: `${window.location.origin}/store/${storeId}/payment/callback`
                 }
             );
+
+            // Close dialog and redirect to payment link
+            setSubscribeOpen(false);
+            setSelectedPlan(null);
+            setChosenMonthlyAmount('');
+            toast.info('Redirecting to payment page...');
+            window.location.href = paymentLinkData.shortUrl;
 
         } catch (error) {
             setProcessingPayment(false);

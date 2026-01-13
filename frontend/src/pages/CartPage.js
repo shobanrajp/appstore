@@ -15,7 +15,7 @@ import { formatCurrency, setPageTitle, getImageUrl } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
 import { getAddresses, createAddress, createOrder, getStore, getProducts, estimateShipping } from '../lib/api';
-import { createRazorpayPayment } from '../lib/razorpay';
+import { createRazorpayPaymentLink } from '../lib/razorpay';
 
 const CartPage = () => {
   const { storeId } = useParams();
@@ -235,8 +235,8 @@ const CartPage = () => {
 
       console.log('Razorpay Order:', paymentRes.data.razorpay_order_id, 'Amount:', paymentRes.data.razorpay_amount);
 
-      // Create payment using the new Razorpay utility
-      await createRazorpayPayment(
+      // Create payment link using the new Razorpay utility
+      const paymentLinkData = await createRazorpayPaymentLink(
         {
           amount: finalTotal,
           description: `Order ${orderRes.data.id}`,
@@ -244,41 +244,23 @@ const CartPage = () => {
           order_id: orderRes.data.id,
         },
         {
-          name: store.name || 'Store',
-          description: `Order ${orderRes.data.id}`,
-          prefill: {
+          customer: {
             name: user.name,
             email: user.email,
+            contact: user.phone || ''
           },
-          theme: {
-            color: '#D4AF37',
-          },
-          onSuccess: (response, orderData) => {
-            toast.success('Payment successful! Order placed.');
-            setCart([]);
-            setPaymentOrder(null);
-            localStorage.setItem('lastVisitedStore', storeId);
-            const orderDetailUrl = `/store/${storeId}/portal?tab=orders&order=${orderRes.data.id}`;
-            navigate(orderDetailUrl);
-          },
-          onError: (error) => {
-            console.error('Payment failed:', error);
-            toast.error(error?.description || error?.message || 'Payment failed');
-            setProcessingPayment(false);
-            setPaymentOrder(null);
-          },
-          onCancel: () => {
-            setProcessingPayment(false);
-            setPaymentOrder(null);
-            toast.info('Payment cancelled');
-          }
+          callback_url: `${window.location.origin}/store/${storeId}/payment/callback`
         }
       );
+
+      // Redirect to payment link
+      toast.info('Redirecting to payment page...');
+      window.location.href = paymentLinkData.shortUrl;
 
     } catch (error) {
       setProcessingPayment(false);
       setPaymentOrder(null);
-      toast.error(error.response?.data?.detail || 'Checkout failed');
+      toast.error(error.response?.data?.detail || 'Payment link creation failed');
     }
   };
 

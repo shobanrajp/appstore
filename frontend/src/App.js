@@ -22,6 +22,7 @@ import CustomerPortal from './pages/CustomerPortal';
 import StoreLogin from './pages/StoreLogin';
 import StoreRegister from './pages/StoreRegister';
 import CartPage from './pages/CartPage';
+import PaymentCallback from './pages/PaymentCallback';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
     const { user, loading } = useAuth();
@@ -105,6 +106,7 @@ function AppRoutes() {
             <Route path="/store/:storeId/category/:category" element={<CategoryProducts />} />
             <Route path="/store/:storeId/products" element={<StoreProducts />} />
             <Route path="/store/:storeId/cart" element={<CartPage />} />
+            <Route path="/store/:storeId/payment/callback" element={<PaymentCallback />} />
             <Route path="/store/:storeId/plans" element={<StorePlans />} />
             <Route path="/store/:storeId/plan/:planId" element={<PlanDetail />} />
             <Route path="/store/:storeId/contact" element={<StoreContact />} />
