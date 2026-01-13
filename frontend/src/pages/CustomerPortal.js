@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useNavigate, Link, useSearchParams, useParams } from 'react-router-dom';
-import { getMyOrders, getMySubscriptions, getAddresses, createAddress, deleteAddress, updateProfile, updatePassword, paySubscription, getProduct, getStore, getSubscriptionDetails, getSubscriptionPlans, getStoreTaxConfig, getMarketPrices, getSubscriptionTransactions, createPaymentOrder, verifyPayment, previewClosure, initiateClosure } from '../lib/api';
+import { getMyOrders, getMySubscriptions, getAddresses, createAddress, deleteAddress, updateAddress, updateProfile, updatePassword, paySubscription, getProduct, getStore, getSubscriptionDetails, getSubscriptionPlans, getStoreTaxConfig, getMarketPrices, getSubscriptionTransactions, previewClosure, initiateClosure } from '../lib/api';
+import { createRazorpayPayment } from '../lib/razorpay';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -15,20 +16,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Progress } from '../components/ui/progress';
 import { toast } from 'sonner';
 import { User, Package, CreditCard, MapPin, LogOut, Plus, Trash2, Edit2, IndianRupee, History } from 'lucide-react';
-import { formatCurrency, formatDate, getStatusColor, setPageTitle, formatDateTime } from '../lib/utils';
+import { formatCurrency, formatDate, getStatusColor, setPageTitle, formatDateTime, getImageUrl } from '../lib/utils';
 import StoreHeader from '../components/StoreHeader';
 import StoreFooter from '../components/StoreFooter';
 import LoadingOverlay from '../components/LoadingOverlay';
-
-const loadRazorpay = () => {
-    return new Promise((resolve) => {
-        const script = document.createElement('script');
-        script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-        script.onload = () => resolve(true);
-        script.onerror = () => resolve(false);
-        document.body.appendChild(script);
-    });
-};
 
 const CustomerPortal = () => {
     const { storeId } = useParams();
@@ -38,6 +29,13 @@ const CustomerPortal = () => {
     const [searchParams] = useSearchParams();
     const [store, setStore] = useState(null);
     const [orders, setOrders] = useState([]);
+    
+    // Pagination State for Orders
+    const [orderPage, setOrderPage] = useState(1);
+    const [orderLimit] = useState(10);
+    const [orderTotalPages, setOrderTotalPages] = useState(1);
+    const [loadingOrders, setLoadingOrders] = useState(false);
+
     const [subscriptions, setSubscriptions] = useState([]);
     const [plans, setPlans] = useState([]);
     const [addresses, setAddresses] = useState([]);
@@ -55,6 +53,7 @@ const CustomerPortal = () => {
     const [closurePreview, setClosurePreview] = useState(null);
     const [selectedAddressId, setSelectedAddressId] = useState('');
     const [closureLoading, setClosureLoading] = useState(false);
+    const [editingAddressId, setEditingAddressId] = useState(null);
 
     const [newAddress, setNewAddress] = useState({
         label: 'Home', full_name: '', phone: '', address_line1: '', address_line2: '',
@@ -105,41 +104,24 @@ const CustomerPortal = () => {
         }
     }, [plans, activeTab, loading]);
 
-    const loadData = async () => {
+    useEffect(() => {
+        if (user) {
+            fetchOrders(orderPage);
+        }
+    }, [user, orderPage]);
+
+    const fetchOrders = async (page = 1) => {
+        setLoadingOrders(true);
         try {
-            const [storeRes, ordersRes, subsRes, addrsRes, plansRes, taxRes, pricesRes] = await Promise.all([
-                getStore(storeId),
-                getMyOrders(),
-                getMySubscriptions(),
-                getAddresses(),
-                getSubscriptionPlans(storeId).catch(() => ({ data: [] })),
-                getStoreTaxConfig(storeId).catch(() => ({ data: null })),
-                getMarketPrices(storeId).catch(() => ({ data: { prices: {} } }))
-            ]);
-            setStore(storeRes.data);
-            setPageTitle(storeRes.data, 'Account');
-            setPlans(plansRes.data || []);
-            setTaxConfig(taxRes.data);
-            setMarketPrices(pricesRes.data?.prices || {});
-            const rawOrders = ordersRes.data || [];
-            // Sort orders by created_at timestamp (most recent first)
-            rawOrders.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-            setOrders(rawOrders);
+            const res = await getMyOrders(page, orderLimit);
+            let rawOrders = [];
             
-            // Fetch payment history for each subscription
-            const subsWithPayments = await Promise.all(
-                (subsRes.data || []).map(async (sub) => {
-                    try {
-                        const txnRes = await getSubscriptionTransactions(sub.id);
-                        return { ...sub, payments: txnRes.data || [] };
-                    } catch (e) {
-                        console.error(`Failed to load payments for subscription ${sub.id}`, e);
-                        return { ...sub, payments: [] };
-                    }
-                })
-            );
-            setSubscriptions(subsWithPayments);
-            setAddresses(addrsRes.data);
+            if (res.data && Array.isArray(res.data.items)) {
+                rawOrders = res.data.items;
+                setOrderTotalPages(res.data.pages || 1);
+            } else if (Array.isArray(res.data)) {
+                rawOrders = res.data;
+            }
 
             // Hydrate order items with images if missing
             try {
@@ -156,6 +138,7 @@ const CustomerPortal = () => {
                         }
                     }
                 }
+                
                 if (fetches.length > 0) {
                     const results = await Promise.all(fetches);
                     const imageMap = new Map();
@@ -165,7 +148,7 @@ const CustomerPortal = () => {
                         }
                     }
                     if (imageMap.size > 0) {
-                        setOrders(prev => (prev || []).map(o => {
+                        rawOrders = rawOrders.map(o => {
                             if (!o?.items) return o;
                             if (![...imageMap.keys()].some(k => k.startsWith(`${o.id}:`))) return o;
                             return {
@@ -176,12 +159,57 @@ const CustomerPortal = () => {
                                     return img && !it.image ? { ...it, image: img } : it;
                                 })
                             };
-                        }));
+                        });
                     }
                 }
             } catch (e) {
-                // best-effort; ignore failures
+                // best-effort
             }
+            
+            setOrders(rawOrders);
+        } catch (error) {
+            console.error("Failed to fetch orders", error);
+            toast.error("Failed to load orders");
+        } finally {
+            setLoadingOrders(false);
+        }
+    };
+
+    const loadData = async () => {
+        try {
+            const [storeRes, subsRes, addrsRes, plansRes, taxRes, pricesRes] = await Promise.all([
+                getStore(storeId),
+                getMySubscriptions(),
+                getAddresses(),
+                getSubscriptionPlans(storeId).catch(() => ({ data: [] })),
+                getStoreTaxConfig(storeId).catch(() => ({ data: null })),
+                getMarketPrices(storeId).catch(() => ({ data: { prices: {} } }))
+            ]);
+            setStore(storeRes.data);
+            setPageTitle(storeRes.data, 'Account');
+            setPlans(plansRes.data || []);
+            setTaxConfig(taxRes.data);
+            setMarketPrices(pricesRes.data?.prices || {});
+            // Orders loaded via fetchOrders
+
+            
+            // Fetch payment history for each subscription
+            const subsWithPayments = await Promise.all(
+                (subsRes.data || []).map(async (sub) => {
+                    try {
+                        const txnRes = await getSubscriptionTransactions(sub.id);
+                        return { ...sub, payments: txnRes.data || [] };
+                    } catch (e) {
+                        console.error(`Failed to load payments for subscription ${sub.id}`, e);
+                        return { ...sub, payments: [] };
+                    }
+                })
+            );
+            setSubscriptions(subsWithPayments);
+            setAddresses(addrsRes.data);
+
+            // Hydration moved to fetchOrders
+
         } catch (error) {
             console.error(error);
             toast.error('Failed to load data');
@@ -190,19 +218,29 @@ const CustomerPortal = () => {
         }
     };
 
-    const handleAddAddress = async (e) => {
+    const handleSaveAddress = async (e) => {
         e.preventDefault();
         try {
-            await createAddress(newAddress);
-            toast.success('Address added');
+            const payload = { ...newAddress };
+            delete payload.id;
+            delete payload.user_id;
+            
+            if (editingAddressId) {
+                await updateAddress(editingAddressId, payload);
+                toast.success('Address updated');
+            } else {
+                await createAddress(payload);
+                toast.success('Address added');
+            }
             setAddressDialogOpen(false);
+            setEditingAddressId(null);
             setNewAddress({
                 label: 'Home', full_name: '', phone: '', address_line1: '', address_line2: '',
                 city: '', state: '', postal_code: '', country: 'India', special_instructions: '', is_default: false
             });
             loadData();
         } catch (error) {
-            toast.error('Failed to add address');
+            toast.error(editingAddressId ? 'Failed to update address' : 'Failed to add address');
         }
     };
 
@@ -301,81 +339,73 @@ const CustomerPortal = () => {
     const handleConfirmClosure = async () => {
         setPaymentProcessing(true);
         try {
-             // Close 'Step' dialog
-             setClosureDialogOpen(false); 
-             
-             const res = await loadRazorpay();
-             if (!res) {
-                 toast.error('Razorpay SDK failed to load');
-                 setPaymentProcessing(false);
-                 return;
-             }
-             
-             const { data: paymentOrder } = await initiateClosure(selectedSubscription.id, { address_id: selectedAddressId });
-             
-             // If amount is 0 (unlikely for closure unless fully paid and free shipping), handle directly? 
-             // Backend currently ensures shipping is charged or returns MockPayment order structure anyway.
-             
-             const options = {
-                 key: paymentOrder.razorpay_key_id,
-                 amount: Math.floor(paymentOrder.amount * 100),
-                 currency: "INR",
-                 name: store?.name || "Store Payment",
-                 description: paymentOrder.description,
-                 order_id: paymentOrder.razorpay_order_id,
-                 handler: async function (response) {
-                     try {
-                         const verifyData = {
-                             razorpay_order_id: response.razorpay_order_id,
-                             razorpay_payment_id: response.razorpay_payment_id,
-                             razorpay_signature: response.razorpay_signature,
-                             payment_id: paymentOrder.id
-                         };
-                         
-                         await verifyPayment(verifyData);
-                         toast.success('Subscription Closed Successfully!');
-                         window.location.href = `/store/${storeId}/portal?tab=orders`; // Redirect to orders to see the redemtion order
-                     } catch (verifyErr) {
-                         console.error(verifyErr);
-                         toast.error('Payment verification failed');
-                         setPaymentProcessing(false);
-                     }
-                 },
-                 modal: {
-                    ondismiss: function() {
+            // Close 'Step' dialog
+            setClosureDialogOpen(false);
+
+            const { data: paymentOrder } = await initiateClosure(selectedSubscription.id, { address_id: selectedAddressId });
+
+            // Check for Mock Order (Test Mode without valid keys)
+            if (paymentOrder.razorpay_order_id && paymentOrder.razorpay_order_id.startsWith("order_mock_")) {
+                console.log("Mock Payment Detected");
+                // Simulate user payment interaction delay
+                setTimeout(async () => {
+                    const mockResponse = {
+                        razorpay_order_id: paymentOrder.razorpay_order_id,
+                        razorpay_payment_id: "pay_mock_" + Math.random().toString(36).substring(7),
+                        razorpay_signature: "mock_signature_bypass"
+                    };
+                    try {
+                        await verifyPayment({
+                            razorpay_order_id: mockResponse.razorpay_order_id,
+                            razorpay_payment_id: mockResponse.razorpay_payment_id,
+                            razorpay_signature: mockResponse.razorpay_signature,
+                            payment_id: paymentOrder.id
+                        });
+                        toast.success('Subscription Closed Successfully!');
+                        window.location.href = `/store/${storeId}/portal?tab=orders`;
+                    } catch (verifyErr) {
+                        console.error('Payment verification error:', verifyErr);
+                        toast.error('Payment verification failed');
                         setPaymentProcessing(false);
-                        // Re-open dialog maybe?
+                    }
+                }, 1500);
+                return;
+            }
+
+            // Create payment using the new Razorpay utility
+            await createRazorpayPayment(
+                {
+                    amount: paymentOrder.amount,
+                    description: paymentOrder.description,
+                    store_id: storeId,
+                    order_id: paymentOrder.razorpay_order_id
+                },
+                {
+                    name: store?.name || "Store Payment",
+                    description: paymentOrder.description,
+                    prefill: {
+                        name: user?.name,
+                        email: user?.email,
+                        contact: user?.phone
                     },
-                    backdropclose: false,
-                    escape: false
-                 },
-                 prefill: {
-                     name: user?.name,
-                     email: user?.email,
-                     contact: user?.phone
-                 },
-                 theme: {
-                     color: "#d4af37"
-                 }
-             };
-             // Check for Mock Order (Test Mode without valid keys)
-             if (paymentOrder.razorpay_order_id && paymentOrder.razorpay_order_id.startsWith("order_mock_")) {
-                 console.log("Mock Payment Detected");
-                 // Simulate user payment interaction delay
-                 setTimeout(async () => {
-                      const mockResponse = {
-                          razorpay_order_id: paymentOrder.razorpay_order_id,
-                          razorpay_payment_id: "pay_mock_" + Math.random().toString(36).substring(7),
-                          razorpay_signature: "mock_signature_bypass"
-                      };
-                      await options.handler(mockResponse);
-                 }, 1500);
-                 return;
-             }
-             
-             const rzp = new window.Razorpay(options);
-             rzp.open();
-            
+                    theme: {
+                        color: "#d4af37"
+                    },
+                    onSuccess: (response, orderData) => {
+                        toast.success('Subscription Closed Successfully!');
+                        window.location.href = `/store/${storeId}/portal?tab=orders`;
+                    },
+                    onError: (error) => {
+                        console.error('Payment failed:', error);
+                        toast.error(error?.description || error?.message || 'Payment failed');
+                        setPaymentProcessing(false);
+                    },
+                    onCancel: () => {
+                        setPaymentProcessing(false);
+                    }
+                }
+            );
+
         } catch (error) {
             console.error(error);
             toast.error('Failed to initiate closure');
@@ -389,86 +419,60 @@ const CustomerPortal = () => {
         try {
             const isFlexible = selectedSubscription.scheme_type === 'flexible';
             const amountToPay = isFlexible ? parseFloat(flexibleAmount) : selectedSubscription.monthly_amount;
-            
+
             if (isFlexible && (!amountToPay || amountToPay <= 0)) {
                 toast.error("Please enter a valid amount");
                 setPaymentProcessing(false);
                 return;
             }
 
-            // Unified Razorpay Flow for both Fixed and Flexible
-            const res = await loadRazorpay();
-            if (!res) {
-                 toast.error('Razorpay SDK failed to load. Are you online?');
-                 setPaymentProcessing(false);
-                 return;
-            }
-             
-             const orderData = {
-                 amount: floatAmount(amountToPay),
-                 description: `Payment for subscription`,
-                 subscription_id: selectedSubscription.id,
-                 order_id: selectedSubscription.id, 
-                 store_id: selectedSubscription.store_id
-             };
-             
-             // Helper for float check
-             function floatAmount(val) { return parseFloat(val); }
+            const orderData = {
+                amount: amountToPay,
+                description: `Payment for subscription`,
+                subscription_id: selectedSubscription.id,
+                order_id: selectedSubscription.id,
+                store_id: selectedSubscription.store_id
+            };
 
-             const { data: paymentOrder } = await createPaymentOrder(orderData);
-             
-             const options = {
-                 key: paymentOrder.razorpay_key_id,
-                 amount: paymentOrder.amount * 100, // Amount is in paise
-                 currency: "INR",
-                 name: store?.name || "Store Payment",
-                 description: paymentOrder.description,
-                 order_id: paymentOrder.razorpay_order_id,
-                 handler: async function (response) {
-                     try {
-                         const verifyData = {
-                             razorpay_order_id: response.razorpay_order_id,
-                             razorpay_payment_id: response.razorpay_payment_id,
-                             razorpay_signature: response.razorpay_signature,
-                             payment_id: paymentOrder.id
-                         };
-                         
-                         await verifyPayment(verifyData);
-                         toast.success('Payment successful!');
-                         window.location.href = `/store/${storeId}/portal?tab=subscriptions`;
-                     } catch (verifyErr) {
-                         console.error(verifyErr);
-                         toast.error(verifyErr.response?.data?.detail || 'Payment verification failed');
-                     } finally {
-                         setPaymentProcessing(false);
-                     }
-                 },
-                 prefill: {
-                     name: user?.name,
-                     email: user?.email,
-                     contact: user?.phone
-                 },
-                 theme: {
-                     color: store?.settings?.primary_color || "#3399cc"
-                 },
-                 modal: {
-                     backdropclose: false,
-                     escape: false,
-                     ondismiss: function() {
-                         setPaymentProcessing(false);
-                     }
-                 }
-             };
-             
-             const rzp1 = new window.Razorpay(options);
-             rzp1.on('payment.failed', function (response){
-                    toast.error(response.error.description);
-                    setPaymentProcessing(false);
-             });
-             
-             // Close dialog to prevent overlay interference with Razorpay popup
-             setPaymentDialogOpen(false);
-             rzp1.open();
+            const { data: paymentOrder } = await createPaymentOrder(orderData);
+
+            // Close dialog to prevent overlay interference with Razorpay popup
+            setPaymentDialogOpen(false);
+
+            // Create payment using the new Razorpay utility
+            await createRazorpayPayment(
+                {
+                    amount: amountToPay,
+                    description: paymentOrder.description,
+                    store_id: selectedSubscription.store_id,
+                    subscription_id: selectedSubscription.id,
+                    order_id: selectedSubscription.id
+                },
+                {
+                    name: store?.name || "Store Payment",
+                    description: paymentOrder.description,
+                    prefill: {
+                        name: user?.name,
+                        email: user?.email,
+                        contact: user?.phone
+                    },
+                    theme: {
+                        color: store?.settings?.primary_color || "#3399cc"
+                    },
+                    onSuccess: (response, orderData) => {
+                        toast.success('Payment successful!');
+                        window.location.href = `/store/${storeId}/portal?tab=subscriptions`;
+                    },
+                    onError: (error) => {
+                        console.error('Payment failed:', error);
+                        toast.error(error?.description || error?.message || 'Payment failed');
+                        setPaymentProcessing(false);
+                    },
+                    onCancel: () => {
+                        setPaymentProcessing(false);
+                    }
+                }
+            );
 
         } catch (error) {
             console.error(error);
@@ -712,7 +716,7 @@ const CustomerPortal = () => {
                                                                             <Link to={productLink} className="shrink-0">
                                                                                 <div className="w-16 h-16 rounded bg-muted overflow-hidden hover:opacity-90">
                                                                                     {item.image ? (
-                                                                                        <img src={item.image} alt={item.product_name} className="w-full h-full object-cover" />
+                                                                                        <img src={getImageUrl(item.image)} alt={item.product_name} className="w-full h-full object-cover" />
                                                                                     ) : (
                                                                                         <div className="w-full h-full gold-gradient opacity-20" />
                                                                                     )}
@@ -721,7 +725,7 @@ const CustomerPortal = () => {
                                                                         ) : (
                                                                             <div className="w-16 h-16 rounded bg-muted overflow-hidden">
                                                                                 {item.image ? (
-                                                                                    <img src={item.image} alt={item.product_name} className="w-full h-full object-cover" />
+                                                                                    <img src={getImageUrl(item.image)} alt={item.product_name} className="w-full h-full object-cover" />
                                                                                 ) : (
                                                                                     <div className="w-full h-full gold-gradient opacity-20" />
                                                                                 )}
@@ -825,6 +829,7 @@ const CustomerPortal = () => {
                                 </CardHeader>
                                 <CardContent>
                                     {orders.length > 0 ? (
+                                        <>
                                         <div className="space-y-4">
                                             {orders.map((order) => (
                                                 <Card 
@@ -865,7 +870,7 @@ const CustomerPortal = () => {
                                                                                     <Link to={productLink} className="shrink-0">
                                                                                         <div className="w-10 h-10 rounded bg-muted overflow-hidden hover:opacity-90">
                                                                                             {item.image ? (
-                                                                                                <img src={item.image} alt={item.product_name} className="w-full h-full object-cover" />
+                                                                                                <img src={getImageUrl(item.image)} alt={item.product_name} className="w-full h-full object-cover" />
                                                                                             ) : (
                                                                                                 <div className="w-full h-full gold-gradient opacity-20" />
                                                                                             )}
@@ -874,7 +879,7 @@ const CustomerPortal = () => {
                                                                                 ) : (
                                                                                     <div className="w-10 h-10 rounded bg-muted overflow-hidden">
                                                                                         {item.image ? (
-                                                                                            <img src={item.image} alt={item.product_name} className="w-full h-full object-cover" />
+                                                                                            <img src={getImageUrl(item.image)} alt={item.product_name} className="w-full h-full object-cover" />
                                                                                         ) : (
                                                                                             <div className="w-full h-full gold-gradient opacity-20" />
                                                                                         )}
@@ -926,6 +931,30 @@ const CustomerPortal = () => {
                                                 </Card>
                                             ))}
                                         </div>
+                                        {orderTotalPages > 1 && (
+                                            <div className="flex items-center justify-center gap-4 mt-6">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => setOrderPage(p => Math.max(1, p - 1))}
+                                                    disabled={orderPage === 1 || loadingOrders}
+                                                >
+                                                    Previous
+                                                </Button>
+                                                <span className="text-sm font-medium">
+                                                    Page {orderPage} of {orderTotalPages}
+                                                </span>
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => setOrderPage(p => Math.min(orderTotalPages, p + 1))}
+                                                    disabled={orderPage === orderTotalPages || loadingOrders}
+                                                >
+                                                    Next
+                                                </Button>
+                                            </div>
+                                        )}
+                                        </>
                                     ) : (
                                         <div className="text-center py-12 text-muted-foreground">
                                             <Package className="w-12 h-12 mx-auto mb-4 opacity-50" />
@@ -1048,7 +1077,14 @@ const CustomerPortal = () => {
                                     <CardTitle className="font-serif">Saved Addresses</CardTitle>
                                     <CardDescription>Manage your delivery addresses</CardDescription>
                                 </div>
-                                <Button onClick={() => setAddressDialogOpen(true)} className="gold-gradient text-white" data-testid="add-address-btn">
+                                <Button onClick={() => {
+                                    setEditingAddressId(null);
+                                    setNewAddress({
+                                        label: 'Home', full_name: '', phone: '', address_line1: '', address_line2: '',
+                                        city: '', state: '', postal_code: '', country: 'India', special_instructions: '', is_default: false
+                                    });
+                                    setAddressDialogOpen(true);
+                                }} className="gold-gradient text-white" data-testid="add-address-btn">
                                     <Plus className="w-4 h-4 mr-2" /> Add Address
                                 </Button>
                             </CardHeader>
@@ -1073,14 +1109,28 @@ const CustomerPortal = () => {
                                                                 {addr.country}
                                                             </p>
                                                         </div>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            onClick={() => handleDeleteAddress(addr.id)}
-                                                            data-testid={`delete-address-${addr.id}`}
-                                                        >
-                                                            <Trash2 className="w-4 h-4 text-destructive" />
-                                                        </Button>
+                                                        <div className="flex flex-col gap-1">
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={() => {
+                                                                    setEditingAddressId(addr.id);
+                                                                    setNewAddress(addr);
+                                                                    setAddressDialogOpen(true);
+                                                                }}
+                                                                data-testid={`edit-address-${addr.id}`}
+                                                            >
+                                                                <Edit2 className="w-4 h-4" />
+                                                            </Button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={() => handleDeleteAddress(addr.id)}
+                                                                data-testid={`delete-address-${addr.id}`}
+                                                            >
+                                                                <Trash2 className="w-4 h-4 text-destructive" />
+                                                            </Button>
+                                                        </div>
                                                     </div>
                                                 </CardContent>
                                             </Card>
@@ -1102,9 +1152,9 @@ const CustomerPortal = () => {
             <Dialog open={addressDialogOpen} onOpenChange={setAddressDialogOpen}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle className="font-serif">Add New Address</DialogTitle>
+                        <DialogTitle className="font-serif">{editingAddressId ? 'Edit Address' : 'Add New Address'}</DialogTitle>
                     </DialogHeader>
-                    <form onSubmit={handleAddAddress} className="space-y-4">
+                    <form onSubmit={handleSaveAddress} className="space-y-4">
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <Label>Label</Label>

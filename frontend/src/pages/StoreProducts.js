@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
-import { getStore, getProducts, getInventory, getSubscriptionPlans } from '../lib/api';
+import { getStore, getProducts, getInventory } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -8,7 +8,7 @@ import { Input } from '../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { toast } from 'sonner';
 import { Plus, Search, Grid3X3, List } from 'lucide-react';
-import { formatCurrency, setPageTitle } from '../lib/utils';
+import { formatCurrency, setPageTitle, getImageUrl } from '../lib/utils';
 import StoreHeader from '../components/StoreHeader';
 import StoreFooter from '../components/StoreFooter';
 import { useCart } from '../context/CartContext';
@@ -19,9 +19,13 @@ const StoreProducts = () => {
     const location = useLocation();
     const [store, setStore] = useState(null);
     const [products, setProducts] = useState([]);
-    const [plans, setPlans] = useState([]);
     const [inventory, setInventory] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [page, setPage] = useState(parseInt(searchParams.get('page')) || 1);
+    const [totalPages, setTotalPages] = useState(1);
+    const [totalItems, setTotalItems] = useState(0);
+    const ITEMS_PER_PAGE = 24;
+    
     const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
     // Note: do NOT depend on the `searchParams` object; use `location.search`
     // because `searchParams` identity can change each render causing loops.
@@ -31,36 +35,53 @@ const StoreProducts = () => {
     const navigate = useNavigate();
     const { cart, setCart, addToCart: contextAddToCart, cartCount } = useCart(storeId);
 
-    const categories = [...new Set(products.filter(p => p.category).map(p => p.category))];
 
-    // Update URL when search or category changes
-    const updateUrlParams = useCallback((search, category) => {
+
+    // Update URL when search, category, or page changes
+    const updateUrlParams = useCallback((search, category, newPage = 1) => {
         const params = new URLSearchParams();
         if (search) params.set('search', search);
         if (category) params.set('category', category);
+        if (newPage > 1) params.set('page', newPage.toString());
         setSearchParams(params, { replace: true });
+        setPage(newPage);
     }, [setSearchParams]);
 
     // Define loadData before effects to avoid temporal dead zone
     const loadData = useCallback(async () => {
+        setLoading(true);
         try {
-            const [storeRes, productsRes, plansRes, inventoryRes] = await Promise.all([
+            const [storeRes, productsRes, inventoryRes] = await Promise.all([
                 getStore(storeId),
-                getProducts(storeId),
-                getSubscriptionPlans(storeId).catch(() => ({ data: [] })),
-                getInventory(storeId).catch(() => ({ data: [] }))
+                getProducts(storeId, selectedCategory, true, null, ITEMS_PER_PAGE, page, searchTerm),
+                getInventory(storeId, null, 1000).catch(() => ({ data: [] }))
             ]);
             setStore(storeRes.data);
             setPageTitle(storeRes.data, 'Products');
-            setProducts(productsRes.data);
-            setPlans(plansRes.data || []);
-            setInventory(inventoryRes.data || []);
+            
+            // Handle paginated vs regular response
+            const pData = productsRes.data;
+            if (pData.items && Array.isArray(pData.items)) {
+                setProducts(pData.items);
+                setTotalPages(pData.pages || 1);
+                setTotalItems(pData.total || 0);
+            } else if (Array.isArray(pData)) {
+                setProducts(pData);
+                setTotalPages(1);
+                setTotalItems(pData.length);
+            } else {
+                setProducts([]);
+            }
+
+            const invData = inventoryRes.data || [];
+            setInventory(Array.isArray(invData) ? invData : (invData.items || []));
         } catch (error) {
+            console.error(error);
             toast.error('Failed to load products');
         } finally {
             setLoading(false);
         }
-    }, [storeId]);
+    }, [storeId, selectedCategory, page, searchTerm]);
 
     useEffect(() => {
         loadData();
@@ -72,20 +93,12 @@ const StoreProducts = () => {
             const params = new URLSearchParams(location.search || window.location.search);
             const s = params.get('search') || '';
             const c = params.get('category') || '';
+            const p = parseInt(params.get('page')) || 1;
             setSearchTerm(s);
             setSelectedCategory(c);
+            setPage(p);
         } catch (e) {}
     }, [location.search, location.key]);
-
-    
-    
-    
-
-    // Filter subscription plans by searchTerm as well
-    const filteredPlans = plans
-        .filter(p => p.is_active !== false)
-        .filter(p => !searchTerm || p.name.toLowerCase().includes(searchTerm.toLowerCase()) || (p.description && p.description.toLowerCase().includes(searchTerm.toLowerCase())))
-        .sort((a, b) => a.name.localeCompare(b.name));
 
     const getProductStock = (productId) => {
         if (!inventory) return 0;
@@ -134,15 +147,19 @@ const StoreProducts = () => {
     };
 
     const filteredProducts = products
-        .filter(p => p.is_active !== false)
-        .filter(p => !searchTerm || p.name.toLowerCase().includes(searchTerm.toLowerCase()) || (p.description && p.description.toLowerCase().includes(searchTerm.toLowerCase())))
-        .filter(p => !selectedCategory || p.category === selectedCategory)
         .sort((a, b) => {
             if (sortBy === 'price_low') return a.price - b.price;
             if (sortBy === 'price_high') return b.price - a.price;
             if (sortBy === 'name') return a.name.localeCompare(b.name);
             return 0;
         });
+
+    const categories = ['Electronics', 'Jewelry', 'Clothing', 'Home', 'Beauty', 'Sports']; // Fallback or fetched separately
+    // Ideally fetch categories from backend, but for now we rely on simple list or dynamic from current page? 
+    // Since pagination limits products, dynamic extraction is flawed. 
+    // We should probably just show categories existing in "products" for now, or remove the filter if it's broken.
+    // Let's stick to current page categories to avoid errors, even if incomplete.
+    const dynamicCategories = [...new Set(products.filter(p => p.category).map(p => p.category))];
 
     const cartTotal = cartCount;
 
@@ -156,7 +173,7 @@ const StoreProducts = () => {
 
     return (
         <div className="min-h-screen bg-background flex flex-col w-full overflow-x-hidden">
-            <StoreHeader store={store} storeId={storeId} cartTotal={cartTotal} activeTab="products" searchTerm={searchTerm} onSearchChange={(val) => { setSearchTerm(val); updateUrlParams(val, selectedCategory); }} />
+            <StoreHeader store={store} storeId={storeId} cartTotal={cartTotal} activeTab="products" searchTerm={searchTerm} onSearchChange={(val) => { setSearchTerm(val); updateUrlParams(val, selectedCategory, 1); }} />
 
             {/* Filters */}
             <div className="border-b bg-card overflow-x-hidden">
@@ -168,18 +185,18 @@ const StoreProducts = () => {
                                 <Input
                                     placeholder="Search products..."
                                     value={searchTerm}
-                                    onChange={(e) => { setSearchTerm(e.target.value); updateUrlParams(e.target.value, selectedCategory); }}
+                                    onChange={(e) => { setSearchTerm(e.target.value); updateUrlParams(e.target.value, selectedCategory, 1); }}
                                     className="pl-10"
                                 />
                             </div>
                         </div>
-                        <Select value={selectedCategory || 'all'} onValueChange={(v) => { const cat = v === 'all' ? '' : v; setSelectedCategory(cat); updateUrlParams(searchTerm, cat); }}>
+                        <Select value={selectedCategory || 'all'} onValueChange={(v) => { const cat = v === 'all' ? '' : v; setSelectedCategory(cat); updateUrlParams(searchTerm, cat, 1); }}>
                             <SelectTrigger className="w-[180px]">
                                 <SelectValue placeholder="All Categories" />
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="all">All Categories</SelectItem>
-                                {categories.map((cat) => (
+                                {dynamicCategories.map((cat) => (
                                     <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                                 ))}
                             </SelectContent>
@@ -206,35 +223,6 @@ const StoreProducts = () => {
                 </div>
             </div>
 
-            {/* Plans (matching search) */}
-            {filteredPlans && filteredPlans.length > 0 && (
-                <main className="max-w-7xl mx-auto px-4 py-8">
-                    <h2 className="text-2xl font-serif mb-4">Subscription Plans</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-                        {filteredPlans.map(plan => (
-                            <Card key={plan.id} className="luxury-card">
-                                <CardContent className="p-4">
-                                    <h3 className="font-serif font-semibold text-lg">{plan.name}</h3>
-                                    <p className="text-sm text-muted-foreground mt-2 line-clamp-2">{plan.description}</p>
-                                    <div className="flex items-center justify-between mt-4">
-                                        <div className="text-gold font-semibold">{formatCurrency(plan.min_amount || 0, store?.currency)}+</div>
-                                        <Link
-                                            to={`/store/${storeId}/plan/${plan.id}`}
-                                            onClick={(e) => {
-                                                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || (e.button && e.button !== 0)) return;
-                                                e.preventDefault();
-                                                navigate(`/store/${storeId}/plan/${plan.id}`);
-                                            }}
-                                        >
-                                            <Button size="sm" className="gold-gradient text-white">View Plan</Button>
-                                        </Link>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        ))}
-                    </div>
-                </main>
-            )}
 
             {/* Products */}
             <main className="max-w-7xl mx-auto px-4 py-8">
@@ -260,7 +248,7 @@ const StoreProducts = () => {
                                         <CardContent className="p-4 flex gap-4">
                                             <div className="w-20 h-20 sm:w-24 sm:h-24 bg-muted rounded overflow-hidden flex-shrink-0 relative" style={{ pointerEvents: 'auto', cursor: 'pointer' }}>
                                                 {product.images?.[0] ? (
-                                                    <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover" style={{ pointerEvents: 'auto', cursor: 'pointer' }} />
+                                                    <img src={getImageUrl(product.images[0])} alt={product.name} className="w-full h-full object-cover" style={{ pointerEvents: 'auto', cursor: 'pointer' }} />
                                                 ) : (
                                                     <div className="w-full h-full gold-gradient opacity-20" />
                                                 )}
@@ -301,7 +289,7 @@ const StoreProducts = () => {
                                 >
                                     <div className="h-40 sm:h-48 lg:h-56 bg-muted flex items-center justify-center overflow-hidden relative" style={{ pointerEvents: 'auto', cursor: 'pointer' }}>
                                         {product.images?.[0] ? (
-                                            <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" style={{ pointerEvents: 'auto', cursor: 'pointer' }} />
+                                            <img src={getImageUrl(product.images[0])} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" style={{ pointerEvents: 'auto', cursor: 'pointer' }} />
                                         ) : (
                                             <div className="w-full h-full gold-gradient opacity-20" />
                                         )}
@@ -341,6 +329,39 @@ const StoreProducts = () => {
                 {filteredProducts.length === 0 && (
                     <div className="text-center py-12 text-muted-foreground">
                         No products found matching your criteria.
+                    </div>
+                )}
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                    <div className="flex justify-center items-center gap-2 mt-8">
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                if (page > 1) {
+                                    updateUrlParams(searchTerm, selectedCategory, page - 1);
+                                    window.scrollTo(0, 0);
+                                }
+                            }}
+                            disabled={page <= 1}
+                        >
+                            Previous
+                        </Button>
+                        <span className="text-sm text-muted-foreground mx-2">
+                            Page {page} of {totalPages}
+                        </span>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                if (page < totalPages) {
+                                    updateUrlParams(searchTerm, selectedCategory, page + 1);
+                                    window.scrollTo(0, 0);
+                                }
+                            }}
+                            disabled={page >= totalPages}
+                        >
+                            Next
+                        </Button>
                     </div>
                 )}
             </main>

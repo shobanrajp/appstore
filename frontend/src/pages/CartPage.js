@@ -9,12 +9,13 @@ import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
-import { Minus, Plus, X, ShoppingCart } from 'lucide-react';
+import { Minus, Plus, X, ShoppingCart, AlertTriangle } from 'lucide-react';
 import { useCart } from '../context/CartContext';
-import { formatCurrency, setPageTitle } from '../lib/utils';
+import { formatCurrency, setPageTitle, getImageUrl } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
-import { getAddresses, createAddress, createOrder, createPaymentOrder, verifyPayment, getStore, getProducts, estimateShipping } from '../lib/api';
+import { getAddresses, createAddress, createOrder, getStore, getProducts, estimateShipping } from '../lib/api';
+import { createRazorpayPayment } from '../lib/razorpay';
 
 const CartPage = () => {
   const { storeId } = useParams();
@@ -31,6 +32,9 @@ const CartPage = () => {
   const [calculatingShipping, setCalculatingShipping] = useState(false);
   const [showNewAddress, setShowNewAddress] = useState(false);
   const [processingPayment, setProcessingPayment] = useState(false);
+  // Store the current payment order/token for the duration of a payment attempt
+  const [paymentOrder, setPaymentOrder] = useState(null);
+  const [updatingCart, setUpdatingCart] = useState(false);
   const [newAddress, setNewAddress] = useState({
     label: 'Home', full_name: '', phone: '', address_line1: '', address_line2: '',
     city: '', state: '', postal_code: '', country: 'India', special_instructions: '', is_default: false
@@ -105,46 +109,70 @@ const CartPage = () => {
   }, [user]);
 
   // Auto-calculate shipping when address changes
+  // Helper to hash cart items for dependency optimization
+  function cartItemsHash(items) {
+    if (!items) return '';
+    return items.map(i => `${i.product_id}:${i.quantity}`).sort().join('|');
+  }
+
   useEffect(() => {
-    const checkShipping = async () => {
+    const handler = setTimeout(() => {
+      const checkShipping = async () => {
         if (!selectedAddress || !cart?.items?.length) {
-            setShipping(null);
-            return;
+          setShipping(null);
+          return;
         }
-        
         const addr = addresses.find(a => a.id === selectedAddress);
         if (!addr || !addr.postal_code) return;
-
         setCalculatingShipping(true);
         try {
-            const res = await estimateShipping(storeId, {
-                items: cart.items.map(i => ({ product_id: i.product_id, quantity: i.quantity })),
-                postal_code: addr.postal_code
-            });
-            setShipping(res.data);
+          const res = await estimateShipping(storeId, {
+            items: cart.items.map(i => ({ product_id: i.product_id, quantity: i.quantity })),
+            postal_code: addr.postal_code
+          });
+          setShipping(res.data);
         } catch (error) {
-            console.error("Shipping calc error", error);
-            // Don't clear shipping immediately if previous was valid? 
-            // Better to show error.
-            setShipping({ shipping_charges: 0, error: true });
+          console.error("Shipping calc error", error);
+          setShipping({ shipping_charges: 0, error: true });
         } finally {
-            setCalculatingShipping(false);
+          setCalculatingShipping(false);
         }
-    };
-    checkShipping();
-  }, [selectedAddress, cart?.items, addresses, storeId]);
+      };
+      checkShipping();
+    }, 800); // Debounce for 800ms
+    return () => clearTimeout(handler);
+  }, [selectedAddress, cartItemsHash(cart?.items), addresses, storeId]);
 
   const updateQuantity = async (itemId, delta) => {
-    const items = cart.items || [];
-    const item = items.find(it => it.id === itemId);
-    if (item) {
-      const newQty = item.quantity + delta;
-      if (newQty > 0) {
-        await updateCartItemQty(itemId, newQty);
-      } else {
-        await removeFromCart(itemId);
+    setUpdatingCart(true);
+    try {
+      const items = cart.items || [];
+      const item = items.find(it => it.id === itemId);
+      if (item) {
+        const newQty = item.quantity + delta;
+        if (newQty > 0) {
+          await updateCartItemQty(itemId, newQty);
+        } else {
+          // useCart hook's removeFromCart expects product_id, not item_id
+          await removeFromCart(item.product_id);
+        }
       }
+    } catch (error) {
+      console.error("Failed to update cart", error);
+    } finally {
+      setUpdatingCart(false);
     }
+  };
+
+  const handleRemoveItem = async (productId) => {
+      setUpdatingCart(true);
+      try {
+          await removeFromCart(productId);
+      } catch (error) {
+          console.error("Failed to remove item", error);
+      } finally {
+          setUpdatingCart(false);
+      }
   };
 
   const handleAddAddress = async (e) => {
@@ -182,79 +210,74 @@ const CartPage = () => {
     setProcessingPayment(true);
 
     try {
-      // Create order first
-      const orderRes = await createOrder(storeId, {
-        items: (cart.items || []).map(item => ({ product_id: item.product_id, quantity: item.quantity, price: item.price })),
-        shipping_address_id: selectedAddress,
-      });
+      // If a payment order is already in progress, reuse it
+      let orderRes, paymentRes;
+      if (paymentOrder) {
+        orderRes = paymentOrder.orderRes;
+        paymentRes = paymentOrder.paymentRes;
+      } else {
+        // Create order first
+        orderRes = await createOrder(storeId, {
+          items: (cart.items || []).map(item => ({ product_id: item.product_id, quantity: item.quantity, price: item.price })),
+          shipping_address_id: selectedAddress,
+          shipping_charges: shipping ? shipping.shipping_charges : 0, // Pass shipping charges explicitly
+        });
 
-      // Create Razorpay payment order
-      const paymentRes = await createPaymentOrder({
-        amount: finalTotal,
-        currency: store.currency || 'INR',
-        description: `Order ${orderRes.data.id}`,
-        store_id: storeId,
-        order_id: orderRes.data.id,
-      });
+        // Create Razorpay payment order
+        paymentRes = await createPaymentOrder({
+          amount: finalTotal,
+          description: `Order ${orderRes.data.id}`,
+          store_id: storeId,
+          order_id: orderRes.data.id,
+        });
+        setPaymentOrder({ orderRes, paymentRes });
+      }
 
-      // Open Razorpay checkout
-      const options = {
-        key: store.razorpay_key_id,
-        amount: Math.round(finalTotal * 100), // Amount in paise
-        currency: store.currency || 'INR',
-        name: store.name || 'Store',
-        description: `Order ${orderRes.data.id}`,
-        order_id: paymentRes.data.razorpay_order_id,
-        handler: async function (response) {
-          try {
-            // Verify payment on backend
-            await verifyPayment({
-              razorpay_order_id: response.razorpay_order_id,
-              razorpay_payment_id: response.razorpay_payment_id,
-              razorpay_signature: response.razorpay_signature,
-              payment_id: paymentRes.data.id,
-            });
+      console.log('Razorpay Order:', paymentRes.data.razorpay_order_id, 'Amount:', paymentRes.data.razorpay_amount);
+
+      // Create payment using the new Razorpay utility
+      await createRazorpayPayment(
+        {
+          amount: finalTotal,
+          description: `Order ${orderRes.data.id}`,
+          store_id: storeId,
+          order_id: orderRes.data.id,
+        },
+        {
+          name: store.name || 'Store',
+          description: `Order ${orderRes.data.id}`,
+          prefill: {
+            name: user.name,
+            email: user.email,
+          },
+          theme: {
+            color: '#D4AF37',
+          },
+          onSuccess: (response, orderData) => {
             toast.success('Payment successful! Order placed.');
             setCart([]);
-            // Ensure lastVisitedStore is saved for customer portal redirect
+            setPaymentOrder(null);
             localStorage.setItem('lastVisitedStore', storeId);
-            // Redirect to order detail page with order ID
             const orderDetailUrl = `/store/${storeId}/portal?tab=orders&order=${orderRes.data.id}`;
-            console.log('Redirecting to:', orderDetailUrl);
             navigate(orderDetailUrl);
-          } catch (error) {
-            console.error('Payment verification error:', error);
-            toast.error('Payment verification failed');
-          } finally {
-            setProcessingPayment(false);
-          }
-        },
-        prefill: {
-          name: user.name,
-          email: user.email,
-        },
-        theme: {
-          color: '#D4AF37',
-        },
-        modal: {
-          ondismiss: function() {
-            setProcessingPayment(false);
-            toast.info('Payment cancelled');
           },
-          escape: false,
-          backdropclose: false
+          onError: (error) => {
+            console.error('Payment failed:', error);
+            toast.error(error?.description || error?.message || 'Payment failed');
+            setProcessingPayment(false);
+            setPaymentOrder(null);
+          },
+          onCancel: () => {
+            setProcessingPayment(false);
+            setPaymentOrder(null);
+            toast.info('Payment cancelled');
+          }
         }
-      };
+      );
 
-      const rzp = new window.Razorpay(options);
-      rzp.on('payment.failed', function (response) {
-        console.error('Razorpay payment failed:', response.error);
-        setProcessingPayment(false);
-        toast.error(response.error.description || 'Payment failed');
-      });
-      rzp.open();
     } catch (error) {
       setProcessingPayment(false);
+      setPaymentOrder(null);
       toast.error(error.response?.data?.detail || 'Checkout failed');
     }
   };
@@ -262,13 +285,14 @@ const CartPage = () => {
   return (
     <div className="min-h-screen bg-background flex flex-col w-full overflow-x-hidden">
       <StoreHeader store={store} storeId={storeId} cartTotal={cartCount} activeTab="" />
+      <LoadingOverlay isLoading={processingPayment || updatingCart || calculatingShipping} message={processingPayment ? "Processing Payment..." : updatingCart ? "Updating Cart..." : "Calculating Shipping..."} />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full">
         <h1 className="text-3xl font-serif mb-6 flex items-center gap-2">
           <ShoppingCart className="w-6 h-6" /> Your Cart
         </h1>
 
-        {(!cart || cart.length === 0) ? (
+        {(!cart?.items || cart.items.length === 0) ? (
           <Card className="border">
             <CardContent className="p-8 text-center">
               <p className="text-muted-foreground">Your cart is empty</p>
@@ -292,7 +316,7 @@ const CartPage = () => {
                           <Link to={`/store/${storeId}/product/${item.product_id}`} className="shrink-0">
                             <div className="w-16 h-16 rounded bg-muted overflow-hidden hover:opacity-90">
                               {product?.images?.[0] ? (
-                                <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover" />
+                                <img src={getImageUrl(product.images[0])} alt={product.name} className="w-full h-full object-cover" />
                               ) : (
                                 <div className="w-full h-full gold-gradient opacity-20" />
                               )}
@@ -309,14 +333,14 @@ const CartPage = () => {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <Button variant="outline" size="sm" onClick={() => updateQuantity(item.id, -1)}>
+                          <Button variant="outline" size="sm" onClick={() => updateQuantity(item.id, -1)} disabled={updatingCart}>
                             <Minus className="w-3 h-3" />
                           </Button>
                           <span className="w-8 text-center">{item.quantity}</span>
-                          <Button variant="outline" size="sm" onClick={() => updateQuantity(item.id, 1)}>
+                          <Button variant="outline" size="sm" onClick={() => updateQuantity(item.id, 1)} disabled={updatingCart}>
                             <Plus className="w-3 h-3" />
                           </Button>
-                          <Button variant="ghost" size="sm" onClick={() => removeFromCart(item.id)}>
+                          <Button variant="ghost" size="sm" onClick={() => handleRemoveItem(item.product_id)} disabled={updatingCart}>
                             <X className="w-4 h-4 text-destructive" />
                           </Button>
                         </div>
@@ -330,14 +354,6 @@ const CartPage = () => {
             <div>
               <Card className="border">
                 <CardContent className="p-6 space-y-4 relative">
-                  {calculatingShipping && (
-                    <div className="absolute inset-0 bg-background/80 z-20 flex items-center justify-center backdrop-blur-[1px] rounded-lg">
-                        <div className="flex flex-col items-center gap-2">
-                             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
-                             <span className="text-xs font-medium">Checking Delivery...</span>
-                        </div>
-                    </div>
-                  )}
                   <div className="space-y-2 pb-4 border-b">
                     <div className="flex justify-between text-muted-foreground">
                       <span>Subtotal</span>
@@ -460,7 +476,7 @@ const CartPage = () => {
                         </form>
                       )}
 
-                      <Button className="w-full gold-gradient text-white" onClick={handleCheckout} disabled={!selectedAddress || cart.length === 0 || processingPayment || calculatingShipping || (shipping && shipping.error)}>
+                      <Button className="w-full gold-gradient text-white" onClick={handleCheckout} disabled={!selectedAddress || cart.length === 0 || processingPayment || calculatingShipping || !shipping || (shipping && shipping.error)}>
                         {processingPayment ? 'Processing...' : 'Proceed to Payment'}
                       </Button>
                       <p className="text-xs text-muted-foreground">Secure payment powered by Razorpay</p>

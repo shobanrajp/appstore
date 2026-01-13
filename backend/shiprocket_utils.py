@@ -1,13 +1,23 @@
 import httpx
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 
 logger = logging.getLogger(__name__)
 
 SHIPROCKET_BASE_URL = "https://apiv2.shiprocket.in/v1/external"
 
+# In-memory token cache: email -> {token, expires_at}
+_token_cache = {}
+
 async def get_shiprocket_token(email: str, password: str) -> str:
+    now = datetime.now()
+    # Check cache
+    if email in _token_cache:
+        cached = _token_cache[email]
+        if cached["expires_at"] > now:
+            return cached["token"]
+
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(
@@ -15,7 +25,14 @@ async def get_shiprocket_token(email: str, password: str) -> str:
                 json={"email": email, "password": password}
             )
             response.raise_for_status()
-            return response.json().get("token")
+            token = response.json().get("token")
+            
+            # Cache for 24 hours (safely under typical expiry)
+            _token_cache[email] = {
+                "token": token,
+                "expires_at": now + timedelta(hours=24)
+            }
+            return token
         except httpx.HTTPError as e:
             logger.error(f"Shiprocket login failed: {e}")
             raise Exception("Failed to authenticate with Shiprocket")

@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getStore, getSubscriptionPlans, subscribeToPlan, createPaymentOrder, verifyPayment, getMarketPrices, getStoreTaxConfig } from '../lib/api';
+import { getStore, getSubscriptionPlans, subscribeToPlan, getMarketPrices, getStoreTaxConfig } from '../lib/api';
+import { createRazorpayPayment } from '../lib/razorpay';
 import { formatCurrency, setPageTitle } from '../lib/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -95,9 +96,6 @@ const PlanDetail = () => {
             return;
         }
 
-        console.log('[PlanDetail] Store data:', store);
-        console.log('[PlanDetail] Razorpay key:', store?.razorpay_key_id);
-
         if (!store || !store.razorpay_key_id) {
             const errorMsg = 'Payment gateway not configured for this store. Please visit: /RAZORPAY_SETUP.md for configuration instructions.';
             toast.error('Payment gateway not configured');
@@ -112,97 +110,56 @@ const PlanDetail = () => {
         }
 
         setProcessingPayment(true);
+
         try {
-            // Updated code to ensure Razorpay is triggered properly
-            // 1. Check if Razorpay is loaded (load if not)
-            if (!window.Razorpay) {
-                const script = document.createElement('script');
-                script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-                script.onload = () => { createSubOrder(); };
-                script.onerror = () => { 
-                   toast.error('Razorpay SDK failed to load. Are you online?');
-                   setProcessingPayment(false);
-                };
-                document.body.appendChild(script);
-            } else {
-                createSubOrder();
-            }
+            // Create subscription first
+            const subRes = await subscribeToPlan(storeId, {
+                plan_id: plan.id,
+                monthly_amount: amountValue
+            });
 
-            async function createSubOrder() {
-                try {
-                    const subRes = await subscribeToPlan(storeId, {
-                        plan_id: plan.id,
-                        monthly_amount: amountValue
-                    });
+            console.log('[PlanDetail] Subscription created:', subRes.data);
 
-                    console.log('[PlanDetail] Subscription created:', subRes.data);
-
-                    const paymentRes = await createPaymentOrder({
-                        amount: amountValue,
-                        currency: store.currency || 'INR',
-                        description: `${plan.name} - First Installment`,
-                        store_id: storeId,
-                        subscription_id: subRes.data.id,
-                        order_id: subRes.data.order_id 
-                    });
-
-                    const options = {
-                        key: paymentRes.data.razorpay_key_id, // Use key from backend response
-                        amount: Math.round(amountValue * 100),
-                        currency: store.currency || 'INR',
-                        name: store.name || 'Store',
-                        description: `${plan.name} - First Installment`,
-                        order_id: paymentRes.data.razorpay_order_id,
-                        handler: async function (response) {
-                            try {
-                                await verifyPayment({
-                                    razorpay_order_id: response.razorpay_order_id,
-                                    razorpay_payment_id: response.razorpay_payment_id,
-                                    razorpay_signature: response.razorpay_signature,
-                                    payment_id: paymentRes.data.id,
-                                });
-                                toast.success('Subscribed successfully! First payment completed.');
-                                window.location.href = `/store/${storeId}/portal?tab=subscriptions`;
-                            } catch (error) {
-                                console.error(error);
-                                toast.error('Payment verification failed');
-                            } finally {
-                                setProcessingPayment(false);
-                            }
-                        },
-                        prefill: {
-                            name: user.name,
-                            email: user.email,
-                            contact: user.phone 
-                        },
-                        theme: {
-                            color: store.settings?.primary_color || '#D4AF37',
-                        },
-                        modal: {
-                            backdropclose: false,
-                            escape: false,
-                            ondismiss: function() {
-                                setProcessingPayment(false);
-                                toast.error('Payment cancelled');
-                            }
-                        }
-                    };
-
-                    const rzp = new window.Razorpay(options);
-                    rzp.on('payment.failed', function (response){
-                            toast.error(response.error.description);
-                            setProcessingPayment(false);
-                    });
-                    rzp.open();
-                } catch (err) {
-                    console.error(err);
-                    setProcessingPayment(false);
-                    toast.error(err.response?.data?.detail || 'Subscription failed');
+            // Create payment using the new Razorpay utility
+            await createRazorpayPayment(
+                {
+                    amount: amountValue,
+                    description: `${plan.name} - First Installment`,
+                    store_id: storeId,
+                    subscription_id: subRes.data.id,
+                    order_id: subRes.data.order_id
+                },
+                {
+                    name: store.name || 'Store',
+                    description: `${plan.name} - First Installment`,
+                    prefill: {
+                        name: user.name,
+                        email: user.email,
+                        contact: user.phone
+                    },
+                    theme: {
+                        color: store.settings?.primary_color || '#D4AF37'
+                    },
+                    onSuccess: (response, orderData) => {
+                        toast.success('Subscribed successfully! First payment completed.');
+                        navigate(`/store/${storeId}/portal?tab=subscriptions`);
+                    },
+                    onError: (error) => {
+                        console.error('Payment failed:', error);
+                        toast.error(error?.description || error?.message || 'Payment failed');
+                        setProcessingPayment(false);
+                    },
+                    onCancel: () => {
+                        setProcessingPayment(false);
+                        toast.info('Payment cancelled');
+                    }
                 }
-            }
+            );
+
         } catch (error) {
+            console.error('[PlanDetail] Subscription/payment failed:', error);
             setProcessingPayment(false);
-            toast.error(error.response?.data?.detail || 'Subscription failed');
+            toast.error(error?.response?.data?.detail || error?.message || 'Subscription failed');
         }
     };
 

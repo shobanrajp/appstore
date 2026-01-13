@@ -61,6 +61,13 @@ export const getRoleLabel = (role) => {
     return labels[role] || role;
 };
 
+export const getImageUrl = (url) => {
+    if (!url) return 'https://placehold.co/600x400?text=No+Image';
+    if (url.startsWith('http') || url.startsWith('data:')) return url;
+    const baseUrl = process.env.REACT_APP_IMAGE_SERVER_URL || 'http://localhost:8001';
+    return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+};
+
 export const setPageTitle = (store, pageName = '') => {
     if (!store) {
         document.title = pageName || 'Store';

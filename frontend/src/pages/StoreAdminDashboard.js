@@ -14,7 +14,6 @@ import {
     getStoreStaff, createStaff, updateStaff, deleteStaff, getStaffActivity,
     getStoreCustomers, getCustomerDetails, updateCustomer, deleteCustomer
 } from '../lib/api';
-import StoreShippingSettings from '../components/admin/StoreShippingSettings';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -38,6 +37,11 @@ import MarketPriceSettings from '../components/MarketPriceSettings';
 import StoreSettings from '../components/StoreSettings';
 import StoreTaxConfig from '../components/StoreTaxConfig';
 import ShiprocketLogs from '../components/admin/ShiprocketLogs';
+import RazorpayLogs from '../components/admin/RazorpayLogs';
+import MediaLibrary from '../components/admin/MediaLibrary';
+import { Image as ImageIcon } from 'lucide-react';
+
+const IMAGE_SERVER_URL = process.env.REACT_APP_IMAGE_SERVER_URL || 'http://localhost:8001';
 
 const StoreAdminDashboard = () => {
     const { user, logout } = useAuth();
@@ -93,6 +97,10 @@ const StoreAdminDashboard = () => {
     const [customerEditOpen, setCustomerEditOpen] = useState(false);
     const [customerEditForm, setCustomerEditForm] = useState({ name: '', phone: '' });
 
+    // Media
+    const [mediaDialogOpen, setMediaDialogOpen] = useState(false);
+    const [mediaSelectCallback, setMediaSelectCallback] = useState(null);
+
     // Form states
     const [newProduct, setNewProduct] = useState({ name: '', description: '', price: '', category: '', sku: '', weight: '', images: [''] });
     const [editingProduct, setEditingProduct] = useState(null);
@@ -129,9 +137,140 @@ const StoreAdminDashboard = () => {
     const [reportPeriod, setReportPeriod] = useState({ startDate: '', endDate: '' });
     const [reportLoading, setReportLoading] = useState(false);
 
+    // Pagination state
+    const [pagination, setPagination] = useState({
+        products: { page: 1, limit: 20, total: 0, pages: 1 },
+        inventory: { page: 1, limit: 20, total: 0, pages: 1 },
+        orders: { page: 1, limit: 20, total: 0, pages: 1 },
+        vendors: { page: 1, limit: 20, total: 0, pages: 1 },
+        purchaseOrders: { page: 1, limit: 20, total: 0, pages: 1 },
+        posTransactions: { page: 1, limit: 20, total: 0, pages: 1 },
+        staff: { page: 1, limit: 20, total: 0, pages: 1 },
+        customers: { page: 1, limit: 20, total: 0, pages: 1 },
+        subscribers: { page: 1, limit: 20, total: 0, pages: 1 },
+    });
+
+    const handlePageChange = (entity, newPage) => {
+        setPagination(prev => ({ ...prev, [entity]: { ...prev[entity], page: newPage } }));
+    };
+
+    const processPaginatedResponse = (response, entityKey, setFunction) => {
+        if (response.data && response.data.items && typeof response.data.total === 'number') {
+            setFunction(response.data.items);
+            setPagination(prev => ({
+                ...prev,
+                [entityKey]: {
+                    page: response.data.page,
+                    limit: response.data.limit,
+                    total: response.data.total,
+                    pages: response.data.pages
+                }
+            }));
+        } else if (Array.isArray(response.data)) {
+            setFunction(response.data);
+            setPagination(prev => ({
+                 ...prev,
+                 [entityKey]: { ...prev[entityKey], total: response.data.length, pages: 1 }
+            }));
+        } else {
+             // Fallback for empty or error
+             setFunction([]);
+        }
+    };
+
     useEffect(() => {
-        loadData();
+        loadStoreInfo();
     }, []);
+
+    // Load data when tab or pagination changes
+    useEffect(() => {
+        if (!store) return;
+        loadTabContent();
+    }, [store, activeTab, 
+        pagination.products.page, pagination.inventory.page, pagination.orders.page, 
+        pagination.vendors.page, pagination.purchaseOrders.page, pagination.posTransactions.page, 
+        pagination.staff.page, pagination.customers.page, pagination.subscribers.page
+    ]);
+
+    const loadStoreInfo = async () => {
+         try {
+            const storesRes = await getStores();
+            const userStore = storesRes.data.find(s => s.id === user.store_id) || storesRes.data[0];
+            if (!userStore) {
+                toast.error('No store assigned');
+                return;
+            }
+            setStore(userStore);
+            setPageTitle(userStore, 'Admin');
+            setCurrency(userStore.currency);
+            
+            // Pre-load critical data if needed? No, let loadTabContent handle it.
+            // But we might need subscription plans everywhere?
+            const plansRes = await getSubscriptionPlans(userStore.id).catch(() => ({ data: [] }));
+            setSubscriptionPlans(plansRes.data);
+
+         } catch (error) {
+            console.error(error);
+            toast.error('Failed to load store info');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const loadTabContent = async () => {
+         if (!store) return;
+         setLoading(true);
+         try {
+             const storeId = store.id;
+             switch (activeTab) {
+                 case 'products':
+                     const pRes = await getProducts(storeId, null, false, null, pagination.products.limit, pagination.products.page);
+                     processPaginatedResponse(pRes, 'products', setProducts);
+                     break;
+                 case 'inventory':
+                     const iRes = await getInventory(storeId, pagination.inventory.page, pagination.inventory.limit);
+                     processPaginatedResponse(iRes, 'inventory', setInventory);
+                     break;
+                 case 'orders':
+                     const oRes = await getOrders(storeId, pagination.orders.page, pagination.orders.limit);
+                     processPaginatedResponse(oRes, 'orders', setOrders);
+                     break;
+                 case 'vendors':
+                     const vRes = await getVendors(storeId, pagination.vendors.page, pagination.vendors.limit);
+                     processPaginatedResponse(vRes, 'vendors', setVendors);
+                     break;
+                 case 'purchase-orders':
+                     const poRes = await getPurchaseOrders(storeId, pagination.purchaseOrders.page, pagination.purchaseOrders.limit);
+                     processPaginatedResponse(poRes, 'purchaseOrders', setPurchaseOrders);
+                     break;
+                 case 'pos':
+                     const posRes = await getPOSTransactions(storeId, pagination.posTransactions.page, pagination.posTransactions.limit);
+                     processPaginatedResponse(posRes, 'posTransactions', setPosTransactions);
+                     break;
+                 case 'staff':
+                     const sRes = await getStoreStaff(storeId, pagination.staff.page, pagination.staff.limit);
+                     processPaginatedResponse(sRes, 'staff', setStaff);
+                     break;
+                 case 'customers':
+                     const cRes = await getStoreCustomers(storeId, pagination.customers.page, pagination.customers.limit);
+                     processPaginatedResponse(cRes, 'customers', setCustomers);
+                     break;
+                 case 'subscribers':
+                     const subRes = await getStoreSubscribers(storeId); // Not paginated yet
+                     setSubscribers(subRes.data || []);
+                     break;
+                 default:
+                     break;
+             }
+         } catch(e) {
+             console.error("Load tab content failed", e);
+             toast.error("Failed to load data");
+         } finally {
+             setLoading(false);
+         }
+    };
+
+    /* DEPRECATED loadData replaced by loadStoreInfo */
 
     // Set document title to store name + Admin
     useEffect(() => {
@@ -143,49 +282,8 @@ const StoreAdminDashboard = () => {
         };
     }, [store?.name]);
 
-    const loadData = async () => {
-        try {
-            const storesRes = await getStores();
-            const userStore = storesRes.data.find(s => s.id === user.store_id) || storesRes.data[0];
-            if (!userStore) {
-                toast.error('No store assigned');
-                return;
-            }
-            setStore(userStore);
-            setPageTitle(userStore, 'Admin');
-            setCurrency(userStore.currency);
+    // loadData replaced by loadTabContent
 
-            const storeId = userStore.id;
-            const [productsRes, inventoryRes, ordersRes, vendorsRes, posRes, posTransRes, plansRes, subscribersRes, staffRes, customersRes] = await Promise.all([
-                getProducts(storeId, null, false),
-                getInventory(storeId),
-                getOrders(storeId),
-                getVendors(storeId),
-                getPurchaseOrders(storeId),
-                getPOSTransactions(storeId),
-                getSubscriptionPlans(storeId),
-                getStoreSubscribers(storeId).catch(() => ({ data: [] })),
-                getStoreStaff(storeId).catch(() => ({ data: [] })),
-                getStoreCustomers(storeId).catch(() => ({ data: [] }))
-            ]);
-
-            setProducts(productsRes.data);
-            setInventory(inventoryRes.data);
-            setOrders(ordersRes.data);
-            setVendors(vendorsRes.data);
-            setPurchaseOrders(posRes.data);
-            setPosTransactions(posTransRes.data);
-            setSubscriptionPlans(plansRes.data);
-            setSubscribers(subscribersRes.data || []);
-            setStaff(staffRes.data || []);
-            setCustomers(customersRes.data || []);
-        } catch (error) {
-            console.error(error);
-            toast.error('Failed to load data');
-        } finally {
-            setLoading(false);
-        }
-    };
 
     // Filtered data using useMemo
     const filteredProducts = useMemo(() => {
@@ -272,7 +370,7 @@ const StoreAdminDashboard = () => {
         try {
             await deletePOSTransaction(store.id, txId);
             toast.success('Transaction deleted');
-            loadData();
+            loadTabContent();
         } catch (error) {
             toast.error('Failed to delete transaction');
         }
@@ -294,7 +392,7 @@ const StoreAdminDashboard = () => {
         try {
             await deletePurchaseOrder(store.id, poId);
             toast.success('Purchase order deleted');
-            loadData();
+            loadTabContent();
         } catch (error) {
             toast.error('Failed to delete purchase order');
         }
@@ -304,7 +402,7 @@ const StoreAdminDashboard = () => {
         try {
             await updatePOStatus(store.id, poId, status);
             toast.success('PO status updated');
-            loadData();
+            loadTabContent();
         } catch (error) {
             toast.error('Failed to update status');
         }
@@ -326,7 +424,7 @@ const StoreAdminDashboard = () => {
         try {
             await updateSubscriptionStatus(store.id, subscriptionId, newStatus);
             toast.success(`Status updated to ${newStatus}`);
-            loadData();
+            loadTabContent();
             // If viewing details, refresh them
             if (subscriptionDetails && subscriptionDetails.subscription.id === subscriptionId) {
                 const res = await getSubscriptionDetails(store.id, subscriptionId);
@@ -345,7 +443,7 @@ const StoreAdminDashboard = () => {
             toast.success('Subscription deleted');
             setSubscriberDialogOpen(false);
             setSubscriptionDetails(null);
-            loadData();
+            loadTabContent();
         } catch (error) {
             console.error(error);
             toast.error('Failed to delete subscription');
@@ -376,7 +474,7 @@ const StoreAdminDashboard = () => {
             }
             setStaffDialogOpen(false);
             setNewStaff({ email: '', password: '', name: '', phone: '', menu_access: ['products', 'inventory', 'orders', 'pos'], is_active: true });
-            loadData();
+            loadTabContent();
         } catch (error) {
             toast.error(error.response?.data?.detail || 'Failed to save staff');
         }
@@ -400,7 +498,7 @@ const StoreAdminDashboard = () => {
         try {
             await deleteStaff(store.id, staffId);
             toast.success('Staff deleted');
-            loadData();
+            loadTabContent();
         } catch (error) {
             toast.error('Failed to delete staff');
         }
@@ -450,7 +548,7 @@ const StoreAdminDashboard = () => {
             await updateCustomer(store.id, selectedCustomer.id, customerEditForm);
             toast.success('Customer updated');
             setCustomerEditOpen(false);
-            loadData();
+            loadTabContent();
         } catch (error) {
             toast.error('Failed to update customer');
         }
@@ -462,7 +560,7 @@ const StoreAdminDashboard = () => {
             await deleteCustomer(store.id, customerId);
             toast.success('Customer deleted');
             setCustomerDetailOpen(false);
-            loadData();
+            loadTabContent();
         } catch (error) {
             toast.error('Failed to delete customer');
         }
@@ -490,7 +588,7 @@ const StoreAdminDashboard = () => {
             }
             setProductDialogOpen(false);
             setNewProduct({ name: '', description: '', price: '', category: '', sku: '', weight: '', images: [''] });
-            loadData();
+            loadTabContent();
         } catch (error) {
             toast.error(error.response?.data?.detail || 'Failed to save product');
         }
@@ -531,7 +629,7 @@ const StoreAdminDashboard = () => {
         try {
             await deleteProduct(store.id, productId);
             toast.success('Product deactivated');
-            loadData();
+            loadTabContent();
         } catch (error) {
             toast.error('Failed to delete product');
         }
@@ -557,7 +655,7 @@ const StoreAdminDashboard = () => {
             }
             setInventoryDialogOpen(false);
             setNewInventory({ product_id: '', quantity: '', min_stock_level: 5, location: '' });
-            loadData();
+            loadTabContent();
         } catch (error) {
             toast.error(error.response?.data?.detail || 'Failed to save inventory');
         }
@@ -588,7 +686,7 @@ const StoreAdminDashboard = () => {
             }
             setVendorDialogOpen(false);
             setNewVendor({ name: '', contact_name: '', email: '', phone: '', address: '', gst_number: '' });
-            loadData();
+            loadTabContent();
         } catch (error) {
             toast.error(error.response?.data?.detail || 'Failed to save vendor');
         }
@@ -631,7 +729,7 @@ const StoreAdminDashboard = () => {
             }
             setPoDialogOpen(false);
             setNewPO({ vendor_id: '', items: [{ product_id: '', quantity: '', unit_price: '' }], notes: '' });
-            loadData();
+            loadTabContent();
         } catch (error) {
             toast.error(error.response?.data?.detail || 'Failed to save PO');
         }
@@ -663,7 +761,7 @@ const StoreAdminDashboard = () => {
             setPosDialogOpen(false);
             setPosItems([{ product_id: '', quantity: 1, price: 0 }]);
             setPosCustomer({ name: '', phone: '' });
-            loadData();
+            loadTabContent();
         } catch (error) {
             toast.error(error.response?.data?.detail || 'Transaction failed');
         }
@@ -691,7 +789,7 @@ const StoreAdminDashboard = () => {
             }
             setPlanDialogOpen(false);
             setNewPlan({ name: '', plan_type: '', duration_months: 11, min_amount: 500, max_amount: 100000, bonus_percentage: 0, benefits: [], description: '', scheme_type: 'fixed', target_metal: 'gold' });
-            loadData();
+            loadTabContent();
         } catch (error) {
             toast.error(error.response?.data?.detail || 'Failed to save plan');
         }
@@ -729,7 +827,7 @@ const StoreAdminDashboard = () => {
                 carrier_url: orderTrackingInfo.carrier_url || null
             });
             toast.success('Order updated');
-            loadData();
+            loadTabContent();
             setOrderDetailOpen(false);
             setOrderTrackingInfo({ tracking_number: '', carrier_name: '', carrier_url: '' });
         } catch (error) {
@@ -753,7 +851,7 @@ const StoreAdminDashboard = () => {
             await updateStoreSettings(store.id, currency);
             toast.success('Settings updated');
             setSettingsDialogOpen(false);
-            loadData();
+            loadTabContent();
         } catch (error) {
             toast.error('Failed to update settings');
         }
@@ -777,7 +875,7 @@ const StoreAdminDashboard = () => {
             await updateStore(store.id, { ...storeEditForm, currency: store.currency });
             toast.success('Store information updated');
             setStoreEditDialogOpen(false);
-            loadData();
+            loadTabContent();
         } catch (error) {
             toast.error(error.response?.data?.detail || 'Failed to update store');
         }
@@ -792,6 +890,35 @@ const StoreAdminDashboard = () => {
 
     const getProductName = (productId) => {
         return products.find(p => p.id === productId)?.name || 'Unknown';
+    };
+
+    const renderPagination = (entityKey) => {
+        const { page, pages } = pagination[entityKey];
+        if (pages <= 1) return null;
+        
+        return (
+            <div className="flex items-center justify-end space-x-2 py-4">
+                <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => handlePageChange(entityKey, page - 1)}
+                    disabled={page <= 1}
+                >
+                    Previous
+                </Button>
+                <div className="text-sm font-medium">
+                    Page {page} of {pages}
+                </div>
+                <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => handlePageChange(entityKey, page + 1)}
+                    disabled={page >= pages}
+                >
+                    Next
+                </Button>
+            </div>
+        );
     };
 
     const getVendorName = (vendorId) => {
@@ -903,6 +1030,20 @@ const StoreAdminDashboard = () => {
                                     onClick={() => setActiveTab('shiprocket-logs')}
                                 >
                                     <FileText className="w-4 h-4 mr-2" /> Shiprocket Logs
+                                </Button>
+                                <Button
+                                    variant={activeTab === 'razorpay-logs' ? 'secondary' : 'ghost'}
+                                    className="w-full justify-start"
+                                    onClick={() => setActiveTab('razorpay-logs')}
+                                >
+                                    <FileText className="w-4 h-4 mr-2" /> Razorpay Logs
+                                </Button>
+                                <Button
+                                    variant={activeTab === 'media' ? 'secondary' : 'ghost'}
+                                    className="w-full justify-start"
+                                    onClick={() => setActiveTab('media')}
+                                >
+                                    <ImageIcon className="w-4 h-4 mr-2" /> Media Library
                                 </Button>
                                 <div className="border-t my-4" />
                                 <Link to={`/store/${store.id}/page-editor`}>
@@ -1050,15 +1191,38 @@ const StoreAdminDashboard = () => {
                                                 {newProduct.images.map((img, index) => (
                                                     <div key={index} className="flex gap-2 items-start">
                                                         <div className="flex-1 space-y-1">
-                                                            <Input
-                                                                value={img}
-                                                                onChange={(e) => updateImageField(index, e.target.value)}
-                                                                placeholder={`Image URL ${index + 1}`}
-                                                                data-testid={`product-image-input-${index}`}
-                                                            />
+                                                            <div className="flex gap-2">
+                                                                <Input
+                                                                    value={img}
+                                                                    onChange={(e) => updateImageField(index, e.target.value)}
+                                                                    placeholder={`Image URL ${index + 1}`}
+                                                                    data-testid={`product-image-input-${index}`}
+                                                                />
+                                                                <Button 
+                                                                    type="button" 
+                                                                    variant="outline" 
+                                                                    size="icon"
+                                                                    onClick={() => {
+                                                                        setMediaSelectCallback(() => (url) => {
+                                                                            // Strip base URL if present to store relative path
+                                                                            const relativeUrl = url.replace(IMAGE_SERVER_URL, '');
+                                                                            updateImageField(index, relativeUrl);
+                                                                        });
+                                                                        setMediaDialogOpen(true);
+                                                                    }}
+                                                                    title="Select from Media Library"
+                                                                >
+                                                                    <ImageIcon className="w-4 h-4" />
+                                                                </Button>
+                                                            </div>
                                                             {img && (
                                                                 <div className="h-16 w-16 rounded border overflow-hidden">
-                                                                    <img src={img} alt={`Preview ${index + 1}`} className="w-full h-full object-cover" onError={(e) => e.target.style.display = 'none'} />
+                                                                    <img 
+                                                                        src={img.startsWith('http') ? img : `${IMAGE_SERVER_URL}${img}`} 
+                                                                        alt={`Preview ${index + 1}`} 
+                                                                        className="w-full h-full object-cover" 
+                                                                        onError={(e) => e.target.style.display = 'none'} 
+                                                                    />
                                                                 </div>
                                                             )}
                                                         </div>
@@ -1130,7 +1294,15 @@ const StoreAdminDashboard = () => {
                                                 <TableRow key={product.id} data-testid={`product-row-${product.id}`}>
                                                     <TableCell>
                                                         {product.images?.[0] ? (
-                                                            <img src={product.images[0]} alt={product.name} className="w-12 h-12 object-cover rounded" />
+                                                            <img 
+                                                                src={product.images[0].startsWith('http') ? product.images[0] : `${IMAGE_SERVER_URL}${product.images[0]}`} 
+                                                                alt={product.name} 
+                                                                className="w-12 h-12 object-cover rounded" 
+                                                                onError={(e) => {
+                                                                    e.target.onerror = null; 
+                                                                    e.target.src = 'https://placehold.co/48x48?text=No+Img';
+                                                                }}
+                                                            />
                                                         ) : (
                                                             <div className="w-12 h-12 bg-muted rounded flex items-center justify-center text-muted-foreground text-xs">No img</div>
                                                         )}
@@ -1173,6 +1345,7 @@ const StoreAdminDashboard = () => {
                                     </Table>
                                 </CardContent>
                             </Card>
+                            {renderPagination('products')}
                         </div>
                     )}
 
@@ -1307,6 +1480,7 @@ const StoreAdminDashboard = () => {
                                     </Table>
                                 </CardContent>
                             </Card>
+                            {renderPagination('inventory')}
                         </div>
                     )}
 
@@ -1420,6 +1594,7 @@ const StoreAdminDashboard = () => {
                                     </Table>
                                 </CardContent>
                             </Card>
+                            {renderPagination('orders')}
 
                             {/* Order Detail Dialog */}
                             <Dialog open={orderDetailOpen} onOpenChange={(open) => { setOrderDetailOpen(open); if (!open) setOrderTrackingInfo({ tracking_number: '', carrier_name: '', carrier_url: '' }); }}>
@@ -1713,6 +1888,7 @@ const StoreAdminDashboard = () => {
                                     </Table>
                                 </CardContent>
                             </Card>
+                            {renderPagination('posTransactions')}
                         </div>
                     )}
 
@@ -1838,7 +2014,7 @@ const StoreAdminDashboard = () => {
                                                         <Button variant="ghost" size="sm" onClick={() => openEditVendor(vendor)} data-testid={`edit-vendor-${vendor.id}`}>
                                                             <Edit2 className="w-4 h-4" />
                                                         </Button>
-                                                        <Button variant="ghost" size="sm" onClick={() => deleteVendor(store.id, vendor.id).then(loadData)} data-testid={`delete-vendor-${vendor.id}`}>
+                                                        <Button variant="ghost" size="sm" onClick={() => deleteVendor(store.id, vendor.id).then(() => loadTabContent())} data-testid={`delete-vendor-${vendor.id}`}>
                                                             <Trash2 className="w-4 h-4 text-destructive" />
                                                         </Button>
                                                     </TableCell>
@@ -1855,6 +2031,7 @@ const StoreAdminDashboard = () => {
                                     </Table>
                                 </CardContent>
                             </Card>
+                            {renderPagination('vendors')}
                         </div>
                     )}
 
@@ -2052,6 +2229,7 @@ const StoreAdminDashboard = () => {
                                     </Table>
                                 </CardContent>
                             </Card>
+                            {renderPagination('purchaseOrders')}
                         </div>
                     )}
 
@@ -2370,6 +2548,7 @@ const StoreAdminDashboard = () => {
                                     </Table>
                                 </CardContent>
                             </Card>
+                            {renderPagination('staff')}
                         </div>
                     )}
 
@@ -2432,6 +2611,7 @@ const StoreAdminDashboard = () => {
                                     </Table>
                                 </CardContent>
                             </Card>
+                            {renderPagination('customers')}
                         </div>
                     )}
 
@@ -2537,7 +2717,7 @@ const StoreAdminDashboard = () => {
                                             )}
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div className="space-y-2">
-                                                    <Label>Min Amount (₹)</Label>
+                                                    <Label>Min Amount (�?</Label>
                                                     <Input
                                                         type="number"
                                                         value={newPlan.min_amount}
@@ -2548,7 +2728,7 @@ const StoreAdminDashboard = () => {
                                                     />
                                                 </div>
                                                 <div className="space-y-2">
-                                                    <Label>Max Amount (₹)</Label>
+                                                    <Label>Max Amount (�?</Label>
                                                     <Input
                                                         type="number"
                                                         value={newPlan.max_amount}
@@ -2708,9 +2888,34 @@ const StoreAdminDashboard = () => {
                         </div>
                     )}
 
+
                     {activeTab === 'shiprocket-logs' && (
                         <div className="space-y-6">
                             <ShiprocketLogs storeId={store.id} />
+                        </div>
+                    )}
+
+                    {activeTab === 'razorpay-logs' && (
+                        <div className="space-y-6">
+                            <RazorpayLogs storeId={store.id} />
+                        </div>
+                    )}
+
+                    {activeTab === 'media' && (
+                        <div className="space-y-6">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-2xl font-serif font-semibold">Media Library</h2>
+                                    <p className="text-muted-foreground">Manage your store images and assets.</p>
+                                </div>
+                            </div>
+                            <MediaLibrary 
+                                storeId={store.id} 
+                                onSelect={(url) => {
+                                    toast.success("Image URL copied to clipboard");
+                                    navigator.clipboard.writeText(url);
+                                }} 
+                            />
                         </div>
                     )}
 
@@ -2723,7 +2928,6 @@ const StoreAdminDashboard = () => {
                                 </div>
                             </div>
                             <StoreSettings storeId={store.id} />
-                            <StoreShippingSettings storeId={store.id} />
                         </div>
                     )}
                 </div>
@@ -2842,9 +3046,9 @@ const StoreAdminDashboard = () => {
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="INR">INR (₹)</SelectItem>
+                                    <SelectItem value="INR">INR (�?</SelectItem>
                                     <SelectItem value="USD">USD ($)</SelectItem>
-                                    <SelectItem value="EUR">EUR (€)</SelectItem>
+                                    <SelectItem value="EUR">EUR (�?</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
@@ -3128,6 +3332,25 @@ const StoreAdminDashboard = () => {
                             Update Customer
                         </Button>
                     </form>
+                </DialogContent>
+            </Dialog>
+
+            {/* Media Library Select Dialog */}
+            <Dialog open={mediaDialogOpen} onOpenChange={setMediaDialogOpen}>
+                <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle className="font-serif">Select Image</DialogTitle>
+                    </DialogHeader>
+                    <MediaLibrary 
+                        storeId={store?.id} 
+                        selectMode={true}
+                        onSelect={(url) => {
+                            if (mediaSelectCallback) {
+                                mediaSelectCallback(url);
+                            }
+                            setMediaDialogOpen(false);
+                        }}
+                    />
                 </DialogContent>
             </Dialog>
         </div>

@@ -1,3 +1,4 @@
+# ==================== IMPORTS ====================
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Query, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
@@ -49,6 +50,42 @@ optional_security = HTTPBearer(auto_error=False)
 
 app = FastAPI(title="Dynamic Web App Configurator")
 api_router = APIRouter(prefix="/api")
+
+# ==================== RAZORPAY LOGGING ====================
+
+class RazorpayLog(BaseModel):
+    id: str
+    store_id: str
+    action: str
+    status: str
+    url: Optional[str] = None
+    request: Optional[dict] = None
+    response: Optional[dict] = None
+    error: Optional[str] = None
+    created_at: str
+
+class PaginatedRazorpayLogResponse(BaseModel):
+    items: List[RazorpayLog]
+    total: int
+    page: int
+    limit: int
+    pages: int
+
+async def log_razorpay(store_id: str, action: str, status: str, url: str = None, request: dict = None, response: dict = None, error: str = None):
+    try:
+        safe_request = request.copy() if request else None
+        await db.razorpay_logs.insert_one({
+            "store_id": store_id,
+            "action": action,
+            "status": status,
+            "url": url,
+            "request": safe_request,
+            "response": response,
+            "error": error,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+    except Exception as e:
+        print(f"Failed to write razorpay log: {e}")
 
 # ==================== MODELS ====================
 
@@ -205,6 +242,13 @@ class InventoryResponse(BaseModel):
     location: Optional[str] = None
     updated_at: str
 
+class PaginatedInventoryResponse(BaseModel):
+    items: List[InventoryResponse]
+    total: int
+    page: int
+    limit: int
+    pages: int
+
 class AddressCreate(BaseModel):
     label: str = "Home"
     full_name: str
@@ -270,6 +314,7 @@ class OrderItemCreate(BaseModel):
 class OrderCreate(BaseModel):
     items: List[OrderItemCreate]
     shipping_address_id: str
+    shipping_charges: Optional[float] = 0.0
     notes: Optional[str] = None
 
 class OrderResponse(BaseModel):
@@ -286,6 +331,13 @@ class OrderResponse(BaseModel):
     notes: Optional[str] = None
     created_at: str
     updated_at: str
+
+class PaginatedOrderResponse(BaseModel):
+    items: List[OrderResponse]
+    total: int
+    page: int
+    limit: int
+    pages: int
 
 class OrderStatusUpdate(BaseModel):
     status: str
@@ -313,6 +365,13 @@ class VendorResponse(BaseModel):
     is_active: bool
     created_at: str
 
+class PaginatedVendorResponse(BaseModel):
+    items: List[VendorResponse]
+    total: int
+    page: int
+    limit: int
+    pages: int
+
 class PurchaseOrderItemCreate(BaseModel):
     product_id: str
     quantity: int
@@ -333,6 +392,13 @@ class PurchaseOrderResponse(BaseModel):
     notes: Optional[str] = None
     created_at: str
 
+class PaginatedPurchaseOrderResponse(BaseModel):
+    items: List[PurchaseOrderResponse]
+    total: int
+    page: int
+    limit: int
+    pages: int
+
 class POSTransactionCreate(BaseModel):
     items: List[OrderItemCreate]
     payment_method: str = "cash"
@@ -348,6 +414,13 @@ class POSTransactionResponse(BaseModel):
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
     created_at: str
+
+class PaginatedPOSTransactionResponse(BaseModel):
+    items: List[POSTransactionResponse]
+    total: int
+    page: int
+    limit: int
+    pages: int
 
 class SubscriptionPlanCreate(BaseModel):
     name: str
@@ -579,18 +652,30 @@ def create_token(user_id: str, email: str, role: str, store_id: Optional[str] = 
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     try:
+        print(f"DEBUG: Received credentials: {credentials}")
+        if not credentials or not credentials.credentials:
+            print("DEBUG: No credentials provided")
+            raise HTTPException(status_code=401, detail="Not authenticated")
         payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         user_id = payload.get("sub")
         if not user_id:
+            print("DEBUG: No user_id in token")
             raise HTTPException(status_code=401, detail="Invalid token")
         user = await db.users.find_one({"id": user_id}, {"_id": 0})
         if not user:
+            print("DEBUG: User not found in database")
             raise HTTPException(status_code=401, detail="User not found")
+        print(f"DEBUG: Authenticated user: {user.get('email')}")
         return user
     except jwt.ExpiredSignatureError:
+        print("DEBUG: Token expired")
         raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
+    except jwt.InvalidTokenError as e:
+        print(f"DEBUG: Invalid token: {e}")
         raise HTTPException(status_code=401, detail="Invalid token")
+    except Exception as e:
+        print(f"DEBUG: Unexpected error in get_current_user: {e}")
+        raise HTTPException(status_code=401, detail="Not authenticated")
 
 async def get_optional_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security)):
     if not credentials:
@@ -611,6 +696,23 @@ def require_roles(allowed_roles: List[str]):
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         return user
     return role_checker
+
+@api_router.get("/stores/{store_id}/razorpay-logs", response_model=PaginatedRazorpayLogResponse)
+async def get_razorpay_logs(store_id: str, page: int = 1, limit: int = 20, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    skip = (page - 1) * limit
+    total = await db.razorpay_logs.count_documents({"store_id": store_id})
+    logs = await db.razorpay_logs.find({"store_id": store_id}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    items = [RazorpayLog(id=str(l["_id"]), **{k:v for k,v in l.items() if k != "_id"}) for l in logs]
+    pages = ceil(total / limit)
+    return PaginatedRazorpayLogResponse(
+        items=items,
+        total=total,
+        page=page,
+        limit=limit,
+        pages=pages
+    )
 
 # ==================== AUTH ENDPOINTS ====================
 
@@ -1017,10 +1119,19 @@ async def create_product(store_id: str, product_data: ProductCreate, user: dict 
     product_doc = {
         "id": product_id,
         "store_id": store_id,
-        **product_data.model_dump(),Union[List[ProductResponse], PaginatedProductResponse])
+        **product_data.model_dump(),
+        "created_at": now,
+        "updated_at": now
+    }
+    
+    await db.products.insert_one(product_doc)
+    return product_doc
+
+@api_router.get("/stores/{store_id}/products", response_model=Union[List[ProductResponse], PaginatedProductResponse])
 async def get_products(
     store_id: str,
     category: Optional[str] = None,
+    search: Optional[str] = None,
     active_only: bool = True,
     featured: Optional[bool] = None,
     limit: int = 100,
@@ -1033,6 +1144,12 @@ async def get_products(
         query["category"] = category
     if featured is not None:
         query["featured"] = bool(featured)
+    if search:
+        # Case-insensitive search on name or description
+        query["$or"] = [
+            {"name": {"$regex": search, "$options": "i"}},
+            {"description": {"$regex": search, "$options": "i"}}
+        ]
 
     # Clamp limit to a safe maximum (100)
     try:
@@ -1055,14 +1172,7 @@ async def get_products(
         )
     else:
         products = await db.products.find(query, {"_id": 0}).to_list(limit_val)
-        try:
-        limit_val = int(limit)
-    except Exception:
-        limit_val = 100
-    limit_val = max(1, min(100, limit_val))
-
-    products = await db.products.find(query, {"_id": 0}).to_list(limit_val)
-    return [ProductResponse(**p) for p in products]
+        return [ProductResponse(**p) for p in products]
 
 @api_router.get("/stores/{store_id}/products/{product_id}", response_model=ProductResponse)
 async def get_product(store_id: str, product_id: str):
@@ -1094,7 +1204,20 @@ async def delete_product(store_id: str, product_id: str, user: dict = Depends(re
 async def create_inventory(store_id: str, inv_data: InventoryCreate, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))):
     if user["role"] in [UserRole.STORE_ADMIN, UserRole.STORE_USER] and user.get("store_id") != store_id:
         raise HTTPException(status_code=403, detail="Cannot manage inventory for other stores")
-    Union[List[InventoryResponse], PaginatedInventoryResponse])
+    
+    inv_id = str(ObjectId())
+    now = datetime.now(timezone.utc).isoformat()
+    inv_doc = {
+        "id": inv_id,
+        "store_id": store_id,
+        **inv_data.model_dump(),
+        "updated_at": now
+    }
+    
+    await db.inventory.insert_one(inv_doc)
+    return InventoryResponse(**{k: v for k, v in inv_doc.items() if k != "_id"})
+
+@api_router.get("/stores/{store_id}/inventory", response_model=Union[List[InventoryResponse], PaginatedInventoryResponse])
 async def get_inventory(store_id: str, page: Optional[int] = Query(None, ge=1), limit: int = Query(100, ge=1, le=1000)):
     # Public endpoint - anyone can view inventory levels for product availability
     query = {"store_id": store_id}
@@ -1113,27 +1236,25 @@ async def get_inventory(store_id: str, page: Optional[int] = Query(None, ge=1), 
         )
     else:
         inventory = await db.inventory.find(query, {"_id": 0}).to_list(1000)
-        inv_doc = {
-        "id": inv_id,
-        "store_id": store_id,
-        **inv_data.model_dump(),
-        "updated_at": now
-    }
-    
-    await db.inventory.insert_one(inv_doc)
-    return InventoryResponse(**{k: v for k, v in inv_doc.items() if k != "_id"})
-
-@api_router.get("/stores/{store_id}/inventory", response_model=List[InventoryResponse])
-async def get_inventory(store_id: str):
-    # Public endpoint - anyone can view inventory levels for product availability
-    inventory = await db.inventory.find({"store_id": store_id}, {"_id": 0}).to_list(1000)
-    return [InventoryResponse(**inv) for inv in inventory]
+        return [InventoryResponse(**inv) for inv in inventory]
 
 @api_router.put("/stores/{store_id}/inventory/{inv_id}", response_model=InventoryResponse)
 async def update_inventory(store_id: str, inv_id: str, inv_data: InventoryCreate, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))):
     if user["role"] in [UserRole.STORE_ADMIN, UserRole.STORE_USER] and user.get("store_id") != store_id:
         raise HTTPException(status_code=403, detail="Cannot update inventory for other stores")
-    Union[List[VendorResponse], PaginatedVendorResponse])
+
+    await db.inventory.update_one(
+        {"id": inv_id, "store_id": store_id},
+        {"$set": {**inv_data.model_dump(), "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    updated_inv = await db.inventory.find_one({"id": inv_id, "store_id": store_id}, {"_id": 0})
+    if not updated_inv:
+        raise HTTPException(status_code=404, detail="Inventory item not found")
+        
+    return InventoryResponse(**updated_inv)
+
+@api_router.get("/stores/{store_id}/vendors", response_model=Union[List[VendorResponse], PaginatedVendorResponse])
 async def get_vendors(
     store_id: str, 
     page: Optional[int] = Query(None, ge=1),
@@ -1159,7 +1280,7 @@ async def get_vendors(
         )
     else:
         vendors = await db.vendors.find(query, {"_id": 0}).to_list(1000)
-        return InventoryResponse(**inv)
+        return [VendorResponse(**v) for v in vendors]
 
 # ==================== VENDOR ENDPOINTS ====================
 
@@ -1182,14 +1303,6 @@ async def create_vendor(store_id: str, vendor_data: VendorCreate, user: dict = D
     await db.vendors.insert_one(vendor_doc)
     return VendorResponse(**{k: v for k, v in vendor_doc.items() if k != "_id"})
 
-@api_router.get("/stores/{store_id}/vendors", response_model=List[VendorResponse])
-async def get_vendors(store_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))):
-    if user["role"] in [UserRole.STORE_ADMIN, UserRole.STORE_USER] and user.get("store_id") != store_id:
-        raise HTTPException(status_code=403, detail="Cannot view vendors from other stores")
-    
-    vendors = await db.vendors.find({"store_id": store_id, "is_active": True}, {"_id": 0}).to_list(1000)
-    return [VendorResponse(**v) for v in vendors]
-
 @api_router.put("/stores/{store_id}/vendors/{vendor_id}", response_model=VendorResponse)
 async def update_vendor(store_id: str, vendor_id: str, vendor_data: VendorCreate, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))):
     if user["role"] in [UserRole.STORE_ADMIN, UserRole.STORE_USER] and user.get("store_id") != store_id:
@@ -1199,7 +1312,15 @@ async def update_vendor(store_id: str, vendor_id: str, vendor_data: VendorCreate
     vendor = await db.vendors.find_one({"id": vendor_id}, {"_id": 0})
     return VendorResponse(**vendor)
 
-@api_router.delete("/stores/{store_id}/vendors/{vendor_id}")Union[List[PurchaseOrderResponse], PaginatedPurchaseOrderResponse])
+@api_router.delete("/stores/{store_id}/vendors/{vendor_id}")
+async def delete_vendor(store_id: str, vendor_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot delete vendors from other stores")
+    
+    await db.vendors.update_one({"id": vendor_id, "store_id": store_id}, {"$set": {"is_active": False}})
+    return {"message": "Vendor deleted"}
+
+@api_router.get("/stores/{store_id}/purchase-orders", response_model=Union[List[PurchaseOrderResponse], PaginatedPurchaseOrderResponse])
 async def get_purchase_orders(
     store_id: str, 
     page: Optional[int] = Query(None, ge=1),
@@ -1225,7 +1346,7 @@ async def get_purchase_orders(
         )
     else:
         pos = await db.purchase_orders.find(query, {"_id": 0}).to_list(1000)
-        return {"message": "Vendor deactivated"}
+        return [PurchaseOrderResponse(**po) for po in pos]
 
 # ==================== PURCHASE ORDER ENDPOINTS ====================
 
@@ -1242,45 +1363,17 @@ async def create_purchase_order(store_id: str, po_data: PurchaseOrderCreate, use
     
     po_doc = {
         "id": po_id,
-        "store_id": store_id,Union[List[POSTransactionResponse], PaginatedPOSTransactionResponse])
-async def get_pos_transactions(
-    store_id: str, 
-    page: Optional[int] = Query(None, ge=1),
-    limit: int = Query(20, ge=1, le=100),
-    user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))
-):
-    if user["role"] in [UserRole.STORE_ADMIN, UserRole.STORE_USER] and user.get("store_id") != store_id:
-        raise HTTPException(status_code=403, detail="Cannot view transactions from other stores")
-    
-    query = {"store_id": store_id}
-
-    if page is not None:
-        skip = (page - 1) * limit
-        total = await db.pos_transactions.count_documents(query)
-        txs = await db.pos_transactions.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
-
-        return PaginatedPOSTransactionResponse(
-            items=[POSTransactionResponse(**tx) for tx in txs],
-            total=total,
-            page=page,
-            limit=limit,
-            pages=ceil(total / limit)
-        )
-    else:
-        txs = await db.pos_transactions.find(query, {"_id": 0}).to_list(1000)
-            "created_at": now
+        "store_id": store_id,
+        "vendor_id": po_data.vendor_id,
+        "items": items,
+        "total_amount": total,
+        "status": "pending",
+        "notes": po_data.notes,
+        "created_at": now
     }
     
     await db.purchase_orders.insert_one(po_doc)
     return PurchaseOrderResponse(**{k: v for k, v in po_doc.items() if k != "_id"})
-
-@api_router.get("/stores/{store_id}/purchase-orders", response_model=List[PurchaseOrderResponse])
-async def get_purchase_orders(store_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))):
-    if user["role"] in [UserRole.STORE_ADMIN, UserRole.STORE_USER] and user.get("store_id") != store_id:
-        raise HTTPException(status_code=403, detail="Cannot view POs from other stores")
-    
-    pos = await db.purchase_orders.find({"store_id": store_id}, {"_id": 0}).to_list(1000)
-    return [PurchaseOrderResponse(**po) for po in pos]
 
 @api_router.put("/stores/{store_id}/purchase-orders/{po_id}/status")
 async def update_po_status(store_id: str, po_id: str, status: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))):
@@ -1317,13 +1410,33 @@ async def create_pos_transaction(store_id: str, pos_data: POSTransactionCreate, 
     await db.pos_transactions.insert_one(tx_doc)
     return POSTransactionResponse(**{k: v for k, v in tx_doc.items() if k != "_id"})
 
-@api_router.get("/stores/{store_id}/pos-transactions", response_model=List[POSTransactionResponse])
-async def get_pos_transactions(store_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))):
+@api_router.get("/stores/{store_id}/pos-transactions", response_model=Union[List[POSTransactionResponse], PaginatedPOSTransactionResponse])
+async def get_pos_transactions(
+    store_id: str, 
+    page: Optional[int] = Query(None, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))
+):
     if user["role"] in [UserRole.STORE_ADMIN, UserRole.STORE_USER] and user.get("store_id") != store_id:
         raise HTTPException(status_code=403, detail="Cannot view transactions from other stores")
     
-    txs = await db.pos_transactions.find({"store_id": store_id}, {"_id": 0}).to_list(1000)
-    return [POSTransactionResponse(**tx) for tx in txs]
+    query = {"store_id": store_id}
+
+    if page is not None:
+        skip = (page - 1) * limit
+        total = await db.pos_transactions.count_documents(query)
+        txs = await db.pos_transactions.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+
+        return PaginatedPOSTransactionResponse(
+            items=[POSTransactionResponse(**tx) for tx in txs],
+            total=total,
+            page=page,
+            limit=limit,
+            pages=ceil(total / limit)
+        )
+    else:
+        txs = await db.pos_transactions.find(query, {"_id": 0}).to_list(1000)
+        return [POSTransactionResponse(**tx) for tx in txs]
 
 @api_router.put("/stores/{store_id}/pos-transactions/{tx_id}", response_model=POSTransactionResponse)
 async def update_pos_transaction(store_id: str, tx_id: str, pos_data: POSTransactionCreate, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
@@ -1395,7 +1508,33 @@ async def get_store_reports(store_id: str, start_date: str = None, end_date: str
         if "created_at" in date_filter:
             date_filter["created_at"]["$lte"] = end_date
         else:
-            date_filter["created_at"] = {", response_model=Union[List[StaffResponse], PaginatedStaffResponse])
+            date_filter["created_at"] = {"$lte": end_date}
+
+    # Calculate Total Sales (Online Orders)
+    pipeline = [
+        {"$match": date_filter},
+        {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}}
+    ]
+    cursor = db.orders.aggregate(pipeline)
+    result = await cursor.to_list(length=1)
+    online_sales = result[0]["total"] if result else 0.0
+
+    # Calculate POS Sales
+    pos_pipeline = [
+        {"$match": date_filter},
+        {"$group": {"_id": None, "total": {"$sum": "$total_amount"}}}
+    ]
+    cursor = db.pos_transactions.aggregate(pos_pipeline)
+    res = await cursor.to_list(length=1)
+    pos_sales = res[0]["total"] if res else 0.0
+    
+    return {
+        "total_sales": online_sales + pos_sales,
+        "online_sales": online_sales,
+        "pos_sales": pos_sales
+    }
+
+@api_router.get("/stores/{store_id}/staff", response_model=Union[List[StaffResponse], PaginatedStaffResponse])
 async def get_store_staff(
     store_id: str, 
     page: Optional[int] = Query(None, ge=1),
@@ -1530,7 +1669,21 @@ async def update_staff(store_id: str, staff_id: str, staff_data: StaffUpdate, us
         update_data["phone"] = staff_data.phone
     if staff_data.menu_access is not None:
         update_data["menu_access"] = staff_data.menu_access
-    if staff_data.is_active is not None:, response_model=Union[List[CustomerResponse], PaginatedCustomerResponse])
+    if staff_data.is_active is not None:
+        update_data["is_active"] = staff_data.is_active
+        
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No data provided to update")
+        
+    await db.users.update_one({"id": staff_id, "store_id": store_id}, {"$set": update_data})
+    
+    updated_staff = await db.users.find_one({"id": staff_id}, {"_id": 0, "hashed_password": 0})
+    if not updated_staff:
+        raise HTTPException(status_code=404, detail="Staff not found")
+        
+    return StaffResponse(**updated_staff)
+
+@api_router.get("/stores/{store_id}/customers", response_model=Union[List[CustomerResponse], PaginatedCustomerResponse])
 async def get_store_customers(
     store_id: str, 
     page: Optional[int] = Query(None, ge=1),
@@ -1619,13 +1772,8 @@ async def get_store_customers(
                 total_spent=spent,
                 subscription_count=s_count
             ))
-        return result
-        await log_activity(user["id"], store_id, "staff_updated", {"staff_id": staff_id, "updates": list(update_data.keys())})
-    except Exception:
-        pass
-    
-    staff = await db.users.find_one({"id": staff_id}, {"_id": 0, "password_hash": 0})
-    return staff
+        return results
+
 
 @api_router.delete("/stores/{store_id}/staff/{staff_id}")
 async def delete_staff(store_id: str, staff_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
@@ -1843,10 +1991,12 @@ async def create_order(store_id: str, order_data: OrderCreate, user: dict = Depe
             })
             total += item.quantity * item.price
     
-    # Calculate Shipping
-    shipping_charges = 0.0
-    ship_config = await db.store_shipping_config.find_one({"store_id": store_id})
-    if ship_config and ship_config.get("is_enabled"):
+# Calculate Shipping - Use explicit charge if provided (calculated by frontend), else calculate again
+    shipping_charges = order_data.shipping_charges if order_data.shipping_charges is not None else 0.0
+    
+    # Optional: Re-calculate if security demands, but for now we trust the frontend calculation + display
+    ship_config = await db.store_shipping_config.find_one({"store_id": store_id}) 
+    if shipping_charges == 0 and ship_config and ship_config.get("is_enabled"):
         pickup_zip = ship_config.get("pickup_pincode")
         dest_zip = address.get("postal_code")
         
@@ -1868,7 +2018,57 @@ async def create_order(store_id: str, order_data: OrderCreate, user: dict = Depe
                 try:
                     res = {}
                     await log_shiprocket(store_id, "token_request", "pending", {"email": ship_config["email"]})
-                    token = await get_shiprocket_token(ship_Union[List[OrderResponse], PaginatedOrderResponse])
+                    token = await get_shiprocket_token(ship_config["email"], ship_config["password"])
+                    await log_shiprocket(store_id, "token_request", "success")
+
+                    # Serviceability Check
+                    res = await check_serviceability(token, pickup_zip, dest_zip, total_weight_kg)
+                    
+                    if res and res.get("status") == 200 and res.get("data") and res.get("data").get("available_courier_companies"):
+                        couriers = res.get("data").get("available_courier_companies")
+                        if couriers:
+                            # Select lowest rate
+                            best = min(couriers, key=lambda x: x.get("rate"))
+                            shipping_charges = float(best.get("rate"))
+                            await log_shiprocket(store_id, "serviceability_check", "success", response=res)
+                        else:
+                            await log_shiprocket(store_id, "serviceability_check", "failed", error="No rate found", response=res)
+                    else:
+                        await log_shiprocket(store_id, "serviceability_check", "failed", error="API Check Failed", response=res)
+
+                except Exception as e:
+                    logger.error(f"Shiprocket error in create_order: {e}")
+                    await log_shiprocket(store_id, "shipping_init_error", "error", error=str(e))
+                    shipping_charges = 0.0
+
+            except Exception as e:
+                logger.error(f"Shipping calc error: {e}")
+                shipping_charges = 0.0
+
+    total += shipping_charges
+
+    order_doc = {
+        "id": order_id,
+        "store_id": store_id,
+        "user_id": user["id"],
+        "items": items,
+        "shipping_address_id": order_data.shipping_address_id, # Store ID reference
+        "shipping_address": address, # Snapshot
+        "total_amount": total,
+        "shipping_charges": shipping_charges,
+        "status": "pending",
+        "tracking_number": None,
+        "carrier_name": None,
+        "carrier_url": None,
+        "notes": order_data.notes,
+        "created_at": now,
+        "updated_at": now
+    }
+    
+    await db.orders.insert_one(order_doc)
+    return OrderResponse(**{k: v for k, v in order_doc.items() if k != "_id"})
+
+@api_router.get("/stores/{store_id}/orders", response_model=Union[List[OrderResponse], PaginatedOrderResponse])
 async def get_orders(
     store_id: str, 
     page: Optional[int] = Query(None, ge=1),
@@ -1898,72 +2098,22 @@ async def get_orders(
         )
     else:
         orders = await db.orders.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
-                            await log_shiprocket(store_id, "serviceability_check", "failed", error="No rate found", response=res)
-                except Exception as e:
-                    logger.error(f"Shiprocket error in create_order: {e}")
-                    await log_shiprocket(store_id, "shipping_init_error", "error", error=str(e))
+        return [OrderResponse(**o) for o in orders]
 
-                    
-                    # LOGGING
-                    await db.shipping_logs.insert_one({
-                        "store_id": store_id,
-                        "timestamp": now,
-                        "type": "order",
-                        "reference_id": order_id,
-                        "pickup": pickup_zip,
-                        "destination": dest_zip,
-                        "weight": total_weight_kg,
-                        "courier": res.get("courier_name"),
-                        "rate": shipping_charges
-                    })
-                else:
-                    # Fallback
-                    shipping_charges = 0.0 # If Shiprocket enabled but failed, what to do?
-            except Exception as e:
-                logger.error(f"Shipping calc error: {e}")
-
-                shipping_charges = 0.0
-
-    total += shipping_charges
-
-    order_doc = {
-        "id": order_id,
-        "store_id": store_id,
-        "user_id": user["id"],
-        "items": items,
-        "shipping_address_id": order_data.shipping_address_id, # Store ID reference
-        "shipping_address": address, # Snapshot
-        "total_amount": total,
-        "shipping_charges": shipping_charges,
-        "status": "pending",
-        "tracking_number": None,
-        "carrier_name": None,
-        "carrier_url": None,
-        "notes": order_data.notes,
-        "created_at": now,
-        "updated_at": now
-    }
+@api_router.get("/my-orders", response_model=PaginatedOrderResponse)
+async def get_my_orders(page: int = 1, limit: int = 20, user: dict = Depends(get_current_user)):
+    skip = (page - 1) * limit
+    cursor = db.orders.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1)
+    total = await db.orders.count_documents({"user_id": user["id"]})
+    orders = await cursor.skip(skip).limit(limit).to_list(length=limit)
     
-    await db.orders.insert_one(order_doc)
-    return OrderResponse(**{k: v for k, v in order_doc.items() if k != "_id"})
-
-@api_router.get("/stores/{store_id}/orders", response_model=List[OrderResponse])
-async def get_orders(store_id: str, user: dict = Depends(get_current_user)):
-    if user["role"] == UserRole.END_USER:
-        orders = await db.orders.find({"store_id": store_id, "user_id": user["id"]}, {"_id": 0}).to_list(1000)
-    elif user["role"] in [UserRole.STORE_ADMIN, UserRole.STORE_USER]:
-        if user.get("store_id") != store_id:
-            raise HTTPException(status_code=403, detail="Cannot view orders from other stores")
-        orders = await db.orders.find({"store_id": store_id}, {"_id": 0}).to_list(1000)
-    else:
-        orders = await db.orders.find({"store_id": store_id}, {"_id": 0}).to_list(1000)
-    
-    return [OrderResponse(**o) for o in orders]
-
-@api_router.get("/my-orders", response_model=List[OrderResponse])
-async def get_my_orders(user: dict = Depends(get_current_user)):
-    orders = await db.orders.find({"user_id": user["id"]}, {"_id": 0}).to_list(1000)
-    return [OrderResponse(**o) for o in orders]
+    return PaginatedOrderResponse(
+        items=[OrderResponse(**o) for o in orders],
+        total=total,
+        page=page,
+        limit=limit,
+        pages=(total + limit - 1) // limit
+    )
 
 @api_router.put("/stores/{store_id}/orders/{order_id}/status", response_model=OrderResponse)
 async def update_order_status(store_id: str, order_id: str, status_data: OrderStatusUpdate, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN, UserRole.STORE_USER]))):
@@ -2916,24 +3066,44 @@ async def create_payment_order(payment_data: MockPaymentCreate, user: dict = Dep
         receipt = f"order_{receipt_base[:max_receipt_len]}"
         if len(receipt_base) > max_receipt_len:
             print(f"[create_payment_order] Trimming receipt base from {len(receipt_base)} to {max_receipt_len} chars: {receipt}")
-        razorpay_response = requests.post(
-            "https://api.razorpay.com/v1/orders",
-            auth=razorpay_auth,
-            json={
-                "amount": int(payment_data.amount * 100),  # Convert to paise
-                "currency": "INR",
-                "receipt": receipt,
-            }
-        )
         
+        # Consistent rounding for currency
+        amount_paise = int(round(payment_data.amount * 100))
+        
+        razorpay_url = "https://api.razorpay.com/v1/orders"
+        razorpay_request = {
+            "amount": amount_paise,
+            "currency": "INR",
+            "receipt": receipt,
+        }
+        razorpay_response = requests.post(
+            razorpay_url,
+            auth=razorpay_auth,
+            json=razorpay_request
+        )
+        print(f"[create_payment_order] Razorpay API call: URL={razorpay_url}, status={razorpay_response.status_code}")
+        print(f"[create_payment_order] Razorpay request: {razorpay_request}")
+        print(f"[create_payment_order] Razorpay response: {razorpay_response.text}")
+        
+        # Log the Razorpay order creation API call
+        await log_razorpay(
+            store_id=store_id,
+            action="create_order",
+            status="success" if razorpay_response.status_code == 200 else "failed",
+            url=razorpay_url,
+            request=razorpay_request,
+            response=razorpay_response.json() if razorpay_response.content else None,
+            error=None if razorpay_response.status_code == 200 else razorpay_response.text
+        )
         if razorpay_response.status_code != 200:
+            print(f"[create_payment_order] ERROR: Razorpay order creation failed with status {razorpay_response.status_code}")
             raise HTTPException(
                 status_code=400, 
                 detail=f"Failed to create Razorpay order: {razorpay_response.text}"
             )
-        
         razorpay_order = razorpay_response.json()
         razorpay_order_id = razorpay_order["id"]
+        print(f"[create_payment_order] SUCCESS: Created Razorpay order {razorpay_order_id}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Payment gateway error: {str(e)}")
     
@@ -2941,7 +3111,7 @@ async def create_payment_order(payment_data: MockPaymentCreate, user: dict = Dep
         "id": payment_id,
         "user_id": user["id"],
         "amount": payment_data.amount,
-        "razorpay_amount": int(payment_data.amount * 100),
+        "razorpay_amount": amount_paise,
         "description": payment_data.description,
         "subscription_id": payment_data.subscription_id,
         "order_id": payment_data.order_id,
@@ -3023,13 +3193,19 @@ async def trigger_shiprocket_shipment(store_id: str, order_id: str):
         # Parse Date
         order_date = datetime.now().strftime("%Y-%m-%d %H:%M") # Current time as shipment creation time
         
+        # Ensure address fields are correctly mapped
+        billing_name = address.get("full_name") or address.get("name") or user.get("name", "Customer")
+        billing_address = address.get("address_line1") or address.get("street1") or ""
+        if address.get("address_line2") or address.get("street2"):
+            billing_address += " " + (address.get("address_line2") or address.get("street2"))
+        
         payload = {
             "order_id": order_id,
             "order_date": order_date,
             "pickup_location": "Primary", # User might need to configure this in settings but "Primary" is default
-            "billing_customer_name": address.get("name") or user.get("name", "Customer"),
+            "billing_customer_name": billing_name,
             "billing_last_name": "",
-            "billing_address": address.get("street1", "") + " " + address.get("street2", ""),
+            "billing_address": billing_address,
             "billing_city": address.get("city"),
             "billing_pincode": address.get("postal_code"),
             "billing_state": address.get("state"),
@@ -3118,9 +3294,10 @@ async def verify_payment(verification: PaymentVerification, user: dict = Depends
             store = await db.stores.find_one({"id": store_id})
     
     # Verify signature if we have store credentials
+    verification_result = "success"
+    verification_error = None
     if store and store.get("razorpay_key_secret"):
         secret = store["razorpay_key_secret"]
-        
         # Verify signature: HMAC(order_id|payment_id, secret) should equal signature
         message = f"{verification.razorpay_order_id}|{verification.razorpay_payment_id}"
         signature_generated = hmac.new(
@@ -3128,9 +3305,23 @@ async def verify_payment(verification: PaymentVerification, user: dict = Depends
             message.encode(),
             hashlib.sha256
         ).hexdigest()
-        
         if signature_generated != verification.razorpay_signature:
-            raise HTTPException(status_code=400, detail="Invalid payment signature")
+            verification_result = "failed"
+            verification_error = "Invalid payment signature"
+            await log_razorpay(
+                store_id=store_id,
+                action="verify_payment",
+                status="failed",
+                url=None,
+                request={
+                    "razorpay_order_id": verification.razorpay_order_id,
+                    "razorpay_payment_id": verification.razorpay_payment_id,
+                    "razorpay_signature": verification.razorpay_signature,
+                },
+                response=None,
+                error=verification_error
+            )
+            raise HTTPException(status_code=400, detail=verification_error)
     else:
         # If no store found or no secret, try environment variable (for testing)
         env_secret = os.getenv("RAZORPAY_KEY_SECRET")
@@ -3141,12 +3332,40 @@ async def verify_payment(verification: PaymentVerification, user: dict = Depends
                 message.encode(),
                 hashlib.sha256
             ).hexdigest()
-            
             if signature_generated != verification.razorpay_signature:
-                raise HTTPException(status_code=400, detail="Invalid payment signature")
-        # If no env var either, skip verification (not ideal but allows dev/test)
+                verification_result = "failed"
+                verification_error = "Invalid payment signature"
+                await log_razorpay(
+                    store_id=store_id,
+                    action="verify_payment",
+                    status="failed",
+                    url=None,
+                    request={
+                        "razorpay_order_id": verification.razorpay_order_id,
+                        "razorpay_payment_id": verification.razorpay_payment_id,
+                        "razorpay_signature": verification.razorpay_signature,
+                    },
+                    response=None,
+                    error=verification_error
+                )
+                raise HTTPException(status_code=400, detail=verification_error)
         else:
             print(f"[verify_payment] Warning: Could not verify signature for payment {verification.payment_id} - no store or env secret found")
+    # Log successful verification
+    if verification_result == "success":
+        await log_razorpay(
+            store_id=store_id,
+            action="verify_payment",
+            status="success",
+            url=None,
+            request={
+                "razorpay_order_id": verification.razorpay_order_id,
+                "razorpay_payment_id": verification.razorpay_payment_id,
+                "razorpay_signature": verification.razorpay_signature,
+            },
+            response={"message": "Payment verified"},
+            error=None
+        )
     
     # Update payment as completed
     await db.payments.update_one(
@@ -3373,6 +3592,13 @@ class ShiprocketLog(BaseModel):
     error: Optional[str] = None
     created_at: str
 
+class PaginatedShiprocketLogResponse(BaseModel):
+    items: List[ShiprocketLog]
+    total: int
+    page: int
+    limit: int
+    pages: int
+
 async def log_shiprocket(store_id: str, action: str, status: str, payload: dict = None, response: dict = None, error: str = None):
     try:
         # Sanitize sensitive data from payload if needed (like password)
@@ -3394,13 +3620,25 @@ async def log_shiprocket(store_id: str, action: str, status: str, payload: dict 
 
 # ==================== SHIPPING ENDPOINTS ====================
 
-@api_router.get("/stores/{store_id}/shiprocket-logs", response_model=List[ShiprocketLog])
-async def get_shiprocket_logs(store_id: str, limit: int = 50, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+@api_router.get("/stores/{store_id}/shiprocket-logs", response_model=PaginatedShiprocketLogResponse)
+async def get_shiprocket_logs(store_id: str, page: int = 1, limit: int = 20, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
     if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
          raise HTTPException(status_code=403, detail="Not authorized")
     
-    logs = await db.shiprocket_logs.find({"store_id": store_id}).sort("created_at", -1).limit(limit).to_list(limit)
-    return [ShiprocketLog(id=str(l["_id"]), **{k:v for k,v in l.items() if k != "_id"}) for l in logs]
+    skip = (page - 1) * limit
+    total = await db.shiprocket_logs.count_documents({"store_id": store_id})
+    logs = await db.shiprocket_logs.find({"store_id": store_id}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    items = [ShiprocketLog(id=str(l["_id"]), **{k:v for k,v in l.items() if k != "_id"}) for l in logs]
+    pages = ceil(total / limit)
+    
+    return PaginatedShiprocketLogResponse(
+        items=items,
+        total=total,
+        page=page,
+        limit=limit,
+        pages=pages
+    )
 
 @api_router.get("/stores/{store_id}/shipping-config", response_model=StoreShippingConfigResponse)
 async def get_store_shipping_config(store_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
@@ -3479,19 +3717,41 @@ async def estimate_shipping_charges(store_id: str, payload: ShippingEstimateRequ
                 # Shiprocket minimum is usually 0.5kg or 0.1kg depending on plan
                 if total_weight_kg < 0.5: total_weight_kg = 0.5
                 
-                await log_shiprocket(store_id, "rate_check_cart", "pending", {"pickup": pickup_zip, "dest": dest_zip, "weight": total_weight_kg})
-                token = await get_shiprocket_token(ship_config["email"], ship_config["password"])
-                res = await check_serviceability(token, pickup_zip, dest_zip, total_weight_kg)
+                # Check Cache
+                cache_key = f"{pickup_zip}-{dest_zip}-{total_weight_kg}"
+                cached_rate = await db.shipping_rate_cache.find_one({"key": cache_key})
                 
-                if res and "rate" in res:
-                    shipping_charges = float(res["rate"])
-                    courier_name = res.get("courier_name")
-                    etd = res.get("etd")
-                    await log_shiprocket(store_id, "rate_check_cart", "success", response=res)
+                if cached_rate and datetime.fromisoformat(cached_rate["expires_at"]) > datetime.now(timezone.utc):
+                    shipping_charges = cached_rate["rate"]
+                    courier_name = cached_rate.get("courier_name")
+                    etd = cached_rate.get("etd")
                 else:
-                    await log_shiprocket(store_id, "rate_check_cart", "failed", error="No rate found", response=res)
-                    # If we expected a rate but got none, return error to frontend so it doesn't show 0
-                    raise HTTPException(status_code=400, detail="Shipping not available for this location")
+                    await log_shiprocket(store_id, "rate_check_cart", "pending", {"pickup": pickup_zip, "dest": dest_zip, "weight": total_weight_kg})
+                    token = await get_shiprocket_token(ship_config["email"], ship_config["password"])
+                    res = await check_serviceability(token, pickup_zip, dest_zip, total_weight_kg)
+                    
+                    if res and "rate" in res:
+                        shipping_charges = float(res["rate"])
+                        courier_name = res.get("courier_name")
+                        etd = res.get("etd")
+                        await log_shiprocket(store_id, "rate_check_cart", "success", response=res)
+                        
+                        # Save to Cache (1 hour)
+                        expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+                        await db.shipping_rate_cache.update_one(
+                            {"key": cache_key},
+                            {"$set": {
+                                "rate": shipping_charges,
+                                "courier_name": courier_name,
+                                "etd": etd,
+                                "expires_at": expires_at
+                            }},
+                            upsert=True
+                        )
+                    else:
+                        await log_shiprocket(store_id, "rate_check_cart", "failed", error="No rate found", response=res)
+                        # If we expected a rate but got none, return error to frontend so it doesn't show 0
+                        raise HTTPException(status_code=400, detail="Shipping not available for this location")
             except HTTPException as he:
                 raise he
             except Exception as e:
@@ -3549,19 +3809,37 @@ async def preview_subscription_closure(subscription_id: str, payload: dict, user
         if pickup_zip and ship_config.get("email") and ship_config.get("password"):
             # Call Shiprocket
             try:
-                await log_shiprocket(sub["store_id"], "token_request", "pending", {"email": ship_config["email"]})
-                token = await get_shiprocket_token(ship_config["email"], ship_config["password"])
+                weight = 0.5
+                cache_key = f"{pickup_zip}-{customer_zip}-{weight}"
+                cached_rate = await db.shipping_rate_cache.find_one({"key": cache_key})
                 
-                await log_shiprocket(sub["store_id"], "rate_check_closure", "pending", {"pickup": pickup_zip, "dest": customer_zip, "weight": 0.5})
-                res = await check_serviceability(token, pickup_zip, customer_zip, 0.5)
-                
-                if res and "rate" in res:
-                    shipping_charges = float(res["rate"])
-                    await log_shiprocket(sub["store_id"], "rate_check_closure", "success", response=res)
+                if cached_rate and datetime.fromisoformat(cached_rate["expires_at"]) > datetime.now(timezone.utc):
+                    shipping_charges = cached_rate["rate"]
                 else:
-                    logger.warning(f"No shipping rate found for {pickup_zip} -> {customer_zip}")
-                    await log_shiprocket(sub["store_id"], "rate_check_closure", "failed", error="No rate found", response=res)
-                    shipping_charges = 150.0  # Safe default?
+                    # await log_shiprocket(sub["store_id"], "token_request", "pending", {"email": ship_config["email"]})
+                    token = await get_shiprocket_token(ship_config["email"], ship_config["password"])
+                    
+                    await log_shiprocket(sub["store_id"], "rate_check_closure", "pending", {"pickup": pickup_zip, "dest": customer_zip, "weight": weight})
+                    res = await check_serviceability(token, pickup_zip, customer_zip, weight)
+                    
+                    if res and "rate" in res:
+                        shipping_charges = float(res["rate"])
+                        await log_shiprocket(sub["store_id"], "rate_check_closure", "success", response=res)
+                        
+                        # Cache
+                        expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+                        await db.shipping_rate_cache.update_one(
+                            {"key": cache_key},
+                            {"$set": {
+                                "rate": shipping_charges,
+                                "expires_at": expires_at
+                            }},
+                            upsert=True
+                        )
+                    else:
+                        logger.warning(f"No shipping rate found for {pickup_zip} -> {customer_zip}")
+                        await log_shiprocket(sub["store_id"], "rate_check_closure", "failed", error="No rate found", response=res)
+                        shipping_charges = 150.0  # Safe default?
             except Exception as e:
                 logger.error(f"Shipping calc failed: {e}")
                 await log_shiprocket(sub["store_id"], "rate_check_closure", "error", error=str(e))

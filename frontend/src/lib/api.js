@@ -1,3 +1,6 @@
+// Razorpay Logs
+export const getRazorpayLogs = (storeId, page = 1, limit = 20) =>
+    api.get(`/stores/${storeId}/razorpay-logs?page=${page}&limit=${limit}`);
 import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_BACKEND_URL + '/api';
@@ -66,12 +69,14 @@ export const updatePassword = (currentPassword, newPassword) => api.put('/profil
 export const setProfileStore = (storeId) => api.put(`/profile/store?store_id=${encodeURIComponent(storeId)}`);
 
 // Products
-export const getProducts = (storeId, category, activeOnly = true, featured = null, limit = null) => {
+export const getProducts = (storeId, category, activeOnly = true, featured = null, limit = null, page = null, search = null) => {
     const params = new URLSearchParams();
     params.set('active_only', String(activeOnly));
     if (category) params.set('category', category);
     if (featured !== null && featured !== undefined) params.set('featured', String(!!featured));
     if (limit !== null && limit !== undefined) params.set('limit', String(limit));
+    if (page !== null && page !== undefined) params.set('page', String(page));
+    if (search) params.set('search', search);
     return api.get(`/stores/${storeId}/products?${params.toString()}`);
 };
 export const getProduct = (storeId, productId) => api.get(`/stores/${storeId}/products/${productId}`);
@@ -80,25 +85,32 @@ export const updateProduct = (storeId, productId, data) => api.put(`/stores/${st
 export const deleteProduct = (storeId, productId) => api.delete(`/stores/${storeId}/products/${productId}`);
 
 // Inventory
-export const getInventory = (storeId) => api.get(`/stores/${storeId}/inventory`);
+export const getInventory = (storeId, page, limit) => {
+    let url = `/stores/${storeId}/inventory`;
+    const params = [];
+    if (page) params.push(`page=${page}`);
+    if (limit) params.push(`limit=${limit}`);
+    if (params.length > 0) url += `?${params.join('&')}`;
+    return api.get(url);
+};
 export const createInventory = (storeId, data) => api.post(`/stores/${storeId}/inventory`, data);
 export const updateInventory = (storeId, invId, data) => api.put(`/stores/${storeId}/inventory/${invId}`, data);
 
 // Vendors
-export const getVendors = (storeId) => api.get(`/stores/${storeId}/vendors`);
+export const getVendors = (storeId, page = 1, limit = 50) => api.get(`/stores/${storeId}/vendors?page=${page}&limit=${limit}`);
 export const createVendor = (storeId, data) => api.post(`/stores/${storeId}/vendors`, data);
 export const updateVendor = (storeId, vendorId, data) => api.put(`/stores/${storeId}/vendors/${vendorId}`, data);
 export const deleteVendor = (storeId, vendorId) => api.delete(`/stores/${storeId}/vendors/${vendorId}`);
 
 // Purchase Orders
-export const getPurchaseOrders = (storeId) => api.get(`/stores/${storeId}/purchase-orders`);
+export const getPurchaseOrders = (storeId, page = 1, limit = 50) => api.get(`/stores/${storeId}/purchase-orders?page=${page}&limit=${limit}`);
 export const createPurchaseOrder = (storeId, data) => api.post(`/stores/${storeId}/purchase-orders`, data);
 export const updatePurchaseOrder = (storeId, poId, data) => api.put(`/stores/${storeId}/purchase-orders/${poId}`, data);
 export const updatePOStatus = (storeId, poId, status) => api.put(`/stores/${storeId}/purchase-orders/${poId}/status?status=${status}`);
 export const deletePurchaseOrder = (storeId, poId) => api.delete(`/stores/${storeId}/purchase-orders/${poId}`);
 
 // POS Transactions
-export const getPOSTransactions = (storeId) => api.get(`/stores/${storeId}/pos-transactions`);
+export const getPOSTransactions = (storeId, page = 1, limit = 50) => api.get(`/stores/${storeId}/pos-transactions?page=${page}&limit=${limit}`);
 export const createPOSTransaction = (storeId, data) => api.post(`/stores/${storeId}/pos-transactions`, data);
 export const updatePOSTransaction = (storeId, txId, data) => api.put(`/stores/${storeId}/pos-transactions/${txId}`, data);
 export const deletePOSTransaction = (storeId, txId) => api.delete(`/stores/${storeId}/pos-transactions/${txId}`);
@@ -114,21 +126,21 @@ export const getStoreReports = (storeId, startDate, endDate) => {
 };
 
 // Staff Management
-export const getStoreStaff = (storeId) => api.get(`/stores/${storeId}/staff`);
+export const getStoreStaff = (storeId, page = 1, limit = 50) => api.get(`/stores/${storeId}/staff?page=${page}&limit=${limit}`);
 export const createStaff = (storeId, data) => api.post(`/stores/${storeId}/staff`, data);
 export const updateStaff = (storeId, staffId, data) => api.put(`/stores/${storeId}/staff/${staffId}`, data);
 export const deleteStaff = (storeId, staffId) => api.delete(`/stores/${storeId}/staff/${staffId}`);
 export const getStaffActivity = (storeId, staffId) => api.get(`/stores/${storeId}/staff/${staffId}/activity`);
 
 // Customer Management
-export const getStoreCustomers = (storeId) => api.get(`/stores/${storeId}/customers`);
+export const getStoreCustomers = (storeId, page = 1, limit = 50) => api.get(`/stores/${storeId}/customers?page=${page}&limit=${limit}`);
 export const getCustomerDetails = (storeId, customerId) => api.get(`/stores/${storeId}/customers/${customerId}`);
 export const updateCustomer = (storeId, customerId, data) => api.put(`/stores/${storeId}/customers/${customerId}`, data);
 export const deleteCustomer = (storeId, customerId) => api.delete(`/stores/${storeId}/customers/${customerId}`);
 
 // Orders
-export const getOrders = (storeId) => api.get(`/stores/${storeId}/orders`);
-export const getMyOrders = () => api.get('/my-orders');
+export const getOrders = (storeId, page = 1, limit = 50) => api.get(`/stores/${storeId}/orders?page=${page}&limit=${limit}`);
+export const getMyOrders = (page = 1, limit = 20) => api.get(`/my-orders?page=${page}&limit=${limit}`);
 export const createOrder = (storeId, data) => api.post(`/stores/${storeId}/orders`, data);
 export const updateOrderStatus = (storeId, orderId, data) => api.put(`/stores/${storeId}/orders/${orderId}/status`, data);
 
@@ -176,7 +188,7 @@ export default api;
 export const getStoreTaxConfig = (storeId) => api.get(`/stores/${storeId}/tax-config`);
 export const updateStoreTaxConfig = (storeId, data) => api.put(`/stores/${storeId}/tax-config`, data);
 
-export const getShiprocketLogs = (storeId, limit = 100) => api.get(`/stores/${storeId}/shiprocket-logs?limit=${limit}`);
+export const getShiprocketLogs = (storeId, page = 1, limit = 20) => api.get(`/stores/${storeId}/shiprocket-logs?page=${page}&limit=${limit}`);
 
 export const estimateShipping = (storeId, data) => api.post(`/stores/${storeId}/shipping/estimate`, data);
 

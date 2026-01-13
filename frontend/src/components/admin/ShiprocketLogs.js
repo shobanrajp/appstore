@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../ui
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { RefreshCw, AlertCircle, CheckCircle, Clock } from 'lucide-react';
+import { RefreshCw, AlertCircle, CheckCircle, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatDate, formatDateTime } from '../../lib/utils';
 import { ScrollArea } from '../ui/scroll-area';
 import { Dialog, DialogContent, DialogTrigger, DialogTitle, DialogDescription, DialogHeader } from '../ui/dialog';
@@ -12,12 +12,19 @@ import { Dialog, DialogContent, DialogTrigger, DialogTitle, DialogDescription, D
 const ShiprocketLogs = ({ storeId }) => {
     const [logs, setLogs] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [page, setPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
 
     const loadLogs = async () => {
         setLoading(true);
         try {
-            const res = await getShiprocketLogs(storeId);
-            setLogs(res.data);
+            const res = await getShiprocketLogs(storeId, page);
+            if (res.data.items) {
+                 setLogs(res.data.items);
+                 setTotalPages(res.data.pages);
+            } else {
+                 setLogs(res.data || []);
+            }
         } catch (error) {
             console.error("Failed to load logs", error);
         } finally {
@@ -27,7 +34,7 @@ const ShiprocketLogs = ({ storeId }) => {
 
     useEffect(() => {
         if (storeId) loadLogs();
-    }, [storeId]);
+    }, [storeId, page]);
 
     const getStatusBadge = (status) => {
         switch (status) {
@@ -46,10 +53,12 @@ const ShiprocketLogs = ({ storeId }) => {
                     <h2 className="text-2xl font-bold tracking-tight">Shiprocket Logs</h2>
                     <p className="text-muted-foreground">Monitor Shiprocket API interactions and errors.</p>
                 </div>
-                <Button onClick={loadLogs} disabled={loading} variant="outline" size="sm">
-                    <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                    Refresh
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button onClick={loadLogs} disabled={loading} variant="outline" size="sm">
+                        <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                        Refresh
+                    </Button>
+                </div>
             </div>
 
             <Card>
@@ -64,7 +73,11 @@ const ShiprocketLogs = ({ storeId }) => {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {logs.length === 0 ? (
+                            {loading && logs.length === 0 ? (
+                                <TableRow>
+                                    <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">Loading...</TableCell>
+                                </TableRow>
+                            ) : logs.length === 0 ? (
                                 <TableRow>
                                     <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
                                         No logs found.
@@ -121,6 +134,30 @@ const ShiprocketLogs = ({ storeId }) => {
                     </Table>
                 </CardContent>
             </Card>
+
+            <div className="flex items-center justify-end space-x-2">
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1 || loading}
+                >
+                    <ChevronLeft className="h-4 w-4 mr-1" />
+                    Previous
+                </Button>
+                <div className="text-sm font-medium">
+                    Page {page} of {totalPages}
+                </div>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages || loading}
+                >
+                    Next
+                    <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+            </div>
         </div>
     );
 };

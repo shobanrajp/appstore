@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Switch } from '../components/ui/switch';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
-import { setPageTitle } from '../lib/utils';
+import { setPageTitle, getImageUrl } from '../lib/utils';
 import {
     ArrowLeft, Save, Eye, Layout, Type, Image, Grid3X3, Columns, Square, 
     Menu, ListOrdered, ChevronDown, SeparatorHorizontal, Trash2, GripVertical,
@@ -260,7 +260,7 @@ const ComponentPreview = ({ component, products, plans }) => {
                 <div 
                     className={`relative h-80 bg-cover bg-center flex items-center justify-center ${effectAttrs.className}`}
                     style={{ 
-                        backgroundImage: props.backgroundImage ? `url(${props.backgroundImage})` : 'linear-gradient(135deg, #D4AF37 0%, #F2D06B 50%, #B5942F 100%)',
+                        backgroundImage: props.backgroundImage ? `url("${getImageUrl(props.backgroundImage)}")` : 'linear-gradient(135deg, #D4AF37 0%, #F2D06B 50%, #B5942F 100%)',
                         ...wrapperStyle,
                         ...effectAttrs.style
                     }}
@@ -319,7 +319,7 @@ const ComponentPreview = ({ component, products, plans }) => {
                             <Card key={product.id} className="luxury-card overflow-hidden">
                                 <div className="h-32 md:h-48 bg-muted flex items-center justify-center">
                                     {product.images?.[0] ? (
-                                        <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover" />
+                                        <img src={getImageUrl(product.images[0])} alt={product.name} className="w-full h-full object-cover" />
                                     ) : (
                                         <span className="text-muted-foreground">No Image</span>
                                     )}

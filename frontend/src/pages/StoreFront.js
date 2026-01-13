@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, Link, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getStore, getProducts, getSubscriptionPlans, getPageConfig, subscribeToPlan, createPaymentOrder, verifyPayment, getInventory } from '../lib/api';
+import { getStore, getProducts, getSubscriptionPlans, getPageConfig, subscribeToPlan, getInventory } from '../lib/api';
+import { createRazorpayPayment } from '../lib/razorpay';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -10,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
 import { ShoppingCart, User, Plus, Minus, X, CreditCard, LogIn, Search, MessageCircle, Phone, Mail, MapPin, AlertTriangle, Menu } from 'lucide-react';
-import { formatCurrency, setPageTitle } from '../lib/utils';
+import { formatCurrency, setPageTitle, getImageUrl } from '../lib/utils';
 import { useCart } from '../context/CartContext';
 
 // Dynamic Component Renderer - renders components based on page config
@@ -25,6 +26,23 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
     // Use store-specific cart context so we can show live count badge
     const { cartCount } = useCart(storeId);
     const navigate = useNavigate();
+
+    // Pagination for products grid
+    const [visibleCount, setVisibleCount] = useState(20);
+
+    // Optimize inventory lookup
+    const inventoryMap = useMemo(() => {
+        if (!inventory) return {};
+        if (!Array.isArray(inventory) && typeof inventory === 'object') return inventory;
+        if (Array.isArray(inventory)) {
+             return inventory.reduce((acc, item) => {
+                 const pid = item.product_id || item.productId || (item.product && (item.product.id || item.product._id));
+                 if (pid) acc[pid] = item;
+                 return acc;
+             }, {});
+        }
+        return {};
+    }, [inventory]);
 
     useEffect(() => {
         if (globalSearchTerm !== undefined) setLocalSearch(globalSearchTerm || '');
@@ -154,35 +172,13 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
 
     // Helper to get stock for a product
     const getProductStock = (productId) => {
-        if (!inventory) return 0;
-        // If inventory stored as a map/object keyed by product_id
-        if (!Array.isArray(inventory) && typeof inventory === 'object') {
-            const inv = inventory[productId] || inventory[productId.toString()];
-            if (inv) return Number(inv.quantity ?? 0);
-            return 0;
-        }
-        // Array fallback with tolerant key matching
-        const inv = inventory.find(i =>
-            i.product_id === productId ||
-            i.productId === productId ||
-            (i.product && (i.product.id === productId || i.product._id === productId))
-        );
+        const inv = inventoryMap[productId] || inventoryMap[productId.toString()];
         return inv ? Number(inv.quantity ?? 0) : 0;
     };
 
     // Helper to get full inventory entry (quantity + min_stock_level)
     const getInventoryEntry = (productId) => {
-        if (!inventory) return { quantity: 0, min_stock_level: 0 };
-        if (!Array.isArray(inventory) && typeof inventory === 'object') {
-            const inv = inventory[productId] || inventory[productId.toString()];
-            if (!inv) return { quantity: 0, min_stock_level: 0 };
-            return { quantity: Number(inv.quantity ?? 0), min_stock_level: Number(inv.min_stock_level ?? 5) };
-        }
-        const inv = inventory.find(i =>
-            i.product_id === productId ||
-            i.productId === productId ||
-            (i.product && (i.product.id === productId || i.product._id === productId))
-        );
+        const inv = inventoryMap[productId] || inventoryMap[productId.toString()];
         if (!inv) return { quantity: 0, min_stock_level: 0 };
         return { quantity: Number(inv.quantity ?? 0), min_stock_level: Number(inv.min_stock_level ?? 5) };
     };
@@ -254,7 +250,7 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                         <Link to={`/store/${storeId}`} className="flex-shrink-0 flex items-center gap-3">
                             {props.showLogo !== false && logoSource && (
                                 <img 
-                                    src={logoSource} 
+                                    src={getImageUrl(logoSource)} 
                                     alt={store?.name || 'Store logo'} 
                                     className="w-auto object-contain"
                                     style={{ height: `${logoHeight}px` }}
@@ -490,7 +486,7 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                         className={`relative h-96 bg-cover bg-center flex items-center justify-center overflow-hidden ${hasCategoryMatch ? 'cursor-pointer' : ''}`}
                         onClick={handleHeroNavigate}
                         style={{ 
-                            backgroundImage: activeImage ? `url(${activeImage})` : 'linear-gradient(135deg, #D4AF37 0%, #F2D06B 50%, #B5942F 100%)',
+                            backgroundImage: activeImage ? `url("${getImageUrl(activeImage)}")` : 'linear-gradient(135deg, #D4AF37 0%, #F2D06B 50%, #B5942F 100%)',
                             ...wrapperStyle 
                         }}
                     >
@@ -502,7 +498,7 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                                             key={idx}
                                             className="absolute inset-0 transition-opacity duration-700"
                                             style={{
-                                                backgroundImage: `url(${slide.image})`,
+                                                backgroundImage: `url("${getImageUrl(slide.image)}")`,
                                                 backgroundSize: 'cover',
                                                 backgroundPosition: 'center',
                                                 opacity: idx === heroIndex ? 1 : 0,
@@ -637,7 +633,7 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
             return <div style={{ height: `${props.height || 32}px`, ...wrapperStyle }} />;
         case 'products':
             {
-                const productLimit = Math.min(props.limit || 8, 100);
+                const productLimit = Math.min(props.limit || 100, 100);
                 // Start from server-filtered list or full products
                 let productSource = filteredProducts || products;
                 // If a global search term is provided (from header), apply it here as well
@@ -648,7 +644,11 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                     );
                 }
                 if (props.featuredOnly) productSource = productSource.filter(p => p.featured);
-                const displayProducts = (productSource || []).slice(0, productLimit);
+                
+                const filteredLength = (productSource || []).length;
+                const effectiveLimit = Math.min(productLimit, visibleCount);
+                const displayProducts = (productSource || []).slice(0, effectiveLimit);
+                const hasMore = visibleCount < productLimit && visibleCount < filteredLength;
 
                 // Also filter plans when a global search exists so the landing page shows plan matches
                 let planMatches = [];
@@ -709,8 +709,9 @@ const DynamicComponent = ({ component, products, filteredProducts, plans, store,
                                                 <div className="h-40 sm:h-48 lg:h-56 bg-muted flex items-center justify-center overflow-hidden relative">
                                                     {product.images?.[0] ? (
                                                         <img
-                                                            src={product.images[0]}
+                                                            src={getImageUrl(product.images[0])}
                                                             alt={product.name}
+                                                            loading="lazy"
                                                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                                                         />
                                                     ) : (
@@ -989,7 +990,9 @@ const StoreFront = () => {
             setPageTitle(storeRes.data, 'Home');
             setProducts(productsRes.data);
             setPlans(plansRes.data);
-            setInventory(inventoryRes.data || []);
+            // Handle potentially paginated inventory response or standard array
+            const invData = inventoryRes.data;
+            setInventory(Array.isArray(invData) ? invData : (invData.items || []));
             
             // Save last visited store for CustomerPortal navigation
             localStorage.setItem('lastVisitedStore', storeId);
@@ -1146,59 +1149,44 @@ const StoreFront = () => {
                 monthly_amount: amount
             });
 
-            const paymentRes = await createPaymentOrder({
-                amount: amount,
-                currency: store.currency || 'INR',
-                description: `${selectedPlan.name} - First Installment`,
-                store_id: storeId,
-                subscription_id: subRes.data.id,
-                order_id: subRes.data.order_id // Include subscription order_id so backend can find store config reliably
-            });
-
-            // Open Razorpay checkout
-            const options = {
-                key: store.razorpay_key_id,
-                amount: Math.round(amount * 100), // Amount in paise
-                currency: store.currency || 'INR',
-                name: store.name || 'Store',
-                description: `${selectedPlan.name} - First Installment`,
-                order_id: paymentRes.data.razorpay_order_id,
-                handler: async function (response) {
-                    try {
-                        await verifyPayment({
-                            razorpay_order_id: response.razorpay_order_id,
-                            razorpay_payment_id: response.razorpay_payment_id,
-                            razorpay_signature: response.razorpay_signature,
-                            payment_id: paymentRes.data.id,
-                        });
+            // Create payment using the new Razorpay utility
+            await createRazorpayPayment(
+                {
+                    amount: amount,
+                    description: `${selectedPlan.name} - First Installment`,
+                    store_id: storeId,
+                    subscription_id: subRes.data.id,
+                    order_id: subRes.data.order_id
+                },
+                {
+                    name: store.name || 'Store',
+                    description: `${selectedPlan.name} - First Installment`,
+                    prefill: {
+                        name: user.name,
+                        email: user.email,
+                    },
+                    theme: {
+                        color: '#D4AF37',
+                    },
+                    onSuccess: (response, orderData) => {
                         toast.success('Subscribed successfully! First payment completed.');
                         setSubscribeOpen(false);
                         setSelectedPlan(null);
                         setChosenMonthlyAmount('');
                         navigate(`/store/${storeId}/portal?tab=subscriptions`);
-                    } catch (error) {
-                        toast.error('Payment verification failed');
-                    } finally {
+                    },
+                    onError: (error) => {
+                        console.error('Payment failed:', error);
+                        toast.error(error?.description || error?.message || 'Payment failed');
                         setProcessingPayment(false);
-                    }
-                },
-                prefill: {
-                    name: user.name,
-                    email: user.email,
-                },
-                theme: {
-                    color: '#D4AF37',
-                },
-                modal: {
-                    ondismiss: function() {
+                    },
+                    onCancel: () => {
                         setProcessingPayment(false);
                         toast.error('Payment cancelled');
                     }
                 }
-            };
+            );
 
-            const rzp = new window.Razorpay(options);
-            rzp.open();
         } catch (error) {
             setProcessingPayment(false);
             toast.error(error.response?.data?.detail || 'Subscription failed');
