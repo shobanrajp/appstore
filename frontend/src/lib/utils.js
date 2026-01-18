@@ -34,7 +34,13 @@ export const getStatusColor = (status) => {
     const colors = {
         pending: 'bg-yellow-100 text-yellow-800',
         processing: 'bg-blue-100 text-blue-800',
-        shipped: 'bg-purple-100 text-purple-800',
+        'placed': 'bg-yellow-100 text-yellow-800',
+        'picking started': 'bg-blue-100 text-blue-800',
+        'packed': 'bg-purple-100 text-purple-800',
+        'sr-order': 'bg-gray-100 text-gray-800',
+        'sr-ship': 'bg-gray-100 text-gray-800',
+        'sr-schedule-pickup': 'bg-gray-100 text-gray-800',
+        shipped: 'bg-green-100 text-green-800',
         delivered: 'bg-green-100 text-green-800',
         cancelled: 'bg-red-100 text-red-800',
         completed: 'bg-green-100 text-green-800',
@@ -62,10 +68,18 @@ export const getRoleLabel = (role) => {
 };
 
 export const getImageUrl = (url) => {
-    if (!url) return 'https://placehold.co/600x400?text=No+Image';
+    const baseUrl = (process.env.REACT_APP_IMAGE_SERVER_URL || 'http://localhost:8001').replace(/\/$/, '');
+    if (!url) return `${baseUrl}/static/placeholder.png`;
     if (url.startsWith('http') || url.startsWith('data:')) return url;
-    const baseUrl = process.env.REACT_APP_IMAGE_SERVER_URL || 'http://localhost:8001';
-    return `${baseUrl}${url.startsWith('/') ? '' : '/'}${url}`;
+
+    // If the stored path already includes /static/ prefix, attach directly to baseUrl
+    if (url.startsWith('/static/') || url.startsWith('static/')) {
+        return encodeURI(url.startsWith('/') ? `${baseUrl}${url}` : `${baseUrl}/${url}`);
+    }
+
+    // Otherwise assume the url is the relative path under /static/
+    const cleaned = url.replace(/^\/+/, '');
+    return encodeURI(`${baseUrl}/static/${cleaned}`);
 };
 
 export const setPageTitle = (store, pageName = '') => {

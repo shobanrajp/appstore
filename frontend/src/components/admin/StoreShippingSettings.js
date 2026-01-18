@@ -112,6 +112,18 @@ const StoreShippingSettings = ({ storeId }) => {
                         </div>
 
                         <div className="grid gap-2">
+                            <Label>Shiprocket Pickup Location</Label>
+                            <Input
+                                value={config.pickup_location || ''}
+                                onChange={(e) => setConfig({ ...config, pickup_location: e.target.value })}
+                                placeholder="e.g. Primary, Warehouse A"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                Optional. Use the pickup location name configured in Shiprocket (e.g. "Primary").
+                            </p>
+                        </div>
+
+                        <div className="grid gap-2">
                             <Label>Shiprocket Email</Label>
                             <Input 
                                 value={config.email || ''}

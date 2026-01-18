@@ -19,10 +19,13 @@ import StorePlans from './pages/StorePlans';
 import PlanDetail from './pages/PlanDetail';
 import StoreContact from './pages/StoreContact';
 import CustomerPortal from './pages/CustomerPortal';
+import CustomerOrdersPage from './pages/CustomerOrdersPage';
 import StoreLogin from './pages/StoreLogin';
 import StoreRegister from './pages/StoreRegister';
 import CartPage from './pages/CartPage';
+import CheckoutPage from './pages/CheckoutPage';
 import PaymentCallback from './pages/PaymentCallback';
+import SubscriptionCheckout from './pages/SubscriptionCheckout';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
     const { user, loading } = useAuth();
@@ -106,6 +109,8 @@ function AppRoutes() {
             <Route path="/store/:storeId/category/:category" element={<CategoryProducts />} />
             <Route path="/store/:storeId/products" element={<StoreProducts />} />
             <Route path="/store/:storeId/cart" element={<CartPage />} />
+            <Route path="/store/:storeId/checkout" element={<CheckoutPage />} />
+            <Route path="/store/:storeId/payment/checkout" element={<SubscriptionCheckout />} />
             <Route path="/store/:storeId/payment/callback" element={<PaymentCallback />} />
             <Route path="/store/:storeId/plans" element={<StorePlans />} />
             <Route path="/store/:storeId/plan/:planId" element={<PlanDetail />} />
@@ -135,6 +140,14 @@ function AppRoutes() {
                 element={
                     <ProtectedRoute allowedRoles={['end_user', 'super_admin', 'store_admin', 'store_user']}>
                         <CustomerPortal />
+                    </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/store/:storeId/orders"
+                element={
+                    <ProtectedRoute allowedRoles={['end_user', 'super_admin', 'store_admin', 'store_user']}>
+                        <CustomerOrdersPage />
                     </ProtectedRoute>
                 }
             />

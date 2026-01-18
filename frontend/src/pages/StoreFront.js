@@ -1031,7 +1031,7 @@ const StoreFront = () => {
     // Load cart from backend on mount or storeId change
     useEffect(() => {
         if (storeId) {
-            loadCart(storeId);
+            loadCart();
         }
     }, [storeId, loadCart]);
 
@@ -1124,6 +1124,7 @@ const StoreFront = () => {
     // cartCount and cartTotal provided by CartContext
 
     const handleSubscribe = async () => {
+        console.log('[StoreFront] handleSubscribe called', { selectedPlan: selectedPlan?.id, chosenMonthlyAmount });
         if (!selectedPlan) return;
 
         const amount = parseFloat(chosenMonthlyAmount);
@@ -1141,20 +1142,16 @@ const StoreFront = () => {
         }
 
         setProcessingPayment(true);
+        console.log('[StoreFront] initiating subscription/payment', { planId: selectedPlan.id, amount });
 
         try {
-            const subRes = await subscribeToPlan(storeId, {
-                plan_id: selectedPlan.id,
-                monthly_amount: amount
-            });
-
+            // Create payment order with subscription payload (do not create subscription yet)
             const paymentRes = await createPaymentOrder({
                 amount: amount,
                 currency: store.currency || 'INR',
                 description: `${selectedPlan.name} - First Installment`,
                 store_id: storeId,
-                subscription_id: subRes.data.id,
-                order_id: subRes.data.order_id // Include subscription order_id so backend can find store config reliably
+                subscription_payload: { plan_id: selectedPlan.id, monthly_amount: amount }
             });
 
             // Open Razorpay checkout
@@ -1167,17 +1164,23 @@ const StoreFront = () => {
                 order_id: paymentRes.data.razorpay_order_id,
                 handler: async function (response) {
                     try {
-                        await verifyPayment({
+                        // Verify signature and let backend create subscription from subscription_payload
+                        const verifyRes = await verifyPayment({
                             razorpay_order_id: response.razorpay_order_id,
                             razorpay_payment_id: response.razorpay_payment_id,
                             razorpay_signature: response.razorpay_signature,
                             payment_id: paymentRes.data.id,
                         });
-                        toast.success('Subscribed successfully! First payment completed.');
                         setSubscribeOpen(false);
                         setSelectedPlan(null);
                         setChosenMonthlyAmount('');
-                        navigate(`/store/${storeId}/portal?tab=subscriptions`);
+                        // If backend returned a subscription id, navigate to it; otherwise go to subscriptions tab
+                        const createdSubId = verifyRes?.data?.subscription_id;
+                        if (createdSubId) {
+                            navigate(`/store/${storeId}/portal?tab=subscriptions&subscription_id=${createdSubId}`);
+                        } else {
+                            navigate(`/store/${storeId}/portal?tab=subscriptions`);
+                        }
                     } catch (error) {
                         toast.error('Payment verification failed');
                     } finally {

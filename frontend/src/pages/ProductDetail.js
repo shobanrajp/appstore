@@ -6,7 +6,7 @@ import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
 import { Plus, Minus, ChevronRight, AlertTriangle, ShoppingCart } from 'lucide-react';
-import { formatCurrency, setPageTitle } from '../lib/utils';
+import { formatCurrency, setPageTitle, getImageUrl } from '../lib/utils';
 import StoreHeader from '../components/StoreHeader';
 import StoreFooter from '../components/StoreFooter';
 import { useCart } from '../context/CartContext';
@@ -190,7 +190,7 @@ const ProductDetail = () => {
                         <div className="aspect-square bg-muted rounded-lg overflow-hidden">
                             {product.images?.[selectedImageIndex] || product.images?.[0] ? (
                                 <img 
-                                    src={product.images[selectedImageIndex] || product.images[0]} 
+                                    src={getImageUrl(product.images[selectedImageIndex] || product.images[0])} 
                                     alt={product.name} 
                                     className="w-full h-full object-cover"
                                 />
@@ -211,7 +211,7 @@ const ProductDetail = () => {
                                         }`}
                                         onClick={() => setSelectedImageIndex(idx)}
                                     >
-                                        <img src={img} alt={`${product.name} ${idx + 1}`} className="w-full h-full object-cover" />
+                                        <img src={getImageUrl(img)} alt={`${product.name} ${idx + 1}`} className="w-full h-full object-cover" />
                                     </div>
                                 ))}
                             </div>
@@ -362,7 +362,7 @@ const ProductDetail = () => {
                                         <div className="aspect-square bg-muted overflow-hidden">
                                             {item.images?.[0] ? (
                                                 <img 
-                                                    src={item.images[0]} 
+                                                    src={getImageUrl(item.images[0])} 
                                                     alt={item.name} 
                                                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                                                 />
@@ -392,7 +392,7 @@ const ProductDetail = () => {
                                         <div className="aspect-square bg-muted overflow-hidden">
                                             {item.images?.[0] ? (
                                                 <img 
-                                                    src={item.images[0]} 
+                                                    src={getImageUrl(item.images[0])} 
                                                     alt={item.name} 
                                                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                                                 />

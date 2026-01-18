@@ -24,6 +24,9 @@ app.add_middleware(
 BASE_DIR = Path("images")
 BASE_DIR.mkdir(parents=True, exist_ok=True)
 
+# Base URL used when constructing public image URLs (override in production/Vercel)
+BASE_URL = os.environ.get('IMAGE_SERVER_BASE_URL', 'http://localhost:8001').rstrip('/')
+
 # Mount the static files directory
 app.mount("/static", StaticFiles(directory="images"), name="static")
 
@@ -69,7 +72,7 @@ async def upload_files(
             relative_path += f"/{filename}"
             
             # Use raw string for the path component to avoid issues
-            uploaded_urls.append(f"http://localhost:8001/static/{relative_path}")
+            uploaded_urls.append(f"{BASE_URL}/static/{relative_path}")
             
         except Exception as e:
             return JSONResponse(status_code=500, content={"message": f"Failed to upload {file.filename}: {str(e)}"})
@@ -106,7 +109,7 @@ def list_images(store_id: str):
                     if len(parts) > 3:
                         category = "/".join(parts[2:-1])
                 
-                url = f"http://localhost:8001/static/{rel_path.as_posix()}"
+                url = f"{BASE_URL}/static/{rel_path.as_posix()}"
                 
                 images.append({
                     "name": file,

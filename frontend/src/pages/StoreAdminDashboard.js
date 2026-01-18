@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link, useParams } from 'react-router-dom';
 import {
-    getStores, getProducts, createProduct, updateProduct, deleteProduct,
+    getStores, getProducts, getProduct, createProduct, updateProduct, deleteProduct,
     getInventory, createInventory, updateInventory,
     getOrders, updateOrderStatus,
     getVendors, createVendor, updateVendor, deleteVendor,
@@ -14,6 +14,7 @@ import {
     getStoreStaff, createStaff, updateStaff, deleteStaff, getStaffActivity,
     getStoreCustomers, getCustomerDetails, updateCustomer, deleteCustomer
 } from '../lib/api';
+import { adminCreateShiprocketOrder, adminSyncShiprocketOrder, adminCancelShiprocketOrder, adminShiprocketAction } from '../lib/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -32,10 +33,11 @@ import {
     Box, Truck, DollarSign, CreditCard, Edit2, LayoutDashboard, Palette, Eye, Building2,
     BarChart3, Filter, Calendar, UserCog, Contact, Activity, Shield, FileText
 } from 'lucide-react';
-import { formatCurrency, formatDate, formatDateTime, getStatusColor, setPageTitle } from '../lib/utils';
+import { formatCurrency, formatDate, formatDateTime, getStatusColor, setPageTitle, getImageUrl } from '../lib/utils';
 import MarketPriceSettings from '../components/MarketPriceSettings';
 import StoreSettings from '../components/StoreSettings';
 import StoreTaxConfig from '../components/StoreTaxConfig';
+import StoreLogs from '../components/StoreLogs';
 import ShiprocketLogs from '../components/admin/ShiprocketLogs';
 import MediaLibrary from '../components/admin/MediaLibrary';
 import { Image as ImageIcon } from 'lucide-react';
@@ -79,6 +81,24 @@ const StoreAdminDashboard = () => {
     const [orderDetailOpen, setOrderDetailOpen] = useState(false);
     const [selectedOrder, setSelectedOrder] = useState(null);
     const [orderTrackingInfo, setOrderTrackingInfo] = useState({ tracking_number: '', carrier_name: '', carrier_url: '' });
+    // Order edit states
+    const [orderEditStatus, setOrderEditStatus] = useState('');
+    const [orderCarrier, setOrderCarrier] = useState('');
+    const [orderTrackingNumber, setOrderTrackingNumber] = useState('');
+    const [orderTrackingUrl, setOrderTrackingUrl] = useState('');
+    const [canceledItems, setCanceledItems] = useState(new Set());
+
+    // Allowed status options for admin edit
+    const ORDER_STATUS_OPTIONS = [
+        { value: 'placed', label: 'Placed' },
+        { value: 'picking started', label: 'Picking Started' },
+        { value: 'packed', label: 'Packed' },
+        { value: 'sr-order', label: 'SR-Order', disabled: true },
+        { value: 'sr-ship', label: 'SR-Ship', disabled: true },
+        { value: 'sr-schedule-pickup', label: 'SR-Schedule-Pickup', disabled: true },
+        { value: 'shipped', label: 'Shipped' }
+    ];
+    const DISABLED_STATUSES = ORDER_STATUS_OPTIONS.filter(o => o.disabled).map(o => o.value);
     const [storeEditForm, setStoreEditForm] = useState({ name: '', description: '', contact_email: '', contact_phone: '', address: '', address_map_url: '' });
     
     // Staff management states
@@ -114,7 +134,7 @@ const StoreAdminDashboard = () => {
     const [posItems, setPosItems] = useState([{ product_id: '', quantity: 1, price: 0 }]);
     const [posPaymentMethod, setPosPaymentMethod] = useState('cash');
     const [posCustomer, setPosCustomer] = useState({ name: '', phone: '' });
-    const [newPlan, setNewPlan] = useState({ name: '', plan_type: '', duration_months: 11, min_amount: 500, max_amount: 100000, bonus_percentage: 0, benefits: [], description: '', scheme_type: 'fixed', target_metal: 'gold' });
+    const [newPlan, setNewPlan] = useState({ name: '', plan_type: '', duration_months: 11, min_amount: 500, max_amount: 100000, bonus_percentage: 0, benefits: [], description: '', scheme_type: 'fixed', target_metal: 'gold', metal_purity_key: 'auto' });
     const [currency, setCurrency] = useState('INR');
     const [subscribers, setSubscribers] = useState([]);
     const [selectedSubscription, setSelectedSubscription] = useState(null);
@@ -777,6 +797,10 @@ const StoreAdminDashboard = () => {
                 bonus_percentage: parseFloat(newPlan.bonus_percentage) || 0,
                 benefits: newPlan.benefits.filter(b => b.trim())
             };
+            // map 'auto' placeholder to no explicit key so backend falls back to store default
+            if (planData.metal_purity_key === 'auto') {
+                delete planData.metal_purity_key;
+            }
             
             if (editingPlan) {
                 await updateSubscriptionPlan(store.id, editingPlan.id, planData);
@@ -787,7 +811,7 @@ const StoreAdminDashboard = () => {
                 toast.success('Plan created');
             }
             setPlanDialogOpen(false);
-            setNewPlan({ name: '', plan_type: '', duration_months: 11, min_amount: 500, max_amount: 100000, bonus_percentage: 0, benefits: [], description: '', scheme_type: 'fixed', target_metal: 'gold' });
+            setNewPlan({ name: '', plan_type: '', duration_months: 11, min_amount: 500, max_amount: 100000, bonus_percentage: 0, benefits: [], description: '', scheme_type: 'fixed', target_metal: 'gold', metal_purity_key: 'auto' });
             loadTabContent();
         } catch (error) {
             toast.error(error.response?.data?.detail || 'Failed to save plan');
@@ -796,7 +820,7 @@ const StoreAdminDashboard = () => {
 
     const openEditPlan = (plan) => {
         setEditingPlan(plan);
-        setNewPlan({
+            setNewPlan({
             name: plan.name,
             plan_type: plan.plan_type || '',
             scheme_type: plan.scheme_type || 'fixed',
@@ -806,7 +830,8 @@ const StoreAdminDashboard = () => {
             max_amount: plan.max_amount || 100000,
             bonus_percentage: plan.bonus_percentage || 0,
             benefits: plan.benefits || [],
-            description: plan.description || ''
+            description: plan.description || '',
+            metal_purity_key: plan.metal_purity_key ? plan.metal_purity_key : 'auto'
         });
         setPlanDialogOpen(true);
     };
@@ -841,7 +866,142 @@ const StoreAdminDashboard = () => {
             carrier_name: order.carrier_name || '',
             carrier_url: order.carrier_url || ''
         });
+        // Initialize edit states
+        setOrderEditStatus(order.status || '');
+        setOrderCarrier(order.carrier_name || '');
+        setOrderTrackingNumber(order.tracking_number || '');
+        setOrderTrackingUrl(order.carrier_url || '');
+        setCanceledItems(new Set());
         setOrderDetailOpen(true);
+    };
+
+    useEffect(() => {
+        const enrich = async () => {
+            if (!selectedOrder || !selectedOrder.items || !store) return;
+            const needs = selectedOrder.items.filter(it => !(it.product && it.product.images && it.product.images.length > 0) && it.product_id);
+            if (!needs.length) return;
+            try {
+                const results = await Promise.all(needs.map(it => getProduct(store.id, it.product_id).then(r => ({ id: it.product_id, product: r.data })).catch(() => null)));
+                const map = {};
+                results.forEach(r => { if (r && r.id) map[r.id] = r.product; });
+                const newItems = selectedOrder.items.map(it => ({ ...it, product: it.product || map[it.product_id] || it.product }));
+                setSelectedOrder({ ...selectedOrder, items: newItems });
+            } catch (e) { console.debug('enrich failed', e); }
+        };
+        enrich();
+    }, [selectedOrder, store]);
+
+    // Admin Shiprocket actions
+    const handleAdminCreateShiprocket = async () => {
+        if (!selectedOrder) return;
+        try {
+            toast.promise(
+                adminCreateShiprocketOrder(store.id, selectedOrder.id),
+                {
+                    loading: 'Creating Shiprocket order...',
+                    success: 'Shiprocket create requested',
+                    error: 'Failed to request Shiprocket create'
+                }
+            );
+            await loadTabContent();
+            const refreshed = (await getOrders(store.id, pagination.orders.page, pagination.orders.limit)).data.find(o => o.id === selectedOrder.id);
+            setSelectedOrder(refreshed || selectedOrder);
+        } catch (e) {
+            console.error(e);
+            toast.error(e.response?.data?.detail || e.message || 'Shiprocket create failed');
+        }
+    };
+
+    const handleAdminSyncShiprocket = async () => {
+        if (!selectedOrder) return;
+        try {
+            const res = await adminSyncShiprocketOrder(store.id, selectedOrder.id);
+            toast.success('Synced with Shiprocket');
+            await loadTabContent();
+            setSelectedOrder(res.data.order || selectedOrder);
+        } catch (e) {
+            console.error(e);
+            toast.error(e.response?.data?.detail || e.message || 'Sync failed');
+        }
+    };
+
+    const handleAdminCancelShiprocket = async () => {
+        if (!selectedOrder) return;
+        if (!window.confirm('Cancel Shiprocket order?')) return;
+        try {
+            const res = await adminCancelShiprocketOrder(store.id, selectedOrder.id);
+            toast.success('Cancel requested');
+            await loadTabContent();
+            setSelectedOrder(res.data.order || selectedOrder);
+        } catch (e) {
+            console.error(e);
+            toast.error(e.response?.data?.detail || e.message || 'Cancel failed');
+        }
+    };
+
+    const handleAdminShiprocketAction = async (action) => {
+        if (!selectedOrder) return;
+        try {
+            const res = await adminShiprocketAction(store.id, selectedOrder.id, action);
+            toast.success(`${action} requested`);
+            await loadTabContent();
+            setSelectedOrder(res.data.order || selectedOrder);
+        } catch (e) {
+            console.error(e);
+            toast.error(e.response?.data?.detail || e.message || `${action} failed`);
+        }
+    };
+
+    const handleAdminUpdateSelectedOrder = async () => {
+        if (!selectedOrder) return;
+        try {
+            // Prevent sending disabled SR statuses from admin unless it's already the current status
+            const newStatus = orderEditStatus || selectedOrder.status;
+            if (DISABLED_STATUSES.includes(newStatus) && newStatus !== selectedOrder.status) {
+                toast.error('Cannot set status to an SR-managed status');
+                return;
+            }
+            const cancelled = Array.from(canceledItems).map(i => ({ index: i, item: selectedOrder.items[i] }));
+            const data = {
+                status: newStatus,
+                tracking_number: orderTrackingNumber || selectedOrder.tracking_number || null,
+                carrier_name: orderCarrier || selectedOrder.carrier_name || null,
+                carrier_url: orderTrackingUrl || selectedOrder.carrier_url || null,
+                cancelled_items: cancelled
+            };
+            await updateOrderStatus(store.id, selectedOrder.id, data);
+            toast.success('Order updated');
+            await loadTabContent();
+            const refreshed = (await getOrders(store.id, pagination.orders.page, pagination.orders.limit)).data.find(o => o.id === selectedOrder.id);
+            setSelectedOrder(refreshed || { ...selectedOrder, ...data });
+        } catch (e) {
+            console.error(e);
+            toast.error('Failed to update order');
+        }
+    };
+
+    const handleAdminCancelWholeOrder = async () => {
+        if (!selectedOrder) return;
+        if (!window.confirm('Are you sure you want to cancel this entire order?')) return;
+        try {
+            const cancelled = selectedOrder.items?.map((item, idx) => ({ index: idx, item })) || [];
+            const data = {
+                status: 'cancelled',
+                tracking_number: selectedOrder.tracking_number || null,
+                carrier_name: selectedOrder.carrier_name || null,
+                carrier_url: selectedOrder.carrier_url || null,
+                cancelled_items: cancelled
+            };
+            await updateOrderStatus(store.id, selectedOrder.id, data);
+            toast.success('Order cancelled');
+            await loadTabContent();
+            const refreshed = (await getOrders(store.id, pagination.orders.page, pagination.orders.limit)).data.find(o => o.id === selectedOrder.id);
+            setSelectedOrder(refreshed || { ...selectedOrder, ...data });
+            setOrderDetailOpen(false);
+        } catch (e) {
+            console.error(e);
+            toast.error('Failed to cancel order');
+        }
     };
 
     // Settings handlers
@@ -982,17 +1142,22 @@ const StoreAdminDashboard = () => {
                                 isAdmin || userMenuAccess.includes(item.key)
                             );
                             
-                            return filteredMenuItems.map(({ key, label, icon: Icon, testId, onClick }) => (
-                                <Button
-                                    key={key}
-                                    variant={activeTab === key ? 'secondary' : 'ghost'}
-                                    className="w-full justify-start"
-                                    onClick={onClick || (() => setActiveTab(key))}
-                                    data-testid={testId}
-                                >
-                                    <Icon className="w-4 h-4 mr-2" /> {label}
-                                </Button>
-                            ));
+                            return filteredMenuItems.map(({ key, label, icon: Icon, testId, onClick }) => {
+                                const handler = onClick || (() => {
+                                    setActiveTab(key);
+                                });
+                                return (
+                                    <Button
+                                        key={key}
+                                        variant={activeTab === key ? 'secondary' : 'ghost'}
+                                        className="w-full justify-start"
+                                        onClick={handler}
+                                        data-testid={testId}
+                                    >
+                                        <Icon className="w-4 h-4 mr-2" /> {label}
+                                    </Button>
+                                );
+                            });
                         })()}
                         
                         {/* Admin-only Management Section */}
@@ -1024,6 +1189,13 @@ const StoreAdminDashboard = () => {
                                     <Settings className="w-4 h-4 mr-2" /> Tax Configuration
                                 </Button>
                                 <Button
+                                    variant={activeTab === 'logs' ? 'secondary' : 'ghost'}
+                                    className="w-full justify-start"
+                                    onClick={() => setActiveTab('logs')}
+                                >
+                                    <FileText className="w-4 h-4 mr-2" /> Activity Logs
+                                </Button>
+                                <Button
                                     variant={activeTab === 'shiprocket-logs' ? 'secondary' : 'ghost'}
                                     className="w-full justify-start"
                                     onClick={() => setActiveTab('shiprocket-logs')}
@@ -1051,14 +1223,7 @@ const StoreAdminDashboard = () => {
                                 >
                                     <Building2 className="w-4 h-4 mr-2" /> Store Info
                                 </Button>
-                                <Button
-                                    variant={activeTab === 'settings' ? 'secondary' : 'ghost'}
-                                    className="w-full justify-start"
-                                    onClick={() => setActiveTab('settings')}
-                                    data-testid="nav-settings"
-                                >
-                                    <Settings className="w-4 h-4 mr-2" /> Settings
-                                </Button>
+                                {/* Removed duplicate Settings menu item */}
                             </>
                         )}
                     </nav>
@@ -1483,86 +1648,82 @@ const StoreAdminDashboard = () => {
                                 <h2 className="text-2xl font-serif font-semibold">Customer Orders</h2>
                                 <p className="text-muted-foreground">Manage and track orders</p>
                             </div>
-
-                            {/* Filter Controls */}
+                            {/* Orders Filters */}
                             <Card className="mb-4">
                                 <CardContent className="p-4">
-                                    <div className="flex items-center gap-4 flex-wrap">
-                                        <Filter className="w-4 h-4 text-muted-foreground" />
-                                        <Select
-                                            value={filters.orders.status || 'all'}
-                                            onValueChange={(v) => setFilters({ ...filters, orders: { ...filters.orders, status: v === 'all' ? '' : v } })}
-                                        >
-                                            <SelectTrigger className="w-[150px]" data-testid="orders-filter-status">
-                                                <SelectValue placeholder="All Statuses" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="all">All Statuses</SelectItem>
-                                                <SelectItem value="pending">Pending</SelectItem>
-                                                <SelectItem value="processing">Processing</SelectItem>
-                                                <SelectItem value="shipped">Shipped</SelectItem>
-                                                <SelectItem value="delivered">Delivered</SelectItem>
-                                                <SelectItem value="cancelled">Cancelled</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                        <div className="flex items-center gap-2">
-                                            <Calendar className="w-4 h-4 text-muted-foreground" />
-                                            <Input
-                                                type="date"
-                                                value={filters.orders.startDate}
-                                                onChange={(e) => setFilters({ ...filters, orders: { ...filters.orders, startDate: e.target.value } })}
-                                                className="w-[150px]"
-                                                data-testid="orders-filter-start-date"
-                                            />
-                                            <span className="text-muted-foreground">to</span>
-                                            <Input
-                                                type="date"
-                                                value={filters.orders.endDate}
-                                                onChange={(e) => setFilters({ ...filters, orders: { ...filters.orders, endDate: e.target.value } })}
-                                                className="w-[150px]"
-                                                data-testid="orders-filter-end-date"
-                                            />
-                                        </div>
-                                        {(filters.orders.status || filters.orders.startDate || filters.orders.endDate) && (
-                                            <Button 
-                                                variant="ghost" 
-                                                size="sm"
-                                                onClick={() => setFilters({ ...filters, orders: { status: '', startDate: '', endDate: '' } })}
-                                            >
-                                                Clear Filters
-                                            </Button>
-                                        )}
+                                    <div className="flex flex-wrap gap-4 items-center">
+                                        {/* Status Filter */}
+                                        <select className="border rounded px-3 py-2 text-sm" value={filters.orders.status || ''} onChange={e => setFilters({ ...filters, orders: { ...filters.orders, status: e.target.value } })}>
+                                            <option value="">All Statuses</option>
+                                            <option value="placed">Placed</option>
+                                            <option value="picking started">Picking Started</option>
+                                            <option value="packed">Packed</option>
+                                            <option value="sr-order">SR-Order</option>
+                                            <option value="sr-ship">SR-Ship</option>
+                                            <option value="sr-schedule-pickup">SR-Schedule-Pickup</option>
+                                            <option value="shipped">Shipped</option>
+                                            <option value="cancelled">Cancelled</option>
+                                        </select>
+                                        {/* Date Filter */}
+                                        <input type="date" className="border rounded px-3 py-2 text-sm" value={filters.orders.startDate || ''} onChange={e => setFilters({ ...filters, orders: { ...filters.orders, startDate: e.target.value } })} placeholder="Start Date" />
+                                        <input type="date" className="border rounded px-3 py-2 text-sm" value={filters.orders.endDate || ''} onChange={e => setFilters({ ...filters, orders: { ...filters.orders, endDate: e.target.value } })} placeholder="End Date" />
+                                        {/* Customer Name Filter */}
+                                        <input type="text" className="border rounded px-3 py-2 text-sm" value={filters.orders.customerName || ''} onChange={e => setFilters({ ...filters, orders: { ...filters.orders, customerName: e.target.value } })} placeholder="Customer Name" />
+                                        {/* City Filter */}
+                                        <input type="text" className="border rounded px-3 py-2 text-sm" value={filters.orders.city || ''} onChange={e => setFilters({ ...filters, orders: { ...filters.orders, city: e.target.value } })} placeholder="City" />
+                                        {/* State Filter (dropdown) */}
+                                        <select className="border rounded px-3 py-2 text-sm" value={filters.orders.state || ''} onChange={e => setFilters({ ...filters, orders: { ...filters.orders, state: e.target.value } })}>
+                                            <option value="">All States</option>
+                                            {Array.from(new Set(orders.map(o => o.shipping_address?.state).filter(Boolean))).map(state => (
+                                                <option key={state} value={state}>{state}</option>
+                                            ))}
+                                        </select>
                                     </div>
                                 </CardContent>
                             </Card>
-
+                            {/* Table-style order list, as in admin template */}
                             <Card>
                                 <CardContent className="p-0">
                                     <Table>
                                         <TableHeader>
                                             <TableRow>
                                                 <TableHead>Order ID</TableHead>
-                                                <TableHead>Items</TableHead>
-                                                <TableHead>Total</TableHead>
-                                                <TableHead>Status</TableHead>
-                                                <TableHead>Tracking</TableHead>
-                                                <TableHead>Carrier</TableHead>
                                                 <TableHead>Date</TableHead>
+                                                <TableHead>Status</TableHead>
+                                                <TableHead>Customer</TableHead>
+                                                <TableHead>City</TableHead>
+                                                <TableHead>State</TableHead>
+                                                <TableHead>Total</TableHead>
                                                 <TableHead className="text-right">Actions</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                            {filteredOrders.map((order) => (
+                                            {filteredOrders
+                                                .filter(order => {
+                                                    const { status, startDate, endDate, customerName, city, state } = filters.orders;
+                                                    let pass = true;
+                                                    if (status && order.status !== status) pass = false;
+                                                    if (startDate && order.created_at < startDate) pass = false;
+                                                    if (endDate && order.created_at > endDate + 'T23:59:59') pass = false;
+                                                    if (customerName && !(order.customer_name || order.shipping_address?.full_name || '').toLowerCase().includes(customerName.toLowerCase())) pass = false;
+                                                    if (city && !(order.shipping_address?.city || '').toLowerCase().includes(city.toLowerCase())) pass = false;
+                                                    if (state && order.shipping_address?.state !== state) pass = false;
+                                                    return pass;
+                                                })
+                                                .slice((pagination.orders.page - 1) * pagination.orders.limit, pagination.orders.page * pagination.orders.limit)
+                                                .map((order) => (
                                                 <TableRow key={order.id}>
-                                                    <TableCell className="font-mono text-sm">{order.id}</TableCell>
-                                                    <TableCell>{order.items.length} items</TableCell>
-                                                    <TableCell>{formatCurrency(order.total_amount, store.currency)}</TableCell>
+                                                    <TableCell className="font-mono text-sm">
+                                                        <button style={{ color: '#2563eb', textDecoration: 'underline', cursor: 'pointer', background: 'none', border: 'none', padding: 0 }} onClick={() => openOrderDetail(order)}>{order.id}</button>
+                                                    </TableCell>
+                                                    <TableCell>{formatDate(order.created_at)}</TableCell>
                                                     <TableCell>
                                                         <Badge className={getStatusColor(order.status)}>{order.status}</Badge>
                                                     </TableCell>
-                                                    <TableCell>{order.tracking_number || '-'}</TableCell>
-                                                    <TableCell>{order.carrier_name || '-'}</TableCell>
-                                                    <TableCell>{formatDate(order.created_at)}</TableCell>
+                                                    <TableCell>{order.customer_name || order.shipping_address?.full_name || '-'}</TableCell>
+                                                    <TableCell>{order.shipping_address?.city || '-'}</TableCell>
+                                                    <TableCell>{order.shipping_address?.state || '-'}</TableCell>
+                                                    <TableCell>{formatCurrency(order.total_amount, store.currency)}</TableCell>
                                                     <TableCell className="text-right">
                                                         <Button
                                                             variant="ghost"
@@ -1586,11 +1747,16 @@ const StoreAdminDashboard = () => {
                                     </Table>
                                 </CardContent>
                             </Card>
-                            {renderPagination('orders')}
+                            {/* Pagination Controls */}
+                            <div className="flex justify-end items-center gap-2 py-4">
+                                <Button variant="outline" size="sm" onClick={() => handlePageChange('orders', Math.max(1, pagination.orders.page - 1))} disabled={pagination.orders.page <= 1}>Previous</Button>
+                                <span className="text-sm font-medium">Page {pagination.orders.page} of {pagination.orders.pages}</span>
+                                <Button variant="outline" size="sm" onClick={() => handlePageChange('orders', Math.min(pagination.orders.pages, pagination.orders.page + 1))} disabled={pagination.orders.page >= pagination.orders.pages}>Next</Button>
+                            </div>
 
                             {/* Order Detail Dialog */}
-                            <Dialog open={orderDetailOpen} onOpenChange={(open) => { setOrderDetailOpen(open); if (!open) setOrderTrackingInfo({ tracking_number: '', carrier_name: '', carrier_url: '' }); }}>
-                                <DialogContent className="max-w-2xl">
+                            <Dialog open={orderDetailOpen} onOpenChange={setOrderDetailOpen}>
+                                <DialogContent className="max-w-4xl border-2 border-blue-100 rounded-lg p-6">
                                     <DialogHeader>
                                         <DialogTitle className="font-serif">Order Details</DialogTitle>
                                     </DialogHeader>
@@ -1607,79 +1773,101 @@ const StoreAdminDashboard = () => {
                                                 </div>
                                             </div>
                                             <div>
-                                                <Label className="text-muted-foreground">Items</Label>
-                                                <div className="mt-2 space-y-2">
-                                                    {selectedOrder.items.map((item, idx) => (
-                                                        <div key={idx} className="flex justify-between text-sm">
-                                                            <span>{item.product_name} x {item.quantity}</span>
-                                                            <span>{formatCurrency(item.price * item.quantity, store.currency)}</span>
-                                                        </div>
-                                                    ))}
-                                                    <div className="border-t pt-2 flex justify-between font-semibold">
-                                                        <span>Total</span>
-                                                        <span>{formatCurrency(selectedOrder.total_amount, store.currency)}</span>
-                                                    </div>
-                                                </div>
+                                                <Label className="text-muted-foreground">Order Placed Date</Label>
+                                                <p>{formatDate(selectedOrder.created_at)}</p>
                                             </div>
                                             <div>
                                                 <Label className="text-muted-foreground">Shipping Address</Label>
                                                 <p className="text-sm">
-                                                    {selectedOrder.shipping_address.full_name}<br />
-                                                    {selectedOrder.shipping_address.address_line1}<br />
-                                                    {selectedOrder.shipping_address.city}, {selectedOrder.shipping_address.state} {selectedOrder.shipping_address.postal_code}
+                                                    {selectedOrder.shipping_address?.full_name}<br />
+                                                    {selectedOrder.shipping_address?.address_line1}<br />
+                                                    {selectedOrder.shipping_address?.city}, {selectedOrder.shipping_address?.state} {selectedOrder.shipping_address?.postal_code}
                                                 </p>
                                             </div>
-                                            
-                                            {/* Tracking Information */}
-                                            <div className="border-t pt-4 space-y-4">
-                                                <h4 className="font-semibold">Tracking Information</h4>
-                                                <div className="grid grid-cols-1 gap-4">
-                                                    <div className="space-y-2">
-                                                        <Label>Tracking Number</Label>
-                                                        <Input
-                                                            value={orderTrackingInfo.tracking_number}
-                                                            onChange={(e) => setOrderTrackingInfo({ ...orderTrackingInfo, tracking_number: e.target.value })}
-                                                            placeholder="Enter tracking number"
-                                                            data-testid="order-tracking-input"
-                                                        />
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <Label>Carrier Name</Label>
-                                                        <Input
-                                                            value={orderTrackingInfo.carrier_name}
-                                                            onChange={(e) => setOrderTrackingInfo({ ...orderTrackingInfo, carrier_name: e.target.value })}
-                                                            placeholder="e.g., FedEx, DHL, BlueDart"
-                                                            data-testid="order-carrier-input"
-                                                        />
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <Label>Carrier Tracking URL</Label>
-                                                        <Input
-                                                            value={orderTrackingInfo.carrier_url}
-                                                            onChange={(e) => setOrderTrackingInfo({ ...orderTrackingInfo, carrier_url: e.target.value })}
-                                                            placeholder="https://track.carrier.com/..."
-                                                            data-testid="order-carrier-url-input"
-                                                        />
+
+                                            {/* Editable fields (admin) */}
+                                            {(user?.role === 'store_admin' || user?.role === 'super_admin') && (
+                                                <div className="grid grid-cols-1 gap-3">
+                                                    <Label className="text-muted-foreground">Edit Order</Label>
+                                                    <div className="flex gap-2 items-center">
+                                                        <select value={orderEditStatus} onChange={(e) => {
+                                                            const val = e.target.value;
+                                                            // prevent selecting disabled statuses programmatically
+                                                            if (DISABLED_STATUSES.includes(val) && val !== selectedOrder.status) {
+                                                                // ignore change and show hint
+                                                                toast.error('This status is managed by the app and cannot be set manually');
+                                                                return;
+                                                            }
+                                                            setOrderEditStatus(val);
+                                                        }} className="p-2 border rounded">
+                                                            <option value="">-- Select status --</option>
+                                                            {ORDER_STATUS_OPTIONS.map(opt => (
+                                                                <option key={opt.value} value={opt.value} disabled={opt.disabled} title={opt.disabled ? 'Updated by app' : ''}>{opt.label}</option>
+                                                            ))}
+                                                        </select>
+                                                        <input placeholder="Carrier name" value={orderCarrier} onChange={(e) => setOrderCarrier(e.target.value)} className="p-2 border rounded" />
+                                                        <input placeholder="Tracking number" value={orderTrackingNumber} onChange={(e) => setOrderTrackingNumber(e.target.value)} className="p-2 border rounded" />
+                                                        <input placeholder="Tracking URL" value={orderTrackingUrl} onChange={(e) => setOrderTrackingUrl(e.target.value)} className="p-2 border rounded" />
+
                                                     </div>
                                                 </div>
-                                            </div>
+                                            )}
 
-                                            <div className="flex gap-2 pt-4">
-                                                <Select onValueChange={(status) => handleUpdateOrderStatus(selectedOrder.id, status)}>
-                                                    <SelectTrigger className="w-48" data-testid="order-status-select">
-                                                        <SelectValue placeholder="Update Status" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="pending">Pending</SelectItem>
-                                                        <SelectItem value="processing">Processing</SelectItem>
-                                                        <SelectItem value="shipped">Shipped</SelectItem>
-                                                        <SelectItem value="delivered">Delivered</SelectItem>
-                                                        <SelectItem value="cancelled">Cancelled</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
+                                            <div>
+                                                <Label className="text-muted-foreground">SKUs & Items</Label>
+                                                <div className="mt-2 space-y-2">
+                                                    {selectedOrder.items?.map((item, idx) => {
+                                                        // Debug raw item fields so we can see where images live
+                                                        console.log('[Order Detail Dialog] item:', item);
+                                                        console.log('[Order Detail Dialog] productImageRaw:', item.product?.images?.[0], 'item.image:', item.image, 'store_image_placeholder:', selectedOrder.store_image_placeholder);
+                                                        // Try product images first; fall back to products list by product_id if present
+                                                        const productImage = item.product?.images?.[0] || products.find(p => p.id === item.product_id)?.images?.[0];
+                                                        const imgUrl = productImage ? getImageUrl(productImage) : getImageUrl(item.image || selectedOrder.store_image_placeholder);
+                                                        console.log(`[Order Detail Dialog] Item ${idx} imgUrl:`, imgUrl);
+                                                        const isCanceled = canceledItems.has(idx);
+                                                        return (
+                                                            <div key={idx} className={`flex gap-4 items-center border-b pb-2 ${isCanceled ? 'opacity-50 line-through' : ''}`}>
+                                                                <img src={imgUrl} alt={item.product_name || item.sku || `SKU-${idx+1}`} style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 8 }} onError={e => { e.target.onerror = null; e.target.src = 'https://placehold.co/56x56?text=No+Img'; }} />
+                                                                <div className="flex-1">
+                                                                    <div className="font-mono font-semibold">{item.sku || item.item_number || item.product?.sku || item.product_id || `SKU-${idx+1}`}</div>
+                                                                    <div className="text-sm">{item.product_name || item.description || item.product?.name || ''}</div>
+                                                                    <div className="text-xs text-muted-foreground">Qty: {item.quantity || 0}</div>
+                                                                </div>
+                                                                <div className="flex items-center gap-3">
+                                                                    <div className="font-semibold">{formatCurrency((item.price || 0) * (item.quantity || 1), selectedOrder.currency || 'INR')}</div>
+                                                                    <Button size="small" variant={isCanceled ? 'outlined' : 'contained'} color={isCanceled ? 'secondary' : 'error'} onClick={() => {
+                                                                        const s = new Set(canceledItems);
+                                                                        if (s.has(idx)) s.delete(idx); else s.add(idx);
+                                                                        setCanceledItems(s);
+                                                                    }}>{isCanceled ? 'Undo' : 'Cancel line'}</Button>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <Label className="text-muted-foreground">Tax</Label>
+                                                    <p>{selectedOrder.tax ? formatCurrency(selectedOrder.tax, selectedOrder.currency || 'INR') : '-'}</p>
+                                                </div>
+                                                <div>
+                                                    <Label className="text-muted-foreground">Shipping Charge Paid</Label>
+                                                    <p>{selectedOrder.shipping_charges ? formatCurrency(selectedOrder.shipping_charges, selectedOrder.currency || 'INR') : '-'}</p>
+                                                </div>
                                             </div>
                                         </div>
                                     )}
+
+                                    {/* Sticky footer for update action to keep button visible */}
+                                    {(user?.role === 'store_admin' || user?.role === 'super_admin') && (
+                                        <div className="sticky bottom-0 -mx-6 -mb-6 bg-white/90 dark:bg-slate-900/80 backdrop-blur p-4 border-t flex justify-end gap-3">
+                                            <Button color="error" variant="outlined" onClick={handleAdminCancelWholeOrder}>Cancel Order</Button>
+                                            <Button onClick={handleAdminUpdateSelectedOrder} className="gold-gradient text-white">Update</Button>
+                                            <Button variant="outline" onClick={() => setOrderDetailOpen(false)}>Close</Button>
+                                        </div>
+                                    )}
+
                                 </DialogContent>
                             </Dialog>
                         </div>
@@ -2615,7 +2803,7 @@ const StoreAdminDashboard = () => {
                                     <h2 className="text-2xl font-serif font-semibold">Subscription Plans</h2>
                                     <p className="text-muted-foreground">Manage Flexi Plans</p>
                                 </div>
-                                <Dialog open={planDialogOpen} onOpenChange={(open) => { setPlanDialogOpen(open); if (!open) { setEditingPlan(null); setNewPlan({ name: '', plan_type: '', duration_months: 11, min_amount: 500, max_amount: 100000, bonus_percentage: 0, benefits: [], description: '', scheme_type: 'fixed', target_metal: 'gold' }); } }}>
+                                <Dialog open={planDialogOpen} onOpenChange={(open) => { setPlanDialogOpen(open); if (!open) { setEditingPlan(null); setNewPlan({ name: '', plan_type: '', duration_months: 11, min_amount: 500, max_amount: 100000, bonus_percentage: 0, benefits: [], description: '', scheme_type: 'fixed', target_metal: 'gold', metal_purity_key: 'auto' }); } }}>
                                     <DialogTrigger asChild>
                                         <Button className="gold-gradient text-white" data-testid="create-plan-btn">
                                             <Plus className="w-4 h-4 mr-2" /> Create Plan
@@ -2709,7 +2897,7 @@ const StoreAdminDashboard = () => {
                                             )}
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div className="space-y-2">
-                                                    <Label>Min Amount (�?</Label>
+                                                    <Label>Min Amount (₹)</Label>
                                                     <Input
                                                         type="number"
                                                         value={newPlan.min_amount}
@@ -2720,7 +2908,7 @@ const StoreAdminDashboard = () => {
                                                     />
                                                 </div>
                                                 <div className="space-y-2">
-                                                    <Label>Max Amount (�?</Label>
+                                                    <Label>Max Amount (₹)</Label>
                                                     <Input
                                                         type="number"
                                                         value={newPlan.max_amount}
@@ -2731,14 +2919,36 @@ const StoreAdminDashboard = () => {
                                                     />
                                                 </div>
                                             </div>
-                                            <div className="space-y-2">
-                                                <Label>Description</Label>
-                                                <Textarea
-                                                    value={newPlan.description}
-                                                    onChange={(e) => setNewPlan({ ...newPlan, description: e.target.value })}
-                                                    placeholder="Describe the plan benefits..."
-                                                    data-testid="plan-desc-input"
-                                                />
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label>Metal Purity Key</Label>
+                                                    <Select
+                                                        value={newPlan.metal_purity_key || ''}
+                                                        onValueChange={(v) => setNewPlan({ ...newPlan, metal_purity_key: v })}
+                                                    >
+                                                        <SelectTrigger>
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="auto">Auto (store default)</SelectItem>
+                                                            <SelectItem value="gold_24">gold_24</SelectItem>
+                                                            <SelectItem value="gold_22">gold_22</SelectItem>
+                                                            <SelectItem value="gold_18">gold_18</SelectItem>
+                                                            <SelectItem value="gold_14">gold_14</SelectItem>
+                                                            <SelectItem value="silver_1g">silver_1g</SelectItem>
+                                                            <SelectItem value="platinum_1g">platinum_1g</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Description</Label>
+                                                    <Textarea
+                                                        value={newPlan.description}
+                                                        onChange={(e) => setNewPlan({ ...newPlan, description: e.target.value })}
+                                                        placeholder="Describe the plan benefits..."
+                                                        data-testid="plan-desc-input"
+                                                    />
+                                                </div>
                                             </div>
                                             <Button type="submit" className="w-full gold-gradient text-white" data-testid="submit-plan-btn">
                                                 {editingPlan ? 'Update Plan' : 'Create Plan'}
@@ -2877,6 +3087,18 @@ const StoreAdminDashboard = () => {
                                 </div>
                             </div>
                             <StoreTaxConfig storeId={store.id} />
+                        </div>
+                    )}
+
+                    {activeTab === 'logs' && (
+                        <div className="space-y-6">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-2xl font-serif font-semibold">Activity Logs</h2>
+                                    <p className="text-muted-foreground">Monitor subscription, payment, and store activities.</p>
+                                </div>
+                            </div>
+                            <StoreLogs storeId={store.id} />
                         </div>
                     )}
 
@@ -3031,9 +3253,9 @@ const StoreAdminDashboard = () => {
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="INR">INR (�?</SelectItem>
+                                    <SelectItem value="INR">INR (₹)</SelectItem>
                                     <SelectItem value="USD">USD ($)</SelectItem>
-                                    <SelectItem value="EUR">EUR (�?</SelectItem>
+                                    <SelectItem value="EUR">EUR (€)</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
@@ -3160,7 +3382,7 @@ const StoreAdminDashboard = () => {
                                         <TableBody>
                                             {staffActivityData.pos_transactions.slice(0, 10).map((tx) => (
                                                 <TableRow key={tx.id}>
-                                                    <TableCell className="font-mono text-xs">{tx.id.slice(0, 8)}...</TableCell>
+                                                    <TableCell>{tx.id.slice(0, 8)}...</TableCell>
                                                     <TableCell>{formatCurrency(tx.total_amount, store.currency)}</TableCell>
                                                     <TableCell className="capitalize">{tx.payment_method}</TableCell>
                                                     <TableCell>{formatDateTime(tx.created_at)}</TableCell>

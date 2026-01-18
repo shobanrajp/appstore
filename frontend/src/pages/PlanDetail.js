@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getStore, getSubscriptionPlans, subscribeToPlan, getMarketPrices, getStoreTaxConfig } from '../lib/api';
-import { createRazorpayPaymentLink } from '../lib/razorpay';
+import api, { getStore, getSubscriptionPlans, subscribeToPlan, getMarketPrices, getStoreTaxConfig, createPaymentOrder, getMySubscriptions } from '../lib/api';
 import { formatCurrency, setPageTitle } from '../lib/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -34,10 +33,41 @@ const PlanDetail = () => {
     const [processingPayment, setProcessingPayment] = useState(false);
     const [marketPrices, setMarketPrices] = useState(null);
     const [taxConfig, setTaxConfig] = useState(null);
+    const [userAccumulatedGrams, setUserAccumulatedGrams] = useState(null);
+    const [userSubscription, setUserSubscription] = useState(null);
 
     const minAmount = useMemo(() => Number(plan?.min_amount) || 500, [plan]);
     const maxAmount = useMemo(() => Number(plan?.max_amount) || 100000, [plan]);
     const maxMonths = useMemo(() => Number(plan?.duration_months) || 11, [plan]);
+
+    // Helper function to extract tax rates from taxConfig for the plan's target metal
+    const getTaxRates = useMemo(() => {
+        return () => {
+            if (!taxConfig) return { cgst: 0, igst: 0, total: 0 }; // Default to 0% when not configured
+            
+            const metal = (plan?.target_metal || 'gold').toLowerCase();
+            
+            // Try metal_taxes first (preferred structure)
+            if (taxConfig.metal_taxes && Array.isArray(taxConfig.metal_taxes)) {
+                const metalTax = taxConfig.metal_taxes.find(m => m.metal === metal && m.is_enabled);
+                if (metalTax && metalTax.tax_rate) {
+                    const cgst = Number(metalTax.tax_rate.cgst) || 0;
+                    const igst = Number(metalTax.tax_rate.igst) || 0;
+                    return { cgst, igst, total: cgst + igst };
+                }
+            }
+            
+            // Fallback to gst_rate if available
+            if (taxConfig.gst_rate) {
+                const rate = Number(taxConfig.gst_rate) || 0;
+                return { cgst: rate, igst: 0, total: rate };
+            }
+            
+            return { cgst: 0, igst: 0, total: 0 };
+        };
+    }, [taxConfig, plan]);
+
+    const currentTaxRates = useMemo(() => getTaxRates(), [getTaxRates]);
 
     const normalizedAmount = useMemo(() => {
         const val = Number(amount);
@@ -58,24 +88,85 @@ const PlanDetail = () => {
 
     const estimatedGrams = useMemo(() => {
         if (!marketPrices || !normalizedAmount || !plan) return '0.000';
-        
-        const metal = (plan.target_metal || 'gold').toLowerCase();
-        let price = 0;
 
-        // Map metal type to market price key
-        if (metal === 'gold') {
-            price = Number(marketPrices.gold_24 || marketPrices.gold_22 || 0);
-        } else if (metal === 'silver') {
-            price = Number(marketPrices.silver_1g || 0);
-        } else if (metal === 'platinum') {
-            price = Number(marketPrices.platinum_1g || 0);
+        const getPriceForKey = (key) => {
+            if (!key) return 0;
+            if (marketPrices.prices && marketPrices.prices[key] !== undefined) return Number(marketPrices.prices[key]);
+            if (marketPrices[key] !== undefined) return Number(marketPrices[key]);
+            return 0;
+        };
+
+        const metal = (plan.target_metal || 'gold').toLowerCase();
+
+        // Resolve purity key using subscription -> plan -> store default -> fallback
+        const planPurityKey = userSubscription?.metal_purity_key || plan.metal_purity_key;
+        let usedKey = '';
+        if (planPurityKey && getPriceForKey(planPurityKey)) {
+            usedKey = planPurityKey;
+        } else {
+            const defaultPurity = marketPrices.default_purity || marketPrices.defaultPurity || {};
+            const mappedKey = defaultPurity[metal];
+            if (mappedKey && getPriceForKey(mappedKey)) {
+                usedKey = mappedKey;
+            } else if (metal === 'gold' && getPriceForKey('gold_24')) {
+                usedKey = 'gold_24';
+            } else if (metal === 'gold' && getPriceForKey('gold_22')) {
+                usedKey = 'gold_22';
+            } else if (metal === 'silver' && getPriceForKey('silver_1g')) {
+                usedKey = 'silver_1g';
+            } else if (metal === 'platinum' && getPriceForKey('platinum_1g')) {
+                usedKey = 'platinum_1g';
+            }
         }
 
+        const price = getPriceForKey(usedKey);
         if (!price) return '0.000';
-        const taxRate = taxConfig?.gst_rate || 3;
-        const cost = normalizedAmount / (1 + taxRate / 100);
-        return (cost / price).toFixed(4);
-    }, [normalizedAmount, marketPrices, plan, taxConfig]);
+        // Net amount after tax deduction: gross * (1 - tax_rate/100)
+        const netAmount = normalizedAmount * (1 - currentTaxRates.total / 100);
+        return (netAmount / price).toFixed(4);
+    }, [normalizedAmount, marketPrices, plan, currentTaxRates, userSubscription]);
+
+    const priceKeyUsed = useMemo(() => {
+        if (!marketPrices || !plan) return '';
+        const getPriceForKey = (key) => {
+            if (!key) return 0;
+            if (marketPrices.prices && marketPrices.prices[key] !== undefined) return Number(marketPrices.prices[key]);
+            if (marketPrices[key] !== undefined) return Number(marketPrices[key]);
+            return 0;
+        };
+        const metal = (plan.target_metal || 'gold').toLowerCase();
+        const planPurityKey = userSubscription?.metal_purity_key || plan.metal_purity_key;
+        if (planPurityKey && getPriceForKey(planPurityKey)) return planPurityKey;
+        const defaultPurity = marketPrices.default_purity || marketPrices.defaultPurity || {};
+        const mappedKey = defaultPurity[metal];
+        if (mappedKey && getPriceForKey(mappedKey)) return mappedKey;
+        if (metal === 'gold') return (getPriceForKey('gold_24') ? 'gold_24' : (getPriceForKey('gold_22') ? 'gold_22' : ''));
+        if (metal === 'silver') return (getPriceForKey('silver_1g') ? 'silver_1g' : '');
+        if (metal === 'platinum') return (getPriceForKey('platinum_1g') ? 'platinum_1g' : '');
+        return '';
+    }, [marketPrices, plan, userSubscription]);
+
+    const pricePerGram = useMemo(() => {
+        if (!priceKeyUsed || !marketPrices) return 0;
+        if (marketPrices.prices && marketPrices.prices[priceKeyUsed] !== undefined) return Number(marketPrices.prices[priceKeyUsed]);
+        if (marketPrices[priceKeyUsed] !== undefined) return Number(marketPrices[priceKeyUsed]);
+        return 0;
+    }, [priceKeyUsed, marketPrices]);
+
+    const displayedAccumulatedGrams = useMemo(() => {
+        if (!userSubscription) return 0;
+        const price = pricePerGram || 0;
+        // Prefer computing from total_paid (amount user has paid) to derive grams after tax
+        const totalPaid = Number(userSubscription.total_paid || 0);
+        if (totalPaid && price > 0) {
+            // Net amount after tax deduction: gross * (1 - tax_rate/100)
+            const net = totalPaid * (1 - currentTaxRates.total / 100);
+            return net / price;
+        }
+        // Fallback to stored accumulated_weight_grams if available
+        const acc = Number(userSubscription.accumulated_weight_grams || 0);
+        return acc;
+    }, [userSubscription, currentTaxRates, pricePerGram]);
 
     const maturityValue = useMemo(() => {
         const totalContribution = normalizedAmount * normalizedMonths;
@@ -88,61 +179,96 @@ const PlanDetail = () => {
     }, [normalizedAmount, normalizedMonths]);
 
     const proceedToSubscribe = async () => {
-        if (!plan) return;
-
-        if (!user) {
-            toast.error('Please login to subscribe');
-            navigate(`/store/${storeId}/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`);
-            return;
-        }
-
-        if (!store || !store.razorpay_key_id) {
-            const errorMsg = 'Payment gateway not configured for this store. Please visit: /RAZORPAY_SETUP.md for configuration instructions.';
-            toast.error('Payment gateway not configured');
-            console.error('[PlanDetail] Razorpay not configured:', { store, hasKey: !!store?.razorpay_key_id, errorMsg });
-            return;
-        }
-
-        const amountValue = normalizedAmount;
-        if (amountValue < minAmount || amountValue > maxAmount) {
-            toast.error(`Please enter an amount between ${formatCurrency(minAmount, store.currency)} and ${formatCurrency(maxAmount, store.currency)}`);
-            return;
-        }
-
+        if (processingPayment) return; // Prevent double submit
         setProcessingPayment(true);
-
         try {
-            // Create subscription first
-            const subRes = await subscribeToPlan(storeId, {
+            if (!plan) return;
+            if (!user) {
+                toast.error('Please login to subscribe');
+                navigate(`/store/${storeId}/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+                return;
+            }
+            if (!store || !store.razorpay_key_id) {
+                const errorMsg = 'Payment gateway not configured for this store. Please visit: /RAZORPAY_SETUP.md for configuration instructions.';
+                toast.error('Payment gateway not configured');
+                console.error('[PlanDetail] Razorpay not configured:', { store, hasKey: !!store?.razorpay_key_id, errorMsg });
+                return;
+            }
+            const amountValue = normalizedAmount;
+            if (amountValue < minAmount || amountValue > maxAmount) {
+                toast.error(`Please enter an amount between ${formatCurrency(minAmount, store.currency)} and ${formatCurrency(maxAmount, store.currency)}`);
+                return;
+            }
+            // 1) Create payment order (no subscription yet)
+            const initialAccumulated = parseFloat(Number(estimatedGrams) || 0);
+            const subscriptionPayloadForCreate = {
+                subscription_id: null,
                 plan_id: plan.id,
-                monthly_amount: amountValue
+                metal_type: plan.target_metal || 'gold',
+                initial_accumulated_grams: initialAccumulated,
+                market_price_per_gram: pricePerGram || undefined
+            };
+            const purityKeyToSend = userSubscription?.metal_purity_key || plan.metal_purity_key;
+            if (purityKeyToSend) subscriptionPayloadForCreate.metal_purity_key = purityKeyToSend;
+            const payRes = await createPaymentOrder({
+                amount: amountValue,
+                description: `${plan.name} - First Installment`,
+                subscription_id: null,
+                order_id: null,
+                store_id: storeId,
+                subscription_payload: subscriptionPayloadForCreate
             });
-
-            console.log('[PlanDetail] Subscription created:', subRes.data);
-
-            // Create payment link using the new Razorpay utility
-            const paymentLinkData = await createRazorpayPaymentLink(
-                {
-                    amount: amountValue,
+            const pay = payRes?.data || payRes;
+            // 3) Open Razorpay checkout inline (triggered by user gesture)
+            const loadScript = (src) => {
+                return new Promise((resolve, reject) => {
+                    if (document.querySelector(`script[src="${src}"]`)) return resolve();
+                    const s = document.createElement('script');
+                    s.src = src;
+                    s.async = true;
+                    s.onload = () => resolve();
+                    s.onerror = () => reject(new Error('Failed to load script'));
+                    document.body.appendChild(s);
+                });
+            };
+            try {
+                await loadScript('https://checkout.razorpay.com/v1/checkout.js');
+                if (!window.Razorpay) throw new Error('Razorpay script did not attach to window');
+                const options = {
+                    key: pay.razorpay_key_id || store.razorpay_key_id,
+                    order_id: pay.razorpay_order_id,
+                    amount: pay.razorpay_amount ? Number(pay.razorpay_amount) : amountValue,
+                    currency: 'INR',
+                    name: store?.name || 'Store Payment',
                     description: `${plan.name} - First Installment`,
-                    store_id: storeId,
-                    subscription_id: subRes.data.id,
-                    order_id: subRes.data.order_id
-                },
-                {
-                    customer: {
-                        name: user.name,
-                        email: user.email,
-                        contact: user.phone || ''
+                    handler: async function (response) {
+                        try {
+                            await api.post(`/payments/${pay.id}/complete`);
+                        } catch (e) {
+                            console.error('[PlanDetail] Failed to mark payment complete', e);
+                        }
+                        navigate(`/store/${storeId}/payment/callback`);
                     },
-                    callback_url: `${window.location.origin}/store/${storeId}/payment/callback`
+                    modal: {
+                        ondismiss: function () {
+                            toast.error('Payment cancelled');
+                            setProcessingPayment(false);
+                        }
+                    }
+                };
+                const rzp = new window.Razorpay(options);
+                try {
+                    rzp.open();
+                    console.log('[PlanDetail] Razorpay.open called');
+                } catch (openErr) {
+                    console.error('[PlanDetail] rzp.open error', openErr);
+                    throw openErr;
                 }
-            );
-
-            // Redirect to payment link
-            toast.info('Redirecting to payment page...');
-            window.location.href = paymentLinkData.shortUrl;
-
+            } catch (err) {
+                console.error('[PlanDetail] Failed to open checkout', err);
+                toast.error('Failed to start payment. Please try again.');
+                setProcessingPayment(false);
+            }
         } catch (error) {
             console.error('[PlanDetail] Subscription/payment failed:', error);
             setProcessingPayment(false);
@@ -162,7 +288,8 @@ const PlanDetail = () => {
             const planList = plansRes.data || [];
             const match = planList.find((p) => p.id?.toString() === planId?.toString());
             
-            setMarketPrices(pricesRes.data?.prices || {});
+            // keep full market prices payload (may include default_purity mapping)
+            setMarketPrices(pricesRes.data || {});
             setTaxConfig(taxRes.data);
 
             setStore(storeRes.data);
@@ -171,6 +298,20 @@ const PlanDetail = () => {
                 setPlan(match);
                 setAmount(match.min_amount || 500);
                 setMonths(match.duration_months || 11);
+                // If user is logged in, fetch their subscriptions to show accumulated metal for this plan
+                try {
+                    if (user) {
+                        const mySubsRes = await getMySubscriptions();
+                        const mySubs = mySubsRes.data || [];
+                        const mine = mySubs.find(s => String(s.plan_id) === String(match.id) && s.store_id === storeId);
+                        if (mine) {
+                            setUserAccumulatedGrams(mine.accumulated_weight_grams || 0);
+                            setUserSubscription(mine);
+                        }
+                    }
+                } catch (e) {
+                    // best-effort; ignore
+                }
             } else {
                 toast.error('Plan not found');
             }
@@ -304,12 +445,22 @@ const PlanDetail = () => {
                                 {amountError && (
                                     <p className="text-xs text-destructive font-medium mt-1">{amountError}</p>
                                 )}
-                                {plan.scheme_type === 'flexible' && (
-                                    <div className="pt-2 text-right animate-in fade-in slide-in-from-top-2">
+                                <div className="pt-2 text-right animate-in fade-in slide-in-from-top-2 space-y-2">
+                                    <div>
                                         <p className="text-3xl font-serif text-gold">{estimatedGrams} g</p>
                                         <p className="text-xs text-muted-foreground">approx. weight after tax</p>
                                     </div>
-                                )}
+                                    {userSubscription && (
+                                        <div className="mt-2 text-sm text-muted-foreground">Your accumulated: <span className="font-semibold">{Number(displayedAccumulatedGrams || 0).toFixed(4)} g</span></div>
+                                    )}
+                                    <div className="mt-2 text-xs text-muted-foreground text-right space-y-1 border-t pt-2">
+                                        <div>CGST: <span className="font-semibold">{currentTaxRates.cgst}%</span></div>
+                                        <div>IGST: <span className="font-semibold">{currentTaxRates.igst}%</span></div>
+                                        <div>Total Tax: <span className="font-semibold">{currentTaxRates.total}%</span></div>
+                                        <div>Net amount (after tax): <span className="font-semibold">{formatCurrency((normalizedAmount * (1 - currentTaxRates.total / 100)), store.currency)}</span></div>
+                                        <div>Market price per g: <span className="font-semibold">{formatCurrency(pricePerGram || 0, store.currency)}</span></div>
+                                    </div>
+                                </div>
                             </div>
 
                             {plan.scheme_type !== 'flexible' && (

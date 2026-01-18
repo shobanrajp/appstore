@@ -8,13 +8,12 @@ const PaymentCallback = () => {
     const { storeId } = useParams();
 
     useEffect(() => {
-        // Example: parse query params, verify payment, show result, then redirect
-        // You may want to call your backend here to verify payment
-        toast.success('Payment callback received!');
-        // Redirect to portal or order page after a short delay
-        const timer = setTimeout(() => {
-            navigate(`/store/${storeId}/portal`);
-        }, 2000);
+        // Minimal callback: redirect to subscriptions tab (no toast)
+        const params = new URLSearchParams(window.location.search);
+        const subscriptionId = params.get('subscription_id');
+        const target = subscriptionId ? `/store/${storeId}/portal?tab=subscriptions&subscription_id=${subscriptionId}` : `/store/${storeId}/portal?tab=subscriptions`;
+        // Short delay to allow UI to show processing state momentarily
+        const timer = setTimeout(() => navigate(target), 800);
         return () => clearTimeout(timer);
     }, [navigate, storeId]);
 

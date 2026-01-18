@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
@@ -10,7 +10,6 @@ import { Button } from './ui/button';
 import { Plus, Minus, X, CreditCard } from 'lucide-react';
 import { formatCurrency, getImageUrl } from '../lib/utils';
 import { useCart } from '../context/CartContext';
-import { getStore } from '../lib/api';
 
 const CartDrawer = () => {
     const params = useParams();
@@ -18,12 +17,21 @@ const CartDrawer = () => {
     const fallbackStore = typeof window !== 'undefined' ? localStorage.getItem('lastVisitedStore') : null;
     const currentStoreId = paramStoreId || fallbackStore;
     const { cart, updateCartItemQty, removeFromCart, cartOpen, setCartOpen, cartTotal } = useCart(currentStoreId);
+    const location = useLocation();
     const [store, setStore] = useState(null);
     const [pincode, setPincode] = useState('');
     const [shipping, setShipping] = useState(null);
     const [calculating, setCalculating] = useState(false);
     const [defaultAddress, setDefaultAddress] = useState(null);
     const { user } = useAuth();
+
+    // Close/hide cart drawer on auth pages (login/register), including store-scoped routes
+    useEffect(() => {
+        const authRe = /\/(?:login|register)(?:\/|$)/;
+        if (authRe.test(location.pathname) && cartOpen) {
+            setCartOpen(false);
+        }
+    }, [location.pathname, cartOpen]);
 
     useEffect(() => {
         let mounted = true;

@@ -2,6 +2,7 @@ import httpx
 import os
 from datetime import datetime, timedelta
 import logging
+from motor.motor_asyncio import AsyncIOMotorClient
 
 logger = logging.getLogger(__name__)
 
@@ -9,6 +10,19 @@ SHIPROCKET_BASE_URL = "https://apiv2.shiprocket.in/v1/external"
 
 # In-memory token cache: email -> {token, expires_at}
 _token_cache = {}
+
+# Setup a lightweight Mongo client for logging Shiprocket API calls directly from this module.
+_mongo_client = None
+_mongo_db = None
+_mongo_url = os.environ.get('MONGO_URL')
+_mongo_db_name = os.environ.get('DB_NAME') or os.environ.get('DB_NAME')
+if _mongo_url and _mongo_db_name:
+    try:
+        _mongo_client = AsyncIOMotorClient(_mongo_url)
+        _mongo_db = _mongo_client[_mongo_db_name]
+    except Exception:
+        _mongo_client = None
+        _mongo_db = None
 
 async def get_shiprocket_token(email: str, password: str) -> str:
     now = datetime.now()
@@ -110,3 +124,80 @@ async def create_shiprocket_order(token: str, order_payload: dict):
                 except:
                     pass
             raise Exception("Failed to create order in Shiprocket")
+
+
+async def call_shiprocket_api(token: str, method: str, path: str, payload: dict = None, params: dict = None, store_id: str = None):
+    """
+    Generic caller to Shiprocket API. `path` should be the portion after the base URL,
+    e.g., '/orders/get/\u003corder_id\u003e' or '/orders/cancel'.
+    """
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    url = f"{SHIPROCKET_BASE_URL}{path}"
+    # Insert a pending log to DB if available
+    log_id = None
+    try:
+        if _mongo_db:
+            log_doc = {
+                "store_id": store_id,
+                "action": f"{method.upper()} {path}",
+                "status": "pending",
+                "payload": payload or params,
+                "response": None,
+                "error": None,
+                "created_at": datetime.now().isoformat()
+            }
+            res_ins = await _mongo_db.shiprocket_logs.insert_one(log_doc)
+            log_id = res_ins.inserted_id
+    except Exception as e:
+        logger.warning(f"Could not write initial shiprocket log: {e}")
+
+    async with httpx.AsyncClient() as client:
+        try:
+            method_upper = method.upper()
+            if method_upper == 'GET':
+                resp = await client.get(url, headers=headers, params=params)
+            elif method_upper == 'POST':
+                resp = await client.post(url, headers=headers, json=payload, params=params)
+            elif method_upper == 'PUT':
+                resp = await client.put(url, headers=headers, json=payload, params=params)
+            elif method_upper == 'DELETE':
+                resp = await client.delete(url, headers=headers, json=payload, params=params)
+            else:
+                raise Exception(f"Unsupported method {method}")
+
+            resp.raise_for_status()
+            try:
+                resp_json = resp.json()
+            except Exception:
+                resp_json = {"raw_text": resp.text}
+
+            # Update DB log as success
+            try:
+                if _mongo_db and log_id:
+                    await _mongo_db.shiprocket_logs.update_one({"_id": log_id}, {"$set": {"response": resp_json, "status": "success", "updated_at": datetime.now().isoformat()}})
+            except Exception as e:
+                logger.warning(f"Failed to update shiprocket log: {e}")
+
+            return resp_json
+        except httpx.HTTPError as e:
+            logger.error(f"Shiprocket API call failed ({method} {path}): {e}")
+            err_resp = None
+            if e.response:
+                try:
+                    err_resp = e.response.json()
+                except Exception:
+                    err_resp = {"raw_text": e.response.text}
+
+            # Update DB log as error
+            try:
+                if _mongo_db and log_id:
+                    await _mongo_db.shiprocket_logs.update_one({"_id": log_id}, {"$set": {"response": err_resp, "status": "error", "error": str(e), "updated_at": datetime.now().isoformat()}})
+            except Exception as e2:
+                logger.warning(f"Failed to update shiprocket log on error: {e2}")
+
+            if err_resp is not None:
+                return err_resp
+            raise

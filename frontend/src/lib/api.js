@@ -189,3 +189,9 @@ export const getShiprocketLogs = (storeId, page = 1, limit = 20) => api.get(`/st
 
 export const estimateShipping = (storeId, data) => api.post(`/stores/${storeId}/shipping/estimate`, data);
 
+// Admin Shiprocket workflow endpoints
+export const adminCreateShiprocketOrder = (storeId, orderId) => api.post(`/stores/${storeId}/admin/orders/${orderId}/shiprocket/create`);
+export const adminSyncShiprocketOrder = (storeId, orderId) => api.get(`/stores/${storeId}/admin/orders/${orderId}/shiprocket/sync`);
+export const adminCancelShiprocketOrder = (storeId, orderId) => api.post(`/stores/${storeId}/admin/orders/${orderId}/shiprocket/cancel`);
+export const adminShiprocketAction = (storeId, orderId, action) => api.post(`/stores/${storeId}/admin/orders/${orderId}/shiprocket/${action}`);
+

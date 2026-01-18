@@ -55,6 +55,7 @@ const CustomerPortal = () => {
     const [profileDialogOpen, setProfileDialogOpen] = useState(false);
     const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
     const [selectedSubscription, setSelectedSubscription] = useState(null);
+    const [subscriptionIdToSelect, setSubscriptionIdToSelect] = useState(null);
     const [paymentProcessing, setPaymentProcessing] = useState(false);
     // Closure State
     const [closureDialogOpen, setClosureDialogOpen] = useState(false);
@@ -101,6 +102,13 @@ const CustomerPortal = () => {
         const tabParam = searchParams.get('tab');
         if (tabParam) {
             setActiveTab(tabParam);
+        }
+
+        // If a subscription_id is provided in the URL, remember it and select after load
+        const subscriptionIdParam = searchParams.get('subscription_id');
+        if (subscriptionIdParam) {
+            setSubscriptionIdToSelect(subscriptionIdParam);
+            setActiveTab('subscriptions');
         }
 
         loadData();
@@ -215,6 +223,14 @@ const CustomerPortal = () => {
                 })
             );
             setSubscriptions(subsWithPayments);
+            // If a subscription id was requested via URL, select it now that we have data
+            if (subscriptionIdToSelect) {
+                const found = subsWithPayments.find(s => String(s.id) === String(subscriptionIdToSelect));
+                if (found) {
+                    setSelectedSubscription(found);
+                    setSubscriptionIdToSelect(null);
+                }
+            }
             setAddresses(addrsRes.data);
 
             // Hydration moved to fetchOrders
@@ -310,8 +326,15 @@ const CustomerPortal = () => {
 
     const getMetalPrice = (plan) => {
         if (!plan || !marketPrices) return 0;
+        
+        // First, try to use the plan's configured metal_purity_key
+        if (plan.metal_purity_key && marketPrices[plan.metal_purity_key]) {
+            return marketPrices[plan.metal_purity_key];
+        }
+        
+        // Fallback to metal-based lookup
         const metal = (plan.target_metal || '').toLowerCase();
-        if (metal === 'gold') return marketPrices.gold_22 || marketPrices.gold_24 || 0;
+        if (metal === 'gold') return marketPrices.gold_24 || marketPrices.gold_22 || 0;
         if (metal === 'silver') return marketPrices.silver_1g || 0;
         if (metal === 'platinum') return marketPrices.platinum_1g || 0;
         return 0;
@@ -458,6 +481,16 @@ const CustomerPortal = () => {
                  order_id: selectedSubscription.id, 
                  store_id: selectedSubscription.store_id
              };
+
+             // Attach subscription payload so backend can compute grams using purity + market price
+             orderData.subscription_payload = {
+                 subscription_id: selectedSubscription.id,
+                 plan_id: selectedSubscription.plan_id,
+                 metal_type: selectedSubscription.target_metal || 'gold'
+             };
+             if (selectedSubscription.metal_purity_key) {
+                 orderData.subscription_payload.metal_purity_key = selectedSubscription.metal_purity_key;
+             }
              
              // Helper for float check
              function floatAmount(val) { return parseFloat(val); }
@@ -599,9 +632,50 @@ const CustomerPortal = () => {
         const igstRate = metalTax.tax_rate.igst || 0;
         const totalTaxRate = (cgstRate + igstRate) / 100;
         
-        // Backend logic: net_amount = amount / (1 + total_tax_rate)
-        // so Tax = amount - net_amount
-        const netAmount = amount / (1 + totalTaxRate);
+        // Backend logic: amount is inclusive of tax
+        // net_amount = amount * (1 - total_tax_rate)
+        // tax = amount - net_amount
+        const netAmount = amount * (1 - totalTaxRate);
+        const taxAmount = amount - netAmount;
+        
+        // Split tax based on rates proportional contribution
+        const totalRate = cgstRate + igstRate;
+        if (totalRate === 0) return { cgst: 0, igst: 0, total: 0 };
+
+        const cgstAmount = taxAmount * (cgstRate / totalRate);
+        const igstAmount = taxAmount * (igstRate / totalRate);
+
+        return {
+            cgst: cgstAmount,
+            igst: igstAmount,
+            total: taxAmount,
+            cgstRate,
+            igstRate
+        };
+    };
+
+    const getFixedTaxDetails = () => {
+        if (!selectedSubscription || selectedSubscription.scheme_type === 'flexible' || !taxConfig) {
+            return null;
+        }
+        
+        const amount = selectedSubscription.monthly_amount;
+        if (!amount || amount <= 0) return null;
+        
+        const plan = plans.find(p => p.id === selectedSubscription.plan_id);
+        const targetMetal = plan?.target_metal || selectedSubscription.target_metal || 'gold';
+        const metalTax = taxConfig.metal_taxes?.find(m => m.metal === targetMetal && m.is_enabled);
+        
+        if (!metalTax) return null;
+        
+        const cgstRate = metalTax.tax_rate.cgst || 0;
+        const igstRate = metalTax.tax_rate.igst || 0;
+        const totalTaxRate = (cgstRate + igstRate) / 100;
+        
+        // Backend logic: amount is inclusive of tax
+        // net_amount = amount * (1 - total_tax_rate)
+        // tax = amount - net_amount
+        const netAmount = amount * (1 - totalTaxRate);
         const taxAmount = amount - netAmount;
         
         // Split tax based on rates proportional contribution
@@ -621,6 +695,7 @@ const CustomerPortal = () => {
     };
 
     const taxDetails = getFlexibleTaxDetails();
+    const fixedTaxDetails = getFixedTaxDetails();
 
     const handleLogout = () => {
         logout();
@@ -793,19 +868,84 @@ const CustomerPortal = () => {
                                                 <div className="border-t pt-4">
                                                     <h3 className="font-semibold mb-3">Order Summary</h3>
                                                     <div className="space-y-2 text-sm">
-                                                        <div className="flex justify-between">
-                                                            <span className="text-muted-foreground">Subtotal:</span>
-                                                            <span>{formatCurrency(order.total_amount)}</span>
-                                                        </div>
-                                                        {order.discount_amount > 0 && (
-                                                            <div className="flex justify-between text-green-600">
-                                                                <span className="text-muted-foreground">Discount:</span>
-                                                                <span>-{formatCurrency(order.discount_amount)}</span>
+                                                        {/* For closure/redemption orders, show breakdown */}
+                                                        {order.notes && order.notes.includes("Subscription Closure") ? (
+                                                            <>
+                                                                <div className="flex justify-between">
+                                                                    <span className="text-muted-foreground">Gold Cost (Total Paid for Subscription):</span>
+                                                                    <span>{formatCurrency(order.total_paid_for_subscription || 0)}</span>
+                                                                </div>
+                                                                <div className="flex justify-between">
+                                                                    <span className="text-muted-foreground">Total Tax (from Transaction History):</span>
+                                                                    <span>{formatCurrency(order.total_tax_paid_for_subscription || 0)}</span>
+                                                                </div>
+                                                                <div className="flex justify-between">
+                                                                    <span className="text-muted-foreground">Additional Gold Cost:</span>
+                                                                    <span>{formatCurrency(order.gold_cost || 0)}</span>
+                                                                </div>
+                                                                <div className="flex justify-between">
+                                                                    <span className="text-muted-foreground">Additional Gold Tax:</span>
+                                                                    <span>{formatCurrency(order.tax_amount || 0)}</span>
+                                                                </div>
+                                                                <div className="flex justify-between">
+                                                                    <span className="text-muted-foreground">Shipping:</span>
+                                                                    <span>{formatCurrency(order.shipping_charges || 0)}</span>
+                                                                </div>
+                                                                <div className="flex justify-between font-semibold text-base border-t pt-2">
+                                                                    <span>Total Amount:</span>
+                                                                    <span className="gold-text">{formatCurrency(order.total_amount)}</span>
+                                                                </div>
+                                                                {/* Closure specific details */}
+                                                                <div className="border-t pt-3 mt-3 space-y-2">
+                                                                    <div className="flex justify-between text-xs">
+                                                                        <span className="text-muted-foreground">Accumulated Grams:</span>
+                                                                        <span>{(order.accumulated_grams || 0).toFixed(4)} g</span>
+                                                                    </div>
+                                                                    <div className="flex justify-between text-xs">
+                                                                        <span className="text-muted-foreground">Additional Grams Purchased:</span>
+                                                                        <span>{(order.additional_grams || 0).toFixed(4)} g</span>
+                                                                    </div>
+                                                                    <div className="flex justify-between text-xs font-semibold">
+                                                                        <span>Final Weight:</span>
+                                                                        <span className="gold-text">{(order.target_grams || 0).toFixed(2)} g</span>
+                                                                    </div>
+                                                                </div>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <div className="flex justify-between">
+                                                                    <span className="text-muted-foreground">Subtotal:</span>
+                                                                    <span>{formatCurrency(((order.total_amount || 0) - (order.shipping_charges || 0) - (order.total_tax || 0)))}</span>
+                                                                </div>
+                                                                <div className="flex justify-between">
+                                                                    <span className="text-muted-foreground">Tax:</span>
+                                                                    <span>{formatCurrency(order.total_tax || 0)}</span>
+                                                                </div>
+                                                                <div className="flex justify-between">
+                                                                    <span className="text-muted-foreground">Shipping:</span>
+                                                                    <span>{formatCurrency(order.shipping_charges || 0)}</span>
+                                                                </div>
+                                                                {order.discount_amount > 0 && (
+                                                                    <div className="flex justify-between text-green-600">
+                                                                        <span className="text-muted-foreground">Discount:</span>
+                                                                        <span>-{formatCurrency(order.discount_amount)}</span>
+                                                                    </div>
+                                                                )}
+                                                                <div className="flex justify-between font-semibold text-base border-t pt-2">
+                                                                    <span>Total Amount:</span>
+                                                                    <span className="gold-text">{formatCurrency(order.total_amount)}</span>
+                                                                </div>
+                                                            </>
+                                                        )}
+                                                        {order.payment_info && order.payment_info.razorpay_payment_id && (
+                                                            <div className="pt-2 text-sm">
+                                                                <span className="text-muted-foreground">Transaction ID</span>
+                                                                <div className="font-mono">{order.payment_info.razorpay_payment_id}</div>
                                                             </div>
                                                         )}
-                                                        <div className="flex justify-between font-semibold text-base border-t pt-2">
-                                                            <span>Total Amount:</span>
-                                                            <span className="gold-text">{formatCurrency(order.total_amount)}</span>
+                                                        <div className="pt-2 text-sm">
+                                                            <span className="text-muted-foreground">Amount Paid</span>
+                                                            <div className="font-semibold">{formatCurrency(order.payment_received_amount || order.payment_info?.amount || 0)}</div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -868,6 +1008,7 @@ const CustomerPortal = () => {
                             <Card>
                                 <CardHeader>
                                     <CardTitle className="font-serif">My Orders</CardTitle>
+
                                     <CardDescription>Track your order history and status</CardDescription>
                                 </CardHeader>
                                 <CardContent>
@@ -894,6 +1035,14 @@ const CustomerPortal = () => {
                                                             <div>
                                                                 <p className="text-sm text-muted-foreground">Total</p>
                                                                 <p className="font-semibold gold-text">{formatCurrency(order.total_amount)}</p>
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-sm text-muted-foreground">Tax</p>
+                                                                <p className="font-semibold">{formatCurrency(order.total_tax || 0)}</p>
+                                                            </div>
+                                                            <div>
+                                                                <p className="text-sm text-muted-foreground">Shipping</p>
+                                                                <p className="font-semibold">{formatCurrency(order.shipping_charges || 0)}</p>
                                                             </div>
                                                             <div>
                                                                 <p className="text-sm text-muted-foreground">Date</p>
@@ -936,6 +1085,12 @@ const CustomerPortal = () => {
                                                                 })}
                                                             </div>
                                                         </div>
+                                                        {order.payment_info && order.payment_info.razorpay_payment_id && (
+                                                            <div className="mt-3">
+                                                                <p className="text-sm text-muted-foreground">Transaction ID</p>
+                                                                <p className="font-mono text-sm">{order.payment_info.razorpay_payment_id}</p>
+                                                            </div>
+                                                        )}
 
                                                         {/* Tracking Information */}
                                                         {(order.tracking_number || order.carrier_name) && (
@@ -1430,9 +1585,42 @@ const CustomerPortal = () => {
                                         )}
                                     </div>
                                 ) : (
-                                    <div className="flex justify-between text-lg">
-                                        <span className="font-semibold">Amount Due</span>
-                                        <span className="font-bold gold-text">{formatCurrency(selectedSubscription.monthly_amount)}</span>
+                                    <div className="space-y-3 pt-2">
+                                        <div className="flex justify-between text-lg">
+                                            <span className="font-semibold">Amount Due</span>
+                                            <span className="font-bold gold-text">{formatCurrency(selectedSubscription.monthly_amount)}</span>
+                                        </div>
+                                        {fixedTaxDetails && (
+                                            <div className="bg-secondary/20 p-2 rounded text-sm space-y-1 mt-2">
+                                                <div className="flex justify-between">
+                                                    <span>Net Amount (to convert)</span>
+                                                    <span>{formatCurrency(selectedSubscription.monthly_amount - fixedTaxDetails.total)}</span>
+                                                </div>
+                                                {(() => {
+                                                    const plan = plans.find(p => p.id === selectedSubscription.plan_id);
+                                                    const price = getMetalPrice(plan);
+                                                    const netAmount = selectedSubscription.monthly_amount - fixedTaxDetails.total;
+                                                    if (price > 0 && netAmount > 0) {
+                                                        const weight = netAmount / price;
+                                                        return (
+                                                             <div className="flex justify-between font-medium pt-1 pb-1 border-b border-border/50 mb-1">
+                                                                <span>Est. Gold/Silver ({formatCurrency(price)}/g)</span>
+                                                                <span className="gold-text">{weight.toFixed(4)} g</span>
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return null;
+                                                })()}
+                                                <div className="flex justify-between text-muted-foreground text-xs">
+                                                    <span>CGST ({fixedTaxDetails.cgstRate}%)</span>
+                                                    <span>{formatCurrency(fixedTaxDetails.cgst)}</span>
+                                                </div>
+                                                <div className="flex justify-between text-muted-foreground text-xs">
+                                                    <span>IGST ({fixedTaxDetails.igstRate}%)</span>
+                                                    <span>{formatCurrency(fixedTaxDetails.igst)}</span>
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -1617,8 +1805,8 @@ const CustomerPortal = () => {
                                         <TableRow key={t.id}>
                                             <TableCell>{formatDateTime(t.date)}</TableCell>
                                             <TableCell className="font-medium text-gold">{formatCurrency(t.amount)}</TableCell>
-                                            <TableCell className="text-muted-foreground">{t.metal_rate ? formatCurrency(t.metal_rate) + '/g' : '-'}</TableCell>
-                                            <TableCell className="font-bold">{t.grams ? `${t.grams.toFixed(4)} g` : '-'}</TableCell>
+                                            <TableCell className="text-muted-foreground">{t.metal_rate && typeof t.metal_rate === 'number' ? formatCurrency(t.metal_rate) + '/g' : '-'}</TableCell>
+                                            <TableCell className="font-bold">{typeof t.grams === 'number' ? `${t.grams.toFixed(4)} g` : t.grams}</TableCell>
                                             <TableCell className="font-mono text-xs text-muted-foreground">{t.id}</TableCell>
                                         </TableRow>
                                     ))}

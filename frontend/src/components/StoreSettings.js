@@ -8,7 +8,7 @@ import { Truck, ExternalLink } from 'lucide-react';
 export default function StoreSettings({ storeId }) {
   const [orderPrefix, setOrderPrefix] = useState('');
   const [currency, setCurrency] = useState('INR');
-  const [marketPrices, setMarketPrices] = useState({ enabled: false, prices: {} });
+  const [marketPrices, setMarketPrices] = useState({ enabled: false, prices: {}, defaultPurity: {} });
   
   // Shipping Config State
   const [shippingConfig, setShippingConfig] = useState({
@@ -16,7 +16,8 @@ export default function StoreSettings({ storeId }) {
       provider: 'shiprocket',
       email: '',
       password: '',
-      pickup_pincode: ''
+      pickup_pincode: '',
+      pickup_location: ''
   });
 
   const [loading, setLoading] = useState(false);
@@ -40,10 +41,10 @@ export default function StoreSettings({ storeId }) {
         // Fetch market prices
         try {
           const mp = await getMarketPrices(storeId);
-          if (mp.data) {
+           if (mp.data) {
              const mpdata = mp.data;
-             setMarketPrices({ enabled: !!mpdata.enabled, prices: mpdata.prices || {} });
-          }
+             setMarketPrices({ enabled: !!mpdata.enabled, prices: mpdata.prices || {}, defaultPurity: mpdata.default_purity || {} });
+           }
         } catch (e) {
           console.error('Failed to load market prices', e);
         }
@@ -186,6 +187,16 @@ export default function StoreSettings({ storeId }) {
                         <p className="text-xs text-muted-foreground mt-1">Must match a pickup location in your Shiprocket account.</p>
                     </div>
                     <div>
+                      <label className="block text-sm font-medium">Shiprocket Pickup Location</label>
+                      <input
+                        value={shippingConfig.pickup_location || ''}
+                        onChange={(e) => setShippingConfig({ ...shippingConfig, pickup_location: e.target.value })}
+                        placeholder="e.g. Primary"
+                        className="border p-2 rounded mt-1 w-full"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">Optional. Name of the pickup location configured in Shiprocket (e.g. "Primary").</p>
+                    </div>
+                    <div>
                         <label className="block text-sm font-medium">Shiprocket Email</label>
                         <input 
                             value={shippingConfig.email || ''}
@@ -219,7 +230,9 @@ export default function StoreSettings({ storeId }) {
           <MarketPriceSettings
             enabled={marketPrices.enabled}
             prices={marketPrices.prices}
-            onChange={(v) => setMarketPrices({ enabled: !!v.enabled, prices: v.prices || {} })}
+            defaultPurity={marketPrices.defaultPurity}
+            onChange={(v) => setMarketPrices(prev => ({ ...prev, enabled: !!v.enabled, prices: v.prices || {} }))}
+            onDefaultPurityChange={(p) => setMarketPrices(prev => ({ ...prev, defaultPurity: p }))}
           />
         </section>
 

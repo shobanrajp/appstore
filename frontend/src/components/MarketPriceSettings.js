@@ -2,7 +2,7 @@ import React from 'react';
 
 // MarketPriceSettings is now a controlled component.
 // It relies on the parent (StoreSettings) for state and fetching.
-export default function MarketPriceSettings({ enabled = false, prices = {}, onChange = () => {}, disabled = false }) {
+export default function MarketPriceSettings({ enabled = false, prices = {}, defaultPurity = {}, onChange = () => {}, onDefaultPurityChange = () => {}, disabled = false }) {
 
   const handleEnabledChange = (e) => {
     onChange({ enabled: e.target.checked, prices: prices || {} });
@@ -60,6 +60,35 @@ export default function MarketPriceSettings({ enabled = false, prices = {}, onCh
         <div>
           <label className="block text-sm">SILVER 1g</label>
           <input type="text" name="silver_1g" className="input border p-2 rounded w-full" value={getValue('silver_1g')} onChange={handlePriceChange('silver_1g')} disabled={disabled} />
+        </div>
+      </div>
+      <div className="mt-4">
+        <h4 className="text-sm font-medium mb-2">Default Metal Purity Mapping</h4>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 max-w-lg">
+          <div>
+            <label className="block text-sm">Gold Purity Key</label>
+            <select value={defaultPurity.gold || ''} onChange={(e) => onDefaultPurityChange({ ...defaultPurity, gold: e.target.value })} className="border p-2 rounded w-full" disabled={disabled}>
+              <option value="">Auto</option>
+              <option value="gold_24">gold_24</option>
+              <option value="gold_22">gold_22</option>
+              <option value="gold_18">gold_18</option>
+              <option value="gold_14">gold_14</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm">Silver Purity Key</label>
+            <select value={defaultPurity.silver || ''} onChange={(e) => onDefaultPurityChange({ ...defaultPurity, silver: e.target.value })} className="border p-2 rounded w-full" disabled={disabled}>
+              <option value="">Auto</option>
+              <option value="silver_1g">silver_1g</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm">Platinum Purity Key</label>
+            <select value={defaultPurity.platinum || ''} onChange={(e) => onDefaultPurityChange({ ...defaultPurity, platinum: e.target.value })} className="border p-2 rounded w-full" disabled={disabled}>
+              <option value="">Auto</option>
+              <option value="platinum_1g">platinum_1g</option>
+            </select>
+          </div>
         </div>
       </div>
     </div>

@@ -1,5 +1,38 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Query, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
+import json
+try:
+    from bson import ObjectId
+except Exception:
+    ObjectId = None
+
+# Monkeypatch FastAPI's jsonable_encoder with a safe wrapper that handles ObjectId
+try:
+    import fastapi.encoders as _encoders
+    _orig_jsonable_encoder = _encoders.jsonable_encoder
+    def _safe_jsonable_encoder(obj, **kwargs):
+        try:
+            return _orig_jsonable_encoder(obj, **kwargs)
+        except Exception:
+            # Best-effort fallback: recursively convert common non-serializable types
+            def _convert(v):
+                try:
+                    if ObjectId and isinstance(v, ObjectId):
+                        return str(v)
+                    if isinstance(v, dict):
+                        return {k: _convert(val) for k, val in v.items()}
+                    if isinstance(v, (list, tuple, set)):
+                        return [_convert(i) for i in v]
+                    # bytes, Decimal, datetime, etc. -> use str()
+                    return str(v)
+                except Exception:
+                    return None
+            return _convert(obj)
+    _encoders.jsonable_encoder = _safe_jsonable_encoder
+except Exception:
+    pass
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -17,7 +50,12 @@ import hmac
 import hashlib
 import re
 
-from shiprocket_utils import get_shiprocket_token, check_serviceability, create_shiprocket_order
+try:
+    # When running as a package (python -m uvicorn backend.server:app)
+    from .shiprocket_utils import get_shiprocket_token, check_serviceability, create_shiprocket_order, call_shiprocket_api
+except Exception:
+    # Fallback when running server.py directly (or when package context isn't set)
+    from shiprocket_utils import get_shiprocket_token, check_serviceability, create_shiprocket_order, call_shiprocket_api
 from math import ceil
 
 ROOT_DIR = Path(__file__).parent
@@ -47,7 +85,15 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 optional_security = HTTPBearer(auto_error=False)
 
-app = FastAPI(title="Dynamic Web App Configurator")
+class ObjectIdJSONResponse(JSONResponse):
+    def render(self, content: Any) -> bytes:
+        try:
+            enc = jsonable_encoder(content, custom_encoder={ObjectId: lambda x: str(x)} if ObjectId else None)
+        except Exception:
+            enc = jsonable_encoder(content)
+        return json.dumps(enc, ensure_ascii=False, default=str).encode("utf-8")
+
+app = FastAPI(title="Dynamic Web App Configurator", default_response_class=ObjectIdJSONResponse)
 api_router = APIRouter(prefix="/api")
 
 # ==================== MODELS ====================
@@ -120,41 +166,9 @@ class StoreResponse(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
-    currency: str
-    logo_url: Optional[str] = None
-    contact_email: Optional[str] = None
-    contact_phone: Optional[str] = None
-    address: Optional[str] = None
-    address_map_url: Optional[str] = None
-    is_active: bool
-    custom_domain: Optional[str] = None
-    custom_domain_verified: bool = False
-    order_prefix: Optional[str] = "VEL"
-    created_at: str
+    items: List[dict] = []
+    total: float = 0.0
     razorpay_key_id: Optional[str] = None
-
-class TaxRate(BaseModel):
-    cgst: float = 0.0
-    igst: float = 0.0
-
-class CategoryTaxConfig(BaseModel):
-    category: str
-    tax_rate: TaxRate
-
-class MetalTaxConfig(BaseModel):
-    metal: str # gold, silver, platinum
-    tax_rate: TaxRate
-    is_enabled: bool = False
-
-class StoreTaxConfig(BaseModel):
-    store_id: str
-    category_taxes: List[CategoryTaxConfig] = []
-    metal_taxes: List[MetalTaxConfig] = []
-    updated_at: str
-
-class StoreTaxConfigUpdate(BaseModel):
-    category_taxes: List[CategoryTaxConfig]
-    metal_taxes: List[MetalTaxConfig]
 
 class ProductCreate(BaseModel):
     name: str
@@ -254,6 +268,32 @@ class CartResponse(BaseModel):
     updated_at: str
     total_tax: Optional[float] = 0.0
     tax_breakdown: Optional[dict] = None
+    shipping_estimate: Optional[dict] = None
+
+# Tax configuration models
+class TaxRate(BaseModel):
+    cgst: float = 0.0
+    igst: float = 0.0
+
+class CategoryTax(BaseModel):
+    category: str
+    tax_rate: TaxRate
+    is_enabled: bool = True
+
+class MetalTax(BaseModel):
+    metal: str
+    tax_rate: TaxRate
+    is_enabled: bool = True
+
+class StoreTaxConfigUpdate(BaseModel):
+    category_taxes: List[CategoryTax] = []
+    metal_taxes: List[MetalTax] = []
+
+class StoreTaxConfig(BaseModel):
+    store_id: str
+    category_taxes: List[CategoryTax] = []
+    metal_taxes: List[MetalTax] = []
+    updated_at: Optional[str] = None
 
 class OrderItemCreate(BaseModel):
     product_id: str
@@ -263,6 +303,8 @@ class OrderItemCreate(BaseModel):
 class OrderCreate(BaseModel):
     items: List[OrderItemCreate]
     shipping_address_id: str
+    shipping_charges: Optional[float] = None
+    total_tax: Optional[float] = None
     notes: Optional[str] = None
 
 class OrderResponse(BaseModel):
@@ -272,6 +314,12 @@ class OrderResponse(BaseModel):
     items: List[dict]
     shipping_address: Optional[dict] = None
     total_amount: float
+    shipping_charges: float = 0.0
+    total_tax: float = 0.0
+    payment_received_amount: float = 0.0
+    payment_status: Optional[str] = None
+    payment_method: Optional[str] = None
+    payment_info: Optional[dict] = None
     status: str
     tracking_number: Optional[str] = None
     carrier_name: Optional[str] = None
@@ -347,6 +395,7 @@ class SubscriptionPlanCreate(BaseModel):
     plan_type: str  # Text input - e.g., "Gold", "Silver", "Platinum"
     scheme_type: str = "fixed" # "fixed" or "flexible"
     target_metal: Optional[str] = None # "gold", "silver", "platinum" (Required for flexible)
+    metal_purity_key: Optional[str] = None  # e.g., 'gold_24', 'gold_22', 'silver_1g'
     duration_months: int = 11
     bonus_percentage: float = 0
     min_amount: float = 500  # Minimum monthly amount
@@ -362,6 +411,7 @@ class SubscriptionPlanResponse(BaseModel):
     plan_type: str
     scheme_type: str = "fixed"
     target_metal: Optional[str] = None
+    metal_purity_key: Optional[str] = None
     duration_months: int
     min_amount: float = 500
     max_amount: float = 100000
@@ -374,6 +424,7 @@ class SubscriptionPlanResponse(BaseModel):
 class UserSubscriptionCreate(BaseModel):
     plan_id: str
     monthly_amount: float  # User chooses the amount within plan limits
+    subscription_payload: Optional[dict] = None
 
 class UserSubscriptionResponse(BaseModel):
     id: str
@@ -392,7 +443,7 @@ class UserSubscriptionResponse(BaseModel):
     total_paid: float
     status: str
     start_date: str
-    maturity_date: str
+    maturity_date: Optional[str] = None
     created_at: str
     
     @model_validator(mode='after')
@@ -460,12 +511,14 @@ class StoreDomainConfigResponse(BaseModel):
 class MarketPricesUpdate(BaseModel):
     enabled: bool = True
     prices: dict = {}
+    default_purity: Optional[dict] = None
 
 
 class MarketPricesResponse(BaseModel):
     store_id: str
     enabled: bool
     prices: dict
+    default_purity: Optional[dict] = None
     updated_at: Optional[str] = None
 
 # Mock Payment
@@ -475,6 +528,7 @@ class MockPaymentCreate(BaseModel):
     subscription_id: Optional[str] = None
     order_id: Optional[str] = None
     store_id: Optional[str] = None
+    subscription_payload: Optional[dict] = None
 
 class MockPaymentResponse(BaseModel):
     id: str
@@ -492,6 +546,45 @@ class PaymentVerification(BaseModel):
     razorpay_payment_id: str
     razorpay_signature: str
     payment_id: str
+
+# Store Logging Configuration & Logs
+class StoreLogConfigUpdate(BaseModel):
+    """Enable/disable logging for specific modules."""
+    subscription_plans: bool = False
+    payments: bool = False
+    orders: bool = False
+    tax_config: bool = False
+    market_prices: bool = False
+
+class StoreLogConfigResponse(BaseModel):
+    store_id: str
+    subscription_plans: bool
+    payments: bool
+    orders: bool
+    tax_config: bool
+    market_prices: bool
+    updated_at: Optional[str] = None
+
+class StoreLogEntry(BaseModel):
+    """Individual log entry."""
+    id: Optional[str] = None
+    store_id: str
+    module: str  # subscription_plans, payments, orders, tax_config, market_prices
+    message: str
+    level: str = "info"  # info, warning, error
+    timestamp: Optional[str] = None
+    context: Optional[dict] = None  # Additional context data
+    raw_log: Optional[str] = None   # Raw server log snippet (e.g., block headers)
+
+class StoreLogResponse(BaseModel):
+    id: str
+    store_id: str
+    module: str
+    message: str
+    level: str
+    timestamp: str
+    context: Optional[dict] = None
+    raw_log: Optional[str] = None
 
 # Staff/Worker Management
 class StaffCreate(BaseModel):
@@ -759,6 +852,7 @@ async def update_store(store_id: str, store_data: StoreCreate, user: dict = Depe
             "store_id": store_id,
             "enabled": bool(market_prices_payload.get('enabled', True)),
             "prices": market_prices_payload.get('prices', {}),
+            "default_purity": market_prices_payload.get('default_purity', {}),
             "updated_at": now
         }
         await db.store_market_prices.update_one({"store_id": store_id}, {"$set": mp_doc}, upsert=True)
@@ -903,6 +997,7 @@ async def update_market_prices(store_id: str, payload: MarketPricesUpdate, user:
         "store_id": store_id,
         "enabled": bool(payload.enabled),
         "prices": payload.prices or {},
+        "default_purity": payload.default_purity or {},
         "updated_at": now
     }
     await db.store_market_prices.update_one({"store_id": store_id}, {"$set": doc}, upsert=True)
@@ -1632,81 +1727,145 @@ async def create_order(store_id: str, order_data: OrderCreate, user: dict = Depe
     if not address:
         raise HTTPException(status_code=400, detail="Invalid shipping address")
     
+    # Prefer tax and per-item tax_info from the user's cart snapshot (priority)
     items = []
     total = 0
+    total_tax = 0.0
+
+    # Try to read user's cart and enrich it with tax so we use the same tax snapshot
+    try:
+        cart_doc = await db.carts.find_one({"store_id": store_id, "user_id": user["id"]}, {"_id": 0})
+        if cart_doc:
+            cart_doc = await enrich_cart_with_tax(cart_doc, store_id)
+            total_tax = float(cart_doc.get("total_tax", 0.0) or 0.0)
+            # Build a map for item tax lookup
+            cart_item_map = {ci.get("product_id"): ci for ci in cart_doc.get("items", [])}
+        else:
+            cart_item_map = {}
+    except Exception:
+        cart_item_map = {}
+        total_tax = 0.0
+
+    # For each requested order item, prefer tax_info from cart_item_map; if missing, fallback to computing from tax config
     for item in order_data.items:
         product = await db.products.find_one({"id": item.product_id, "store_id": store_id}, {"_id": 0})
-        if product:
-            items.append({
-                "product_id": item.product_id,
-                "product_name": product["name"],
-                "quantity": item.quantity,
-                "price": item.price
-            })
-            total += item.quantity * item.price
-    
-    # Calculate Shipping
-    shipping_charges = 0.0
-    ship_config = await db.store_shipping_config.find_one({"store_id": store_id})
-    if ship_config and ship_config.get("is_enabled"):
-        pickup_zip = ship_config.get("pickup_pincode")
-        dest_zip = address.get("postal_code")
-        
-        if pickup_zip and dest_zip and ship_config.get("email") and ship_config.get("password"):
-            try:
-                # Calculate approx weight (Weights in DB are in grams)
-                total_weight_grams = 0.0
-                for item in order_data.items:
-                     prod = await db.products.find_one({"id": item.product_id})
-                     w = prod.get("weight") if prod else 0
-                     if w: total_weight_grams += (float(w) * item.quantity)
-                
-                # Convert to KG for Shiprocket
-                total_weight_kg = total_weight_grams / 1000.0
-                
-                # If weight is 0 or tiny, assume 0.5kg
-                if total_weight_kg < 0.5: total_weight_kg = 0.5
-                
-                try:
-                    res = {}
-                    await log_shiprocket(store_id, "token_request", "pending", {"email": ship_config["email"]})
-                    token = await get_shiprocket_token(ship_config["email"], ship_config["password"])
-                    
-                    await log_shiprocket(store_id, "serviceability_check", "pending", {
-                        "pickup": pickup_zip, "dest": dest_zip, "weight": total_weight_kg
-                    })
-                    res = await check_serviceability(token, pickup_zip, dest_zip, total_weight_kg) or {}
-                    
-                    if res and "rate" in res:
-                        shipping_charges = float(res["rate"])
-                        await log_shiprocket(store_id, "serviceability_check", "success", response=res)
-                    else:
-                        await log_shiprocket(store_id, "serviceability_check", "failed", error="No rate found", response=res)
-                except Exception as e:
-                    logger.error(f"Shiprocket error in create_order: {e}")
-                    await log_shiprocket(store_id, "shipping_init_error", "error", error=str(e))
+        if not product:
+            continue
 
-                    
-                    # LOGGING
-                    await db.shipping_logs.insert_one({
-                        "store_id": store_id,
-                        "timestamp": now,
-                        "type": "order",
-                        "reference_id": order_id,
-                        "pickup": pickup_zip,
-                        "destination": dest_zip,
-                        "weight": total_weight_kg,
-                        "courier": res.get("courier_name"),
-                        "rate": shipping_charges
-                    })
+        # Default tax_info
+        tax_info = None
+        cart_item = cart_item_map.get(item.product_id) if cart_item_map else None
+        if cart_item and cart_item.get("tax_info"):
+            tax_info = cart_item.get("tax_info")
+            line_tax = (tax_info.get("cgst", 0) + tax_info.get("igst", 0))
+        else:
+            # Fallback: compute tax using store tax config (older behavior)
+            rate_cgst = 0.0
+            rate_igst = 0.0
+            tax_config = await db.store_tax_config.find_one({"store_id": store_id})
+            if tax_config:
+                metal_tax = next((m for m in tax_config.get("metal_taxes", []) if m["metal"] == product.get("metal_type") and m.get("is_enabled")), None)
+                if metal_tax:
+                    rate_cgst = metal_tax["tax_rate"]["cgst"]
+                    rate_igst = metal_tax["tax_rate"]["igst"]
                 else:
-                    # Fallback
-                    shipping_charges = 0.0 # If Shiprocket enabled but failed, what to do?
-            except Exception as e:
-                logger.error(f"Shipping calc error: {e}")
+                    cat_tax = next((c for c in tax_config.get("category_taxes", []) if c["category"] == product.get("category")), None)
+                    if cat_tax:
+                        rate_cgst = cat_tax["tax_rate"]["cgst"]
+                        rate_igst = cat_tax["tax_rate"]["igst"]
 
-                shipping_charges = 0.0
+            line_subtotal = item.quantity * item.price
+            tax_cgst_amt = line_subtotal * (rate_cgst / 100)
+            tax_igst_amt = line_subtotal * (rate_igst / 100)
+            tax_info = {"cgst": tax_cgst_amt, "igst": tax_igst_amt, "rate_cgst": rate_cgst, "rate_igst": rate_igst}
+            line_tax = tax_cgst_amt + tax_igst_amt
 
+        items.append({
+            "product_id": item.product_id,
+            "product_name": product.get("name"),
+            "quantity": item.quantity,
+            "price": item.price,
+            "tax_info": tax_info
+        })
+        total += item.quantity * item.price
+    
+    # Determine Shipping: prefer shipping_charges provided by client (from cart), fallback to Shiprocket calculation
+    shipping_charges = 0.0
+    if getattr(order_data, 'shipping_charges', None) is not None:
+        try:
+            shipping_charges = float(order_data.shipping_charges)
+        except Exception:
+            shipping_charges = 0.0
+    else:
+        ship_config = await db.store_shipping_config.find_one({"store_id": store_id})
+        if ship_config and ship_config.get("is_enabled"):
+            pickup_zip = ship_config.get("pickup_pincode")
+            dest_zip = address.get("postal_code")
+
+            if pickup_zip and dest_zip and ship_config.get("email") and ship_config.get("password"):
+                try:
+                    # Calculate approx weight (Weights in DB are in grams)
+                    total_weight_grams = 0.0
+                    for item in order_data.items:
+                        prod = await db.products.find_one({"id": item.product_id})
+                        w = prod.get("weight") if prod else 0
+                        if w:
+                            total_weight_grams += (float(w) * item.quantity)
+
+                    # Convert to KG for Shiprocket
+                    total_weight_kg = total_weight_grams / 1000.0
+
+                    # If weight is 0 or tiny, assume 0.5kg
+                    if total_weight_kg < 0.5:
+                        total_weight_kg = 0.5
+
+                    try:
+                        res = {}
+                        await log_shiprocket(store_id, "token_request", "pending", {"email": ship_config["email"]})
+                        token = await get_shiprocket_token(ship_config["email"], ship_config["password"])
+
+                        await log_shiprocket(store_id, "serviceability_check", "pending", {
+                            "pickup": pickup_zip, "dest": dest_zip, "weight": total_weight_kg
+                        })
+                        res = await check_serviceability(token, pickup_zip, dest_zip, total_weight_kg) or {}
+
+                        if res and "rate" in res:
+                            shipping_charges = float(res["rate"])
+                            await log_shiprocket(store_id, "serviceability_check", "success", response=res)
+                        else:
+                            await log_shiprocket(store_id, "serviceability_check", "failed", error="No rate found", response=res)
+                    except Exception as e:
+                        logger.error(f"Shiprocket error in create_order: {e}")
+                        await log_shiprocket(store_id, "shipping_init_error", "error", error=str(e))
+
+                        # LOGGING
+                        await db.shipping_logs.insert_one({
+                            "store_id": store_id,
+                            "timestamp": now,
+                            "type": "order",
+                            "reference_id": order_id,
+                            "pickup": pickup_zip,
+                            "destination": dest_zip,
+                            "weight": total_weight_kg,
+                            "courier": res.get("courier_name"),
+                            "rate": shipping_charges
+                        })
+                except Exception as e:
+                    logger.error(f"Shipping calc error: {e}")
+
+                    shipping_charges = 0.0
+
+    # Prefer total_tax provided by client (if present), otherwise use cart-computed tax
+    if getattr(order_data, 'total_tax', None) is not None:
+        try:
+            cart_total_tax = float(order_data.total_tax)
+        except Exception:
+            cart_total_tax = total_tax
+    else:
+        cart_total_tax = total_tax
+
+    # Add tax and shipping to total
+    total += cart_total_tax
     total += shipping_charges
 
     order_doc = {
@@ -1717,7 +1876,9 @@ async def create_order(store_id: str, order_data: OrderCreate, user: dict = Depe
         "shipping_address_id": order_data.shipping_address_id, # Store ID reference
         "shipping_address": address, # Snapshot
         "total_amount": total,
+        "total_tax": cart_total_tax,
         "shipping_charges": shipping_charges,
+        "payment_received_amount": 0.0,
         "status": "pending",
         "tracking_number": None,
         "carrier_name": None,
@@ -1728,6 +1889,17 @@ async def create_order(store_id: str, order_data: OrderCreate, user: dict = Depe
     }
     
     await db.orders.insert_one(order_doc)
+    # Clear the user's cart after successful order creation
+    try:
+        if user:
+            await db.carts.update_one(
+                {"store_id": store_id, "user_id": user["id"]},
+                {"$set": {"items": [], "total_tax": 0.0, "shipping_estimate": None, "updated_at": now}}
+            )
+    except Exception:
+        # Don't block order creation if cart-clearing fails
+        pass
+
     return OrderResponse(**{k: v for k, v in order_doc.items() if k != "_id"})
 
 @api_router.get("/stores/{store_id}/orders", response_model=List[OrderResponse])
@@ -1856,8 +2028,15 @@ async def enrich_cart_with_tax(cart: dict, store_id: str):
             "rate_igst": rate_igst
         }
         total_tax += (tax_cgst + tax_igst)
-        
+    
     cart["total_tax"] = total_tax
+    # Persist tax info back to cart document so subsequent reads are fast
+    try:
+        await db.carts.update_one({"id": cart["id"]}, {"$set": {"items": cart.get("items", []), "total_tax": total_tax}})
+    except Exception:
+        # Don't fail enrichment on DB write errors
+        pass
+
     return cart
 
 @api_router.post("/stores/{store_id}/cart", response_model=CartResponse)
@@ -1902,6 +2081,54 @@ async def get_or_create_cart(store_id: str, session_id: Optional[str] = Query(No
     
     return CartResponse(**cart)
 
+
+async def _determine_postal_code_for_cart(cart: dict, store_id: str):
+    # Try cart-stored postal code
+    if cart.get("shipping_address_postal_code"):
+        return cart.get("shipping_address_postal_code")
+    # If cart is for a logged-in user, use their default address
+    if cart.get("user_id"):
+        addr = await db.addresses.find_one({"user_id": cart["user_id"], "is_default": True}, {"_id": 0})
+        if not addr:
+            addr = await db.addresses.find_one({"user_id": cart["user_id"]}, {"_id": 0})
+        if addr and addr.get("postal_code"):
+            return addr.get("postal_code")
+    return None
+
+
+async def _refresh_and_store_shipping_estimate(cart: dict, store_id: str):
+    """Compute shipping estimate for the cart and persist it on the cart document.
+    Returns updated cart dict.
+    """
+    now_iso = datetime.now(timezone.utc).isoformat()
+    postal_code = await _determine_postal_code_for_cart(cart, store_id)
+    if not postal_code:
+        # Nothing to do if we don't know destination postal code
+        return cart
+
+    # Build payload items for estimate
+    items_for_estimate = [{"product_id": it.get("product_id"), "quantity": it.get("quantity", 1)} for it in cart.get("items", [])]
+    if not items_for_estimate:
+        # No items -> clear estimate
+        await db.carts.update_one({"id": cart["id"]}, {"$set": {"shipping_estimate": {"shipping_charges": 0.0, "courier_name": None, "etd": None, "fetched_at": now_iso}}})
+        cart["shipping_estimate"] = {"shipping_charges": 0.0, "courier_name": None, "etd": None, "fetched_at": now_iso}
+        return cart
+
+    try:
+        payload = ShippingEstimateRequest(items=items_for_estimate, postal_code=postal_code)
+        res = await estimate_shipping_charges(store_id, payload)
+        estimate = {"shipping_charges": float(res.shipping_charges), "courier_name": res.courier_name, "etd": res.etd, "fetched_at": now_iso}
+    except HTTPException as he:
+        # store an error marker but keep fetched_at so we don't spam
+        estimate = {"shipping_charges": 0.0, "courier_name": None, "etd": None, "error": str(he.detail), "fetched_at": now_iso}
+    except Exception as e:
+        estimate = {"shipping_charges": 0.0, "courier_name": None, "etd": None, "error": str(e), "fetched_at": now_iso}
+
+    await db.carts.update_one({"id": cart["id"]}, {"$set": {"shipping_estimate": estimate, "updated_at": now_iso}})
+    cart["shipping_estimate"] = estimate
+    cart["updated_at"] = now_iso
+    return cart
+
 @api_router.get("/stores/{store_id}/cart", response_model=CartResponse)
 async def get_cart(store_id: str, session_id: Optional[str] = Query(None), user: dict = Depends(get_optional_user)):
     """Get cart for user or session"""
@@ -1916,6 +2143,27 @@ async def get_cart(store_id: str, session_id: Optional[str] = Query(None), user:
         raise HTTPException(status_code=404, detail="Cart not found")
     
     await enrich_cart_with_tax(cart, store_id)
+
+    # Refresh shipping estimate if missing or older than 1 hour
+    se = cart.get("shipping_estimate")
+    needs_refresh = False
+    if not se or not se.get("fetched_at"):
+        needs_refresh = True
+    else:
+        try:
+            fetched = datetime.fromisoformat(se.get("fetched_at"))
+            if datetime.now(timezone.utc) - fetched > timedelta(hours=1):
+                needs_refresh = True
+        except Exception:
+            needs_refresh = True
+
+    if needs_refresh:
+        try:
+            cart = await _refresh_and_store_shipping_estimate(cart, store_id)
+        except Exception:
+            # Do not block cart retrieval on shipping errors
+            pass
+
     return CartResponse(**cart)
 
 @api_router.post("/stores/{store_id}/cart/items", response_model=CartResponse)
@@ -1956,6 +2204,69 @@ async def add_cart_item(store_id: str, item_data: CartItemCreate, session_id: Op
     
     cart["updated_at"] = now
     await enrich_cart_with_tax(cart, store_id)
+    # Update shipping estimate immediately after cart change
+    try:
+        cart = await _refresh_and_store_shipping_estimate(cart, store_id)
+    except Exception:
+        pass
+    return CartResponse(**cart)
+
+
+@api_router.post("/stores/{store_id}/cart/items/batch", response_model=CartResponse)
+async def add_cart_items_batch(store_id: str, batch: dict, session_id: Optional[str] = Query(None), user: dict = Depends(get_optional_user)):
+    """Add multiple items to cart in one request. Expects payload: { items: [{product_id, quantity, price}, ...] }"""
+    now = datetime.now(timezone.utc).isoformat()
+
+    items_to_add = batch.get('items') if isinstance(batch, dict) else None
+    if not items_to_add or not isinstance(items_to_add, list):
+        raise HTTPException(status_code=400, detail="items must be a list")
+
+    if user:
+        cart = await db.carts.find_one({"store_id": store_id, "user_id": user["id"]}, {"_id": 0})
+    else:
+        if not session_id:
+            raise HTTPException(status_code=400, detail="session_id required for guest")
+        cart = await db.carts.find_one({"store_id": store_id, "session_id": session_id}, {"_id": 0})
+
+    if not cart:
+        raise HTTPException(status_code=404, detail="Cart not found")
+
+    # Merge incoming items into cart
+    for incoming in items_to_add:
+        try:
+            pid = incoming.get('product_id')
+            qty = int(incoming.get('quantity') or 0)
+            price = float(incoming.get('price') or 0)
+        except Exception:
+            continue
+        if not pid or qty <= 0:
+            continue
+
+        existing_item = next((it for it in cart.get('items', []) if it['product_id'] == pid), None)
+        if existing_item:
+            existing_item['quantity'] = existing_item.get('quantity', 0) + qty
+        else:
+            new_item = {
+                'id': str(uuid.uuid4()),
+                'product_id': pid,
+                'quantity': qty,
+                'price': price
+            }
+            if 'items' not in cart:
+                cart['items'] = []
+            cart['items'].append(new_item)
+
+    await db.carts.update_one(
+        {"id": cart["id"]},
+        {"$set": {"items": cart["items"], "updated_at": now}}
+    )
+
+    cart["updated_at"] = now
+    await enrich_cart_with_tax(cart, store_id)
+    try:
+        cart = await _refresh_and_store_shipping_estimate(cart, store_id)
+    except Exception:
+        pass
     return CartResponse(**cart)
 
 @api_router.put("/stores/{store_id}/cart/items/{item_id}", response_model=CartResponse)
@@ -1990,6 +2301,10 @@ async def update_cart_item(store_id: str, item_id: str, update_data: CartItemUpd
     
     cart["updated_at"] = now
     await enrich_cart_with_tax(cart, store_id)
+    try:
+        cart = await _refresh_and_store_shipping_estimate(cart, store_id)
+    except Exception:
+        pass
     return CartResponse(**cart)
 
 @api_router.delete("/stores/{store_id}/cart/items/{item_id}", response_model=CartResponse)
@@ -2016,6 +2331,10 @@ async def remove_cart_item(store_id: str, item_id: str, session_id: Optional[str
     
     cart["updated_at"] = now
     await enrich_cart_with_tax(cart, store_id)
+    try:
+        cart = await _refresh_and_store_shipping_estimate(cart, store_id)
+    except Exception:
+        pass
     return CartResponse(**cart)
 
 @api_router.post("/stores/{store_id}/cart/merge")
@@ -2057,6 +2376,10 @@ async def merge_guest_cart_to_user(store_id: str, merge_data: CartMergeRequest, 
         await db.carts.delete_one({"id": guest_cart["id"]})
     
     await enrich_cart_with_tax(user_cart, store_id)
+    try:
+        user_cart = await _refresh_and_store_shipping_estimate(user_cart, store_id)
+    except Exception:
+        pass
     return CartResponse(**user_cart)
 
 @api_router.delete("/stores/{store_id}/cart")
@@ -2082,121 +2405,163 @@ async def clear_cart(store_id: str, session_id: Optional[str] = Query(None), use
     cart["items"] = []
     cart["updated_at"] = now
     await enrich_cart_with_tax(cart, store_id)
+    try:
+        cart = await _refresh_and_store_shipping_estimate(cart, store_id)
+    except Exception:
+        pass
     return CartResponse(**cart)
 
 # ==================== SUBSCRIPTION PLAN ENDPOINTS ====================
+# Subscription-plan related endpoints are registered from `subscriptions.py`
+try:
+    from .subscriptions import register_subscription_plan_routes
+except Exception:
+    # Fallback for different import contexts
+    from subscriptions import register_subscription_plan_routes
 
-@api_router.post("/stores/{store_id}/subscription-plans", response_model=SubscriptionPlanResponse)
-async def create_subscription_plan(store_id: str, plan_data: SubscriptionPlanCreate, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
-    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
-        raise HTTPException(status_code=403, detail="Cannot create plans for other stores")
-    
-    plan_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
-    
-    plan_doc = {
-        "id": plan_id,
-        "store_id": store_id,
-        **plan_data.model_dump(),
-        "created_at": now
-    }
-    
-    await db.subscription_plans.insert_one(plan_doc)
-    return SubscriptionPlanResponse(**{k: v for k, v in plan_doc.items() if k != "_id"})
+# Register plan routes (pass dependencies to avoid circular imports)
+register_subscription_plan_routes(api_router, db, require_roles, UserRole, SubscriptionPlanCreate, SubscriptionPlanResponse, get_current_user)
 
-@api_router.get("/stores/{store_id}/subscription-plans", response_model=List[SubscriptionPlanResponse])
-async def get_subscription_plans(store_id: str):
-    plans = await db.subscription_plans.find({"store_id": store_id, "is_active": True, "is_enabled": {"$ne": False}}, {"_id": 0}).to_list(100)
-    return [SubscriptionPlanResponse(**p) for p in plans]
-
-@api_router.put("/stores/{store_id}/subscription-plans/{plan_id}", response_model=SubscriptionPlanResponse)
-async def update_subscription_plan(store_id: str, plan_id: str, plan_data: SubscriptionPlanCreate, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
-    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
-        raise HTTPException(status_code=403, detail="Cannot update plans for other stores")
-    
-    existing = await db.subscription_plans.find_one({"id": plan_id, "store_id": store_id})
-    if not existing:
-        raise HTTPException(status_code=404, detail="Plan not found")
-    
-    update_data = plan_data.model_dump()
-    await db.subscription_plans.update_one({"id": plan_id}, {"$set": update_data})
-    
-    updated = await db.subscription_plans.find_one({"id": plan_id}, {"_id": 0})
-    return SubscriptionPlanResponse(**updated)
-
-# Store Admin - Toggle subscription plan enabled/disabled status
-@api_router.put("/stores/{store_id}/subscription-plans/{plan_id}/toggle-enabled")
-async def toggle_subscription_plan_enabled(store_id: str, plan_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
-    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
-        raise HTTPException(status_code=403, detail="Cannot update plans for other stores")
-    
-    plan = await db.subscription_plans.find_one({"id": plan_id, "store_id": store_id})
-    if not plan:
-        raise HTTPException(status_code=404, detail="Plan not found")
-    
-    # Toggle is_enabled field (default to True if not set)
-    current_enabled = plan.get("is_enabled", True)
-    new_enabled = not current_enabled
-    
-    await db.subscription_plans.update_one(
-        {"id": plan_id},
-        {"$set": {"is_enabled": new_enabled}}
-    )
-    
-    updated = await db.subscription_plans.find_one({"id": plan_id}, {"_id": 0})
-    return {
-        "id": updated["id"],
-        "name": updated["name"],
-        "is_enabled": updated.get("is_enabled", True),
-        "message": f"Plan {'enabled' if new_enabled else 'disabled'} successfully"
-    }
-
-@api_router.post("/stores/{store_id}/subscribe", response_model=UserSubscriptionResponse)
+@api_router.post("/stores/{store_id}/subscribe")
 async def subscribe_to_plan(store_id: str, sub_data: UserSubscriptionCreate, user: dict = Depends(get_current_user)):
     plan = await db.subscription_plans.find_one({"id": sub_data.plan_id, "store_id": store_id}, {"_id": 0})
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
+    if not plan.get("is_active", True):
+        raise HTTPException(status_code=400, detail="Plan is not active")
     
     # Validate monthly amount is within plan limits
     scheme_type = plan.get("scheme_type", "fixed")
-    
-    if scheme_type == "fixed":
-        min_amount = plan.get("min_amount", 500)
-        max_amount = plan.get("max_amount", 100000)
-        if sub_data.monthly_amount < min_amount or sub_data.monthly_amount > max_amount:
-            raise HTTPException(status_code=400, detail=f"Monthly amount must be between {min_amount} and {max_amount}")
+
+    # Validate monthly amount within plan limits for all schemes if limits are defined
+    min_amount = plan.get("min_amount")
+    max_amount = plan.get("max_amount")
+    if min_amount is not None and max_amount is not None:
+        try:
+            min_amount_val = float(min_amount)
+            max_amount_val = float(max_amount)
+        except Exception:
+            min_amount_val = min_amount or 0
+            max_amount_val = max_amount or 0
+        if sub_data.monthly_amount < min_amount_val or sub_data.monthly_amount > max_amount_val:
+            raise HTTPException(status_code=400, detail=f"Monthly amount must be between {min_amount_val} and {max_amount_val}")
     
     sub_id = str(uuid.uuid4())
     order_id = await get_next_order_id(store_id)  # Generate order ID for subscription
     now = datetime.now(timezone.utc)
-    maturity = now + timedelta(days=plan["duration_months"] * 30)
     
-    sub_doc = {
-        "id": sub_id,
-        "order_id": order_id,
+    # Maturity date only for fixed schemes
+    maturity = None
+    if scheme_type == "fixed":
+        duration_months = plan.get("duration_months", 12)
+        maturity = now + timedelta(days=duration_months * 30)
+    
+    # Allow frontend to pass a requested purity via subscription_payload; compute estimates server-side
+    payload = sub_data.subscription_payload or {}
+
+    # Create a subscription intent (do not create an actual subscription yet). The real subscription will be
+    # created after payment completes (see /payments/{id}/complete and /payments/verify handlers).
+    intent_id = str(uuid.uuid4())
+    intent_doc = {
+        "id": intent_id,
         "user_id": user["id"],
-        "user_email": user.get("email"),
-        "user_name": user.get("name"),
         "store_id": store_id,
         "plan_id": plan["id"],
-        "plan_name": plan["name"],
-        "plan_type": plan.get("plan_type", ""),
-        "scheme_type": scheme_type,
-        "target_metal": plan.get("target_metal"),
         "monthly_amount": sub_data.monthly_amount,
-        "payments_made": 0,
-        "total_paid": 0,
-        "accumulated_weight_grams": 0.0,
-        "status": "active",
-        "start_date": now.isoformat(),
-        "maturity_date": maturity.isoformat(),
+        "subscription_payload": payload,
+        "status": "pending",
         "created_at": now.isoformat()
     }
-    
-    await db.user_subscriptions.insert_one(sub_doc)
-    # Read back the stored subscription to ensure fields added by DB or other middleware are included (e.g., order_id)
-    stored_sub = await db.user_subscriptions.find_one({"id": sub_id}, {"_id": 0})
-    return UserSubscriptionResponse(**stored_sub)
+
+    await db.subscription_intents.insert_one(intent_doc)
+
+    # Compute server-side estimate for flexible plans (tax-deducted grams) to return to client
+    estimate = None
+    try:
+        if scheme_type == 'flexible':
+            # Tax config (prefer tax_configs, fallback to store_tax_config)
+            tax_config = await db.tax_configs.find_one({"store_id": store_id})
+            if not tax_config:
+                tax_config = await db.store_tax_config.find_one({"store_id": store_id})
+            target_metal = (plan.get("target_metal") or "gold").lower()
+            rate_cgst = 0.0
+            rate_igst = 0.0
+            if tax_config:
+                metal_tax = next((m for m in tax_config.get("metal_taxes", []) if m.get("metal") == target_metal and m.get("is_enabled")), None)
+                if metal_tax:
+                    rate_cgst = metal_tax["tax_rate"]["cgst"]
+                    rate_igst = metal_tax["tax_rate"]["igst"]
+                else:
+                    # Fallback: some stores configure a single `gst_rate` (frontend expects this).
+                    gst_rate = tax_config.get("gst_rate") if isinstance(tax_config, dict) else None
+                    if gst_rate is not None:
+                        # Treat `gst_rate` as the total tax rate (CGST+IGST). We'll store it into CGST slot
+                        rate_cgst = gst_rate
+            # Normalize
+            try:
+                rate_cgst_val = float(rate_cgst)
+            except Exception:
+                rate_cgst_val = 0.0
+            try:
+                rate_igst_val = float(rate_igst)
+            except Exception:
+                rate_igst_val = 0.0
+            if rate_cgst_val > 1:
+                rate_cgst_val = rate_cgst_val / 100.0
+            if rate_igst_val > 1:
+                rate_igst_val = rate_igst_val / 100.0
+            total_tax_rate = rate_cgst_val + rate_igst_val
+
+            net_amount = sub_data.monthly_amount * (1 - total_tax_rate)
+
+            # Market price resolution (purity precedence)
+            market_prices_doc = await db.store_market_prices.find_one({"store_id": store_id})
+            market_prices = market_prices_doc.get("prices", {}) if market_prices_doc else {}
+            preferred_key = None
+            try:
+                if payload.get("metal_purity_key"):
+                    preferred_key = payload.get("metal_purity_key")
+                elif plan.get("metal_purity_key"):
+                    preferred_key = plan.get("metal_purity_key")
+                else:
+                    default_map = market_prices_doc.get("default_purity", {}) if market_prices_doc else {}
+                    if default_map and default_map.get(target_metal):
+                        preferred_key = default_map.get(target_metal)
+            except Exception:
+                preferred_key = None
+
+            if preferred_key and market_prices.get(preferred_key) is not None:
+                try:
+                    price_per_gram = float(market_prices.get(preferred_key))
+                except Exception:
+                    price_per_gram = 0.0
+            else:
+                if target_metal == 'gold':
+                    price_per_gram = float(market_prices.get("gold_24") or market_prices.get("gold_22") or 0)
+                elif target_metal == 'silver':
+                    price_per_gram = float(market_prices.get("silver_1g") or 0)
+                elif target_metal == 'platinum':
+                    price_per_gram = float(market_prices.get("platinum_1g") or 0)
+
+            if price_per_gram <= 0:
+                price_per_gram = 5000.0 if target_metal == 'gold' else 100.0
+
+            estimated_grams = net_amount / price_per_gram if price_per_gram > 0 else 0.0
+
+            estimate = {
+                "monthly_amount": sub_data.monthly_amount,
+                "net_amount": net_amount,
+                "tax_amount": sub_data.monthly_amount - net_amount,
+                "tax_rate": total_tax_rate,
+                "price_per_gram": price_per_gram,
+                "estimated_grams": estimated_grams,
+                "price_key_used": preferred_key or ''
+            }
+    except Exception:
+        estimate = None
+
+    # Return the created subscription intent and estimate to the client
+    return {"subscription_intent": intent_doc, "estimate": estimate}
 
 @api_router.get("/my-subscriptions", response_model=List[UserSubscriptionResponse])
 async def get_my_subscriptions(user: dict = Depends(get_current_user)):
@@ -2217,6 +2582,14 @@ async def get_my_subscriptions(user: dict = Depends(get_current_user)):
                  sub["scheme_type"] = plan.get("scheme_type", "fixed")
              else:
                  sub["scheme_type"] = "fixed"
+        # Ensure monthly_amount present (some legacy subscriptions may omit it)
+        if sub.get("monthly_amount") is None:
+            plan = await db.subscription_plans.find_one({"id": sub.get("plan_id")})
+            if plan:
+                # prefer explicit plan monthly_amount or min_amount
+                sub["monthly_amount"] = plan.get("monthly_amount") or plan.get("min_amount") or 0
+            else:
+                sub["monthly_amount"] = 0
                  
     return [UserSubscriptionResponse(**s) for s in subs]
 
@@ -2234,21 +2607,88 @@ async def get_subscription_transactions(subscription_id: str, user: dict = Depen
     if not (is_owner or is_admin):
         raise HTTPException(status_code=403, detail="Not authorized")
         
-    transactions = await db.payments.find(
-        {"subscription_id": subscription_id, "status": "completed"}
-    ).sort("completed_at", -1).to_list(length=None)
-    
-    return [
-        {
-            "id": t["id"],
-            "amount": t["amount"],
+    # Combine payments created via the Razorpay flow (db.payments)
+    # and payments created via the subscription endpoint (db.subscription_payments).
+    payments = await db.payments.find({"subscription_id": subscription_id, "status": "completed"}).to_list(length=None)
+    sub_payments = await db.subscription_payments.find({"subscription_id": subscription_id}).to_list(length=None)
+    shipping_payments = await db.payments.find({"subscription_id": subscription_id, "type": "closure_shipping"}).to_list(length=None)
+
+    results = []
+
+    for t in payments:
+        results.append({
+            "id": t.get("id"),
+            "amount": t.get("amount", 0),
             "date": t.get("completed_at") or t.get("created_at"),
-            "grams": t.get("grams_purchased", 0.0),
-            "metal_rate": t.get("market_price_per_gram", 0.0),
+            "grams": t.get("grams_purchased") or t.get("weight_bought") or 0.0,
+            "metal_rate": t.get("market_price_per_gram") or t.get("market_price") or 0.0,
             "type": "payment"
-        }
-        for t in transactions
-    ]
+        })
+
+    # For subscription_payments, map fields to the same shape. Attempt to compute/lookup market price if missing.
+    for t in sub_payments:
+        grams = t.get("weight_bought") or t.get("grams_purchased") or 0.0
+        market_price = t.get("market_price_per_gram") if t.get("market_price_per_gram") is not None else None
+        # If market price missing, try to derive from subscription -> plan -> store market prices
+        if market_price is None:
+            try:
+                parent_sub = await db.user_subscriptions.find_one({"id": subscription_id})
+                store_id = parent_sub.get("store_id") if parent_sub else None
+                plan_doc = None
+                if parent_sub:
+                    plan_doc = await db.subscription_plans.find_one({"id": parent_sub.get("plan_id")})
+                target_metal = (plan_doc.get("target_metal") if plan_doc else parent_sub.get("target_metal")) if parent_sub else None
+                target_metal = (target_metal or "gold").lower()
+                market_prices_doc = await db.store_market_prices.find_one({"store_id": store_id})
+                market_prices = market_prices_doc.get("prices", {}) if market_prices_doc else {}
+                # Respect configured default purity or a plan/subscription-specific purity key if provided
+                default_map = market_prices_doc.get("default_purity", {}) if market_prices_doc else {}
+                preferred_key = default_map.get(target_metal)
+                if preferred_key and market_prices.get(preferred_key) is not None:
+                    try:
+                        market_price = float(market_prices.get(preferred_key))
+                    except Exception:
+                        market_price = 0.0
+                else:
+                    if target_metal == 'gold':
+                        market_price = float(market_prices.get("gold_24") or market_prices.get("gold_22") or 0)
+                    elif target_metal == 'silver':
+                        market_price = float(market_prices.get("silver_1g") or 0)
+                    elif target_metal == 'platinum':
+                        market_price = float(market_prices.get("platinum_1g") or 0)
+                    else:
+                        market_price = 0.0
+            except Exception:
+                market_price = 0.0
+
+        results.append({
+            "id": t.get("id"),
+            "amount": t.get("amount", 0),
+            "date": t.get("payment_date") or t.get("created_at") or t.get("payment_date"),
+            "grams": grams,
+            "metal_rate": market_price or 0.0,
+            "type": "payment"
+        })
+
+    # Add shipping charges as separate line items (no rate or grams)
+    for t in shipping_payments:
+        results.append({
+            "id": t.get("id"),
+            "amount": t.get("amount", 0),
+            "date": t.get("created_at"),
+            "grams": "-",
+            "metal_rate": "-",
+            "type": "shipping",
+            "description": t.get("description", "Shipping Charges")
+        })
+
+    # Sort combined results by date (ISO strings sort lexically)
+    try:
+        results_sorted = sorted(results, key=lambda x: x.get("date") or "", reverse=True)
+    except Exception:
+        results_sorted = results
+
+    return results_sorted
 
 # Store Admin - Get all subscribers for store
 @api_router.get("/stores/{store_id}/subscribers")
@@ -2280,125 +2720,21 @@ async def get_subscription_details(store_id: str, subscription_id: str, user: di
 # End User - Pay monthly subscription
 @api_router.post("/subscriptions/{subscription_id}/pay")
 async def pay_subscription(subscription_id: str, payment_data: SubscriptionPaymentCreate, user: dict = Depends(get_current_user)):
+    # Block subscriptions with total_paid == 0 if payment is not completed
     sub = await db.user_subscriptions.find_one({"id": subscription_id, "user_id": user["id"]}, {"_id": 0})
-    if not sub:
-        raise HTTPException(status_code=404, detail="Subscription not found")
-    
-    if sub["status"] != "active":
-        raise HTTPException(status_code=400, detail="Subscription is not active")
-    
-    scheme_type = sub.get("scheme_type", "fixed")
-    weight_bought = 0.0
-    
-    if scheme_type == "fixed":
-        # Validate payment amount matches monthly amount (Fixed logic)
-        if payment_data.amount != sub["monthly_amount"]:
-            raise HTTPException(status_code=400, detail=f"Payment amount must be {sub['monthly_amount']}")
-        
-        # Check duplicate payment for month
-        now = datetime.now(timezone.utc)
-        current_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        current_month_end = (current_month_start + timedelta(days=32)).replace(day=1) - timedelta(seconds=1)
-        
-        existing_payment = await db.subscription_payments.find_one({
-            "subscription_id": subscription_id,
-            "user_id": user["id"],
-            "payment_date": {
-                "$gte": current_month_start.isoformat(),
-                "$lte": current_month_end.isoformat()
-            }
-        })
-        if existing_payment:
-            raise HTTPException(
-                status_code=400, 
-                detail="You have already paid for this month. You can pay again next month."
-            )
-            
-    elif scheme_type == "flexible":
-        # Flexible Logic
-        store_id = sub["store_id"]
-        store = await db.stores.find_one({"id": store_id})
-        
-        # Determine Tax Rate for Metal
-        tax_config = await db.store_tax_config.find_one({"store_id": sub["store_id"]})
-        target_metal = sub.get("target_metal", "gold").lower()
-        rate_cgst = 0.0
-        rate_igst = 0.0
-        
-        if tax_config:
-            metal_tax = next((m for m in tax_config.get("metal_taxes", []) if m["metal"] == target_metal and m["is_enabled"]), None)
-            if metal_tax:
-                rate_cgst = metal_tax["tax_rate"]["cgst"]
-                rate_igst = metal_tax["tax_rate"]["igst"]
-            else:
-                 # Fallback to category if metals not found (unlikely for flexible plan targeting metal)
-                 pass
+    if sub and sub.get("total_paid", 0) == 0:
+        await db.user_subscriptions.update_one({"id": subscription_id}, {"$set": {"status": "cancelled"}})
+        raise HTTPException(status_code=400, detail="Subscription blocked: payment not completed.")
 
-        total_tax_rate = (rate_cgst + rate_igst) / 100
-        # Inclusive calculation: Gross = Net * (1 + Rate) => Net = Gross / (1 + Rate)
-        net_amount = payment_data.amount / (1 + total_tax_rate)
-        
-        # Get Market Price
-        market_prices_doc = await db.store_market_prices.find_one({"store_id": sub["store_id"]})
-        market_prices = market_prices_doc.get("prices", {}) if market_prices_doc else {}
-        
-        metal_price_per_gram = 0.0
-        if target_metal == 'gold':
-            metal_price_per_gram = float(market_prices.get("gold_24") or market_prices.get("gold_22") or 0)
-        elif target_metal == 'silver':
-            metal_price_per_gram = float(market_prices.get("silver_1g") or 0)
-        elif target_metal == 'platinum':
-            metal_price_per_gram = float(market_prices.get("platinum_1g") or 0)
-        
-        if metal_price_per_gram <= 0:
-            # Fallback for dev/demo if prices not set
-            if target_metal == 'gold': metal_price_per_gram = 5000.0
-            else: metal_price_per_gram = 100.0
-            print(f"Warning: Market price not set for {target_metal}, using fallback {metal_price_per_gram}")
-            
-        weight_bought = net_amount / metal_price_per_gram
-    
-    payment_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc)
-    now_iso = now.isoformat()
-    
-    payment_doc = {
-        "id": payment_id,
-        "subscription_id": subscription_id,
-        "user_id": user["id"],
-        "amount": payment_data.amount,
-        "weight_bought": weight_bought,
-        "payment_date": now_iso,
-        "status": "completed"
-    }
-    
-    await db.subscription_payments.insert_one(payment_doc)
-    
-    # Update subscription
-    new_payments_made = sub["payments_made"] + 1
-    new_total_paid = sub["total_paid"] + payment_data.amount
-    
-    update_ops = {
-        "payments_made": new_payments_made,
-        "total_paid": new_total_paid
-    }
-    
-    if weight_bought > 0:
-        update_ops["accumulated_weight_grams"] = sub.get("accumulated_weight_grams", 0.0) + weight_bought
-        
-    # Check maturity logic (only for Fixed)
-    plan = await db.subscription_plans.find_one({"id": sub["plan_id"]}, {"_id": 0})
-    duration_months = plan.get("duration_months", 11)
-    
-    if scheme_type == "fixed" and new_payments_made >= duration_months:
-        update_ops["status"] = "completed"
-    
-    await db.user_subscriptions.update_one(
-        {"id": subscription_id},
-        {"$set": update_ops}
-    )
-    
-    return {"message": "Payment successful", "payment_id": payment_id, "payments_made": new_payments_made, "weight_bought": weight_bought}
+    # If payment is cancelled or not completed, clean up zero-value subscriptions
+    # This should be called from the payment cancellation handler or after payment failure
+    # Example cleanup logic:
+    sub = await db.user_subscriptions.find_one({"id": subscription_id, "user_id": user["id"]}, {"_id": 0})
+    if sub and sub.get("total_paid", 0) == 0:
+        await db.user_subscriptions.update_one({"id": subscription_id}, {"$set": {"status": "cancelled"}})
+        return {"message": "Subscription cancelled due to zero payment."}
+
+    # ...existing payment logic...
 
 # Store Admin - Update subscription status
 class SubscriptionStatusUpdate(BaseModel):
@@ -2441,6 +2777,45 @@ async def delete_subscription(store_id: str, subscription_id: str, user: dict = 
     await db.subscription_payments.delete_many({"subscription_id": subscription_id})
     
     return {"message": "Subscription deleted successfully"}
+
+# Admin - Reconcile a subscription's payments and grams (fix inconsistent records)
+@api_router.post("/admin/stores/{store_id}/subscriptions/{subscription_id}/reconcile")
+async def reconcile_subscription_payments(store_id: str, subscription_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot reconcile subscriptions for other stores")
+
+    sub = await db.user_subscriptions.find_one({"id": subscription_id, "store_id": store_id})
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+
+    # Gather completed/applied payments for this subscription
+    payments = await db.payments.find({"subscription_id": subscription_id, "status": "completed"}).to_list(None)
+
+    # Compute totals
+    total_paid = sum(p.get("amount", 0) for p in payments)
+    payments_made = len(payments)
+
+    # Compute accumulated grams using net_amount (after tax) and market price
+    accumulated = 0.0
+    for p in payments:
+        amt = p.get("amount", 0)
+        tax_rate = p.get("tax_rate") if p.get("tax_rate") is not None else None
+        if p.get("net_amount") is not None:
+            net_amt = p.get("net_amount")
+        else:
+            net_amt = amt * (1 - (tax_rate or 0))
+        price = p.get("market_price_per_gram") or 0
+        if price and price > 0:
+            accumulated += net_amt / price
+
+    update = {
+        "payments_made": payments_made,
+        "total_paid": total_paid,
+        "accumulated_weight_grams": accumulated
+    }
+
+    await db.user_subscriptions.update_one({"id": subscription_id}, {"$set": update})
+    return {"message": "Reconciled subscription", "update": update}
 
 # ==================== STORE PAYMENT CONFIG (RAZORPAY) ====================
 
@@ -2493,7 +2868,7 @@ async def update_store_tax_config(store_id: str, config: StoreTaxConfigUpdate, u
     }
     
     # Upsert
-    await db.tax_configs.update_one(
+    await db.store_tax_config.update_one(
         {"store_id": store_id},
         {"$set": tax_doc},
         upsert=True
@@ -2505,7 +2880,7 @@ async def update_store_tax_config(store_id: str, config: StoreTaxConfigUpdate, u
 async def get_store_tax_config(store_id: str, user: dict = Depends(get_optional_user)):
     # Allow public access (optional user) so cart can calculate tax for guests
     
-    config = await db.tax_configs.find_one({"store_id": store_id}, {"_id": 0})
+    config = await db.store_tax_config.find_one({"store_id": store_id}, {"_id": 0})
     if not config:
         # Return default if not found
         return StoreTaxConfig(
@@ -2720,6 +3095,14 @@ async def create_payment_order(payment_data: MockPaymentCreate, user: dict = Dep
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Payment gateway error: {str(e)}")
     
+    subscription_payload_to_store = getattr(payment_data, 'subscription_payload', None)
+    print(f"[create_payment_order] subscription_payload present: {bool(subscription_payload_to_store)}")
+    if subscription_payload_to_store:
+        try:
+            print(f"[create_payment_order] subscription_payload: {subscription_payload_to_store}")
+        except Exception:
+            pass
+
     payment_doc = {
         "id": payment_id,
         "user_id": user["id"],
@@ -2727,7 +3110,9 @@ async def create_payment_order(payment_data: MockPaymentCreate, user: dict = Dep
         "razorpay_amount": int(payment_data.amount * 100),
         "description": payment_data.description,
         "subscription_id": payment_data.subscription_id,
+        "subscription_payload": subscription_payload_to_store,
         "order_id": payment_data.order_id,
+        "store_id": payment_data.store_id,
         "status": "created",
         "razorpay_order_id": razorpay_order_id,
         "razorpay_key_id": razorpay_key_id,
@@ -2737,26 +3122,352 @@ async def create_payment_order(payment_data: MockPaymentCreate, user: dict = Dep
     await db.payments.insert_one(payment_doc)
     return MockPaymentResponse(**{k: v for k, v in payment_doc.items() if k != "_id"})
 
+async def _apply_payment_to_subscription(payment_id: str, subscription_id: str):
+    """Helper: compute net/tax/market price and apply payment to subscription.
+    Updates payment record with computed fields and recomputes subscription totals from applied payments.
+    """
+    print(f"\n========== [_apply_payment] START ==========")
+    print(f"[_apply_payment] payment_id={payment_id}, subscription_id={subscription_id}")
+    try:
+        payment = await db.payments.find_one({"id": payment_id})
+        if not payment:
+            print(f"[_apply_payment] ERROR: Payment {payment_id} not found")
+            return
+        amt = float(payment.get("amount", 0) or 0)
+        print(f"[_apply_payment] Payment amount: {amt}")
+        
+        # Determine plan/store/metal price
+        sub = await db.user_subscriptions.find_one({"id": subscription_id})
+        if not sub:
+            print(f"[_apply_payment] ERROR: Subscription {subscription_id} not found")
+            return
+        
+        print(f"[_apply_payment] Subscription: plan_id={sub.get('plan_id')}, metal_purity_key={sub.get('metal_purity_key')}, target_metal={sub.get('target_metal')}")
+        
+        plan = await db.subscription_plans.find_one({"id": sub.get("plan_id")})
+        target_metal = (plan.get("target_metal") if plan else sub.get("target_metal")) or "gold"
+        target_metal = target_metal.lower()
+        print(f"[_apply_payment] Target metal: {target_metal}")
+
+        market_prices_doc = await db.store_market_prices.find_one({"store_id": sub.get("store_id")})
+        market_prices = market_prices_doc.get("prices", {}) if market_prices_doc else {}
+        print(f"[_apply_payment] Market prices available: {list(market_prices.keys())}")
+
+        # Compute tax rate
+        print(f"[_apply_payment] Fetching tax config for store: {sub.get('store_id')}")
+        tax_config = await db.store_tax_config.find_one({"store_id": sub.get("store_id")})
+        rate_cgst = 0.0
+        rate_igst = 0.0
+        if tax_config:
+            print(f"[_apply_payment] Tax config found. Searching for metal={target_metal} in metal_taxes...")
+            metal_taxes = tax_config.get("metal_taxes", [])
+            print(f"[_apply_payment] Available metal_taxes: {[{m.get('metal'): m.get('is_enabled')} for m in metal_taxes]}")
+            
+            metal_tax = next((m for m in metal_taxes if m.get("metal") == target_metal and m.get("is_enabled")), None)
+            if metal_tax:
+                rate_cgst = float(metal_tax["tax_rate"]["cgst"])
+                rate_igst = float(metal_tax["tax_rate"]["igst"])
+                print(f"[_apply_payment] Found metal tax for {target_metal}: CGST={rate_cgst}%, IGST={rate_igst}%")
+            else:
+                print(f"[_apply_payment] WARNING: No enabled metal tax found for {target_metal}")
+        else:
+            print(f"[_apply_payment] WARNING: No tax config found for store {sub.get('store_id')}")
+        
+        # Calculate total tax rate (rates are in percentage, e.g., 2.5 means 2.5%)
+        if rate_cgst > 0 or rate_igst > 0:
+            total_tax_rate = (rate_cgst + rate_igst) / 100.0
+        else:
+            total_tax_rate = 0.0
+        
+        print(f"[_apply_payment] Total tax rate: {total_tax_rate*100}% (decimal: {total_tax_rate})")
+
+        # Determine market price per gram using purity key precedence:
+        # subscription.metal_purity_key -> plan.metal_purity_key -> store.default_purity[metal] -> fallbacks
+        print(f"[_apply_payment] Resolving market price...")
+        price_per_gram_used = 0.0
+        preferred_key = None
+        
+        # Try subscription's metal_purity_key first
+        if sub.get("metal_purity_key"):
+            preferred_key = sub.get("metal_purity_key")
+            print(f"[_apply_payment] Using subscription metal_purity_key: {preferred_key}")
+        # Then plan's metal_purity_key
+        elif plan and plan.get("metal_purity_key"):
+            preferred_key = plan.get("metal_purity_key")
+            print(f"[_apply_payment] Using plan metal_purity_key: {preferred_key}")
+        # Then store default_purity mapping
+        else:
+            default_map = market_prices_doc.get("default_purity", {}) if market_prices_doc else {}
+            if default_map and default_map.get(target_metal):
+                preferred_key = default_map.get(target_metal)
+                print(f"[_apply_payment] Using store default_purity for {target_metal}: {preferred_key}")
+        
+        # Resolve price using preferred key
+        if preferred_key and market_prices.get(preferred_key) is not None:
+            price_per_gram_used = float(market_prices.get(preferred_key))
+            print(f"[_apply_payment] Found price for {preferred_key}: ₹{price_per_gram_used}/g")
+        else:
+            print(f"[_apply_payment] Preferred key {preferred_key} not found, using fallback...")
+            # Fallback to metal-specific keys
+            if target_metal == 'gold':
+                price_per_gram_used = float(market_prices.get("gold_24") or market_prices.get("gold_22") or 0)
+            elif target_metal == 'silver':
+                price_per_gram_used = float(market_prices.get("silver_1g") or 0)
+            elif target_metal == 'platinum':
+                price_per_gram_used = float(market_prices.get("platinum_1g") or 0)
+            print(f"[_apply_payment] Fallback price: ₹{price_per_gram_used}/g")
+        
+        if price_per_gram_used <= 0:
+            price_per_gram_used = 5000.0 if target_metal == 'gold' else 100.0
+            print(f"[_apply_payment] Using default price: ₹{price_per_gram_used}/g")
+
+        net_amount_calc = amt * (1 - (total_tax_rate or 0))
+        tax_amount_calc = amt - net_amount_calc
+        grams_purchased = (net_amount_calc / price_per_gram_used) if price_per_gram_used > 0 else 0.0
+        
+        print(f"[_apply_payment] CALCULATIONS:")
+        print(f"  - Gross amount: ₹{amt}")
+        print(f"  - Tax rate: {total_tax_rate*100}%")
+        print(f"  - Tax amount: ₹{tax_amount_calc}")
+        print(f"  - Net amount: ₹{net_amount_calc}")
+        print(f"  - Price per gram: ₹{price_per_gram_used}")
+        print(f"  - Grams purchased: {grams_purchased}g")
+
+        # Update payment record
+        print(f"[_apply_payment] Updating payment record...")
+        await db.payments.update_one({"id": payment_id}, {"$set": {
+            "grams_purchased": grams_purchased,
+            "market_price_per_gram": price_per_gram_used,
+            "metal_type": target_metal,
+            "net_amount": net_amount_calc,
+            "tax_amount": tax_amount_calc,
+            "tax_rate": total_tax_rate,
+            "applied_to_subscription": True,
+            "subscription_id": subscription_id
+        }})
+        print(f"[_apply_payment] Payment record updated")
+
+        # Recompute subscription totals from applied & completed payments
+        print(f"[_apply_payment] Recomputing subscription totals from all applied payments...")
+        applied_payments = await db.payments.find({"subscription_id": subscription_id, "applied_to_subscription": True, "status": "completed"}).to_list(None)
+        print(f"[_apply_payment] Found {len(applied_payments)} applied payments")
+        
+        total_paid = sum(p.get("amount", 0) for p in applied_payments)
+        payments_made = len(applied_payments)
+        accumulated = 0.0
+        for i, p in enumerate(applied_payments):
+            net = p.get("net_amount") if p.get("net_amount") is not None else (p.get("amount", 0) * (1 - (p.get("tax_rate") or 0)))
+            price = p.get("market_price_per_gram") or 0
+            if price and price > 0:
+                grams = net / price
+                accumulated += grams
+                print(f"  Payment {i+1}: net=₹{net}, price=₹{price}/g, grams={grams}g")
+
+        update = {"payments_made": payments_made, "total_paid": total_paid, "accumulated_weight_grams": accumulated, "status": "active"}
+        print(f"[_apply_payment] Updating subscription: {update}")
+        await db.user_subscriptions.update_one({"id": subscription_id}, {"$set": update})
+        print(f"[_apply_payment] ✅ Subscription {subscription_id} updated successfully")
+        
+        # Log payment
+        await store_log(
+            sub.get("store_id"),
+            "payments",
+            f"Payment processed: ₹{amt} (tax: {total_tax_rate*100}%, net: ₹{net_amount_calc}, grams: {grams_purchased:.4f}g)",
+            context={
+                "payment_id": payment_id,
+                "subscription_id": subscription_id,
+                "amount": amt,
+                "grams": grams_purchased,
+                "tax_rate": total_tax_rate,
+                "net_amount": net_amount_calc
+            },
+            raw_log="========== [_apply_payment] START =========="
+        )
+        
+        print(f"========== [_apply_payment] END ==========\n")
+    except Exception as e:
+        print(f"[_apply_payment] ❌ ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 @api_router.post("/payments/{payment_id}/complete")
 async def complete_payment(payment_id: str, user: dict = Depends(get_current_user)):
     payment = await db.payments.find_one({"id": payment_id, "user_id": user["id"]})
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found")
     
+    # Mark payment completed
     await db.payments.update_one({"id": payment_id}, {"$set": {"status": "completed"}})
-    
-    # If subscription payment, update subscription
-    if payment.get("subscription_id"):
-        sub = await db.user_subscriptions.find_one({"id": payment["subscription_id"]})
-        if sub:
-            new_payments = sub["payments_made"] + 1
-            new_total = sub["total_paid"] + payment["amount"]
-            await db.user_subscriptions.update_one(
-                {"id": payment["subscription_id"]},
-                {"$set": {"payments_made": new_payments, "total_paid": new_total}}
+
+    created_subscription_id = None
+
+    # If payment contained a subscription_payload, create the subscription now (post-payment)
+    if payment.get("subscription_payload") and not payment.get("subscription_id") and not payment.get("applied_to_subscription_creation"):
+        payload = payment.get("subscription_payload") or {}
+        print(f"[complete_payment] Found subscription_payload on payment {payment_id}: {payload}")
+        # Derive store_id
+        store_id = payment.get("store_id") or payload.get("store_id") or payload.get("store_id")
+        plan_id = payload.get("plan_id")
+        # Derive monthly_amount defensively: prefer payload, fall back to payment.amount
+        monthly_amount = payload.get("monthly_amount") or payment.get("amount") or 0
+        try:
+            monthly_amount = float(monthly_amount)
+        except Exception:
+            monthly_amount = 0.0
+
+        # Validate plan
+        plan = await db.subscription_plans.find_one({"id": plan_id, "store_id": store_id}, {"_id": 0})
+        print(f"[complete_payment] plan lookup result for plan_id={plan_id}, store_id={store_id}: {bool(plan)}")
+        if not plan:
+            raise HTTPException(status_code=400, detail="Plan not found for subscription creation")
+
+        # Validate amount if fixed
+        scheme_type = plan.get("scheme_type", "fixed")
+        if scheme_type == "fixed":
+            min_amount = plan.get("min_amount", 500)
+            max_amount = plan.get("max_amount", 100000)
+            if monthly_amount < min_amount or monthly_amount > max_amount:
+                raise HTTPException(status_code=400, detail=f"Monthly amount must be between {min_amount} and {max_amount}")
+
+        # If payment amount is zero or invalid, do not create subscription here
+        payment_amount = payment.get("amount", 0) or 0
+        if payment_amount <= 0:
+            print(f"[complete_payment] Payment {payment_id} has zero or invalid amount ({payment_amount}); skipping subscription creation")
+            await db.payments.update_one({"id": payment_id}, {"$set": {"applied_to_subscription_creation": False}})
+            return {"message": "Payment completed but subscription creation skipped due to zero amount", "status": "completed"}
+
+        # Before creating, try to find an existing subscription only when an explicit order_id is present.
+        # Matching by user+plan caused unintended linking to previous active subscriptions.
+        created_subscription_id = None
+        existing_sub = None
+        try:
+            if payload.get("order_id"):
+                existing_sub = await db.user_subscriptions.find_one({"order_id": payload.get("order_id")})
+        except Exception:
+            existing_sub = None
+
+        if existing_sub:
+            created_subscription_id = existing_sub.get("id")
+            await db.payments.update_one({"id": payment_id}, {"$set": {"subscription_id": created_subscription_id, "applied_to_subscription_creation": True}})
+            print(f"[complete_payment] Linked payment {payment_id} to existing subscription {created_subscription_id}")
+        else:
+            sub_id = str(uuid.uuid4())
+            order_id = await get_next_order_id(store_id)
+            now = datetime.now(timezone.utc)
+            
+            # Maturity date only for fixed schemes
+            maturity_date_val = None
+            if scheme_type == "fixed":
+                duration_months = plan.get("duration_months", 12)
+                maturity = now + timedelta(days=duration_months * 30)
+                maturity_date_val = maturity.isoformat()
+
+            sub_doc = {
+                "id": sub_id,
+                "order_id": order_id,
+                "user_id": user["id"],
+                "user_email": user.get("email"),
+                "user_name": user.get("name"),
+                "store_id": store_id,
+                "plan_id": plan["id"],
+                "plan_name": plan["name"],
+                "plan_type": plan.get("plan_type", ""),
+                "scheme_type": scheme_type,
+                "metal_purity_key": payload.get("metal_purity_key") or plan.get("metal_purity_key"),
+                "target_metal": plan.get("target_metal"),
+                "monthly_amount": monthly_amount,
+                "payments_made": 1,
+                "total_paid": payment.get("amount", 0),
+                # accumulated metal computed server-side on payment processing
+                "accumulated_weight_grams": 0.0,
+                "status": "active",
+                "start_date": now.isoformat(),
+                "created_at": now.isoformat()
+            }
+            # Only set maturity_date for fixed schemes
+            if maturity_date_val:
+                sub_doc["maturity_date"] = maturity_date_val
+
+            await db.user_subscriptions.insert_one(sub_doc)
+            created_subscription = await db.user_subscriptions.find_one({"id": sub_id}, {"_id": 0})
+            created_subscription_id = created_subscription.get("id")
+
+            # Log subscription creation
+            await store_log(
+                store_id,
+                "subscription_plans",
+                f"Subscription created: {sub_doc['plan_name']} for {sub_doc['user_email']}",
+                context={
+                    "subscription_id": sub_id,
+                    "plan_id": plan["id"],
+                    "user_id": user["id"],
+                    "monthly_amount": monthly_amount
+                },
+                raw_log="========== [complete_payment] START =========="
             )
-    
-    return {"message": "Payment completed successfully", "status": "completed"}
+
+            # Link payment to subscription
+            await db.payments.update_one({"id": payment_id}, {"$set": {"subscription_id": created_subscription_id, "applied_to_subscription_creation": True}})
+            print(f"[complete_payment] Created subscription {created_subscription_id} for payment {payment_id}")
+            # Apply payment to subscription (compute net/tax/grams and update both payment and subscription totals)
+            await _apply_payment_to_subscription(payment_id, created_subscription_id)
+    # If subscription payment (existing or newly created), update subscription payment counts
+    if payment.get("subscription_id") or created_subscription_id:
+        sub_id_to_update = payment.get("subscription_id") or created_subscription_id
+        sub = await db.user_subscriptions.find_one({"id": sub_id_to_update})
+        if sub:
+            # Guard: avoid double-applying a payment if a subscription_payments record
+            # already exists for the same subscription/user/amount around the same time.
+            try:
+                payment_created = payment.get("created_at") or payment.get("created_at")
+                if isinstance(payment_created, datetime):
+                    center_dt = payment_created
+                elif isinstance(payment_created, str):
+                    try:
+                        center_dt = datetime.fromisoformat(payment_created)
+                    except Exception:
+                        # last resort: parse via datetime constructor
+                        try:
+                            center_dt = datetime.fromisoformat(str(payment_created))
+                        except Exception:
+                            center_dt = None
+                else:
+                    center_dt = None
+
+                if center_dt:
+                    from_date = (center_dt - timedelta(seconds=120)).isoformat()
+                    to_date = (center_dt + timedelta(seconds=120)).isoformat()
+                else:
+                    from_date = None
+                    to_date = None
+            except Exception:
+                from_date = None
+                to_date = None
+            duplicate_found = False
+            try:
+                query = {"subscription_id": sub_id_to_update, "user_id": user["id"], "amount": payment.get("amount", 0)}
+                if from_date and to_date:
+                    query["payment_date"] = {"$gte": from_date, "$lte": to_date}
+                existing_subpay = await db.subscription_payments.find_one(query)
+                if existing_subpay:
+                    duplicate_found = True
+            except Exception:
+                duplicate_found = False
+
+            if duplicate_found:
+                # Link payment to subscription but skip updating subscription counters to avoid double-count.
+                await db.payments.update_one({"id": payment_id}, {"$set": {"subscription_id": sub_id_to_update}})
+                print(f"[complete_payment] Skipping subscription update for payment {payment_id} (already recorded via subscription_payments)")
+                return {"message": "Payment completed successfully", "status": "completed", "subscription_id": sub_id_to_update}
+            # Apply payment to subscription (compute/update totals)
+            await _apply_payment_to_subscription(payment_id, sub_id_to_update)
+            return {"message": "Payment completed successfully", "status": "completed", "subscription_id": sub_id_to_update}
+
+    resp = {"message": "Payment completed successfully", "status": "completed"}
+    if created_subscription_id:
+        resp["subscription_id"] = created_subscription_id
+    return resp
 
 
 async def trigger_shiprocket_shipment(store_id: str, order_id: str):
@@ -2806,20 +3517,42 @@ async def trigger_shiprocket_shipment(store_id: str, order_id: str):
         # Parse Date
         order_date = datetime.now().strftime("%Y-%m-%d %H:%M") # Current time as shipment creation time
         
+        # Map our address fields to Shiprocket expected keys. Our address documents use
+        # `full_name`, `address_line1`, `address_line2`, `city`, `state`, `postal_code`, `country`, `phone`.
+        billing_name = address.get("full_name") or user.get("name", "Customer")
+        billing_addr_line = (address.get("address_line1") or "") + (" " + (address.get("address_line2") or "") if address.get("address_line2") else "")
+        billing_city = address.get("city") or ""
+        billing_pincode = address.get("postal_code") or ""
+        billing_state = address.get("state") or ""
+        billing_country = address.get("country") or "India"
+        billing_phone = address.get("phone") or user.get("phone") or "9999999999"
+
+        pickup_location = ship_config.get("pickup_location") or "Primary"
+
         payload = {
             "order_id": order_id,
             "order_date": order_date,
-            "pickup_location": "Primary", # User might need to configure this in settings but "Primary" is default
-            "billing_customer_name": address.get("name") or user.get("name", "Customer"),
+            "pickup_location": pickup_location,
+            "billing_customer_name": billing_name,
             "billing_last_name": "",
-            "billing_address": address.get("street1", "") + " " + address.get("street2", ""),
-            "billing_city": address.get("city"),
-            "billing_pincode": address.get("postal_code"),
-            "billing_state": address.get("state"),
-            "billing_country": address.get("country", "India"),
+            "billing_address": billing_addr_line,
+            "billing_city": billing_city,
+            "billing_pincode": billing_pincode,
+            "billing_state": billing_state,
+            "billing_country": billing_country,
             "billing_email": user.get("email"),
-            "billing_phone": address.get("phone") or "9999999999",
+            "billing_phone": billing_phone,
             "shipping_is_billing": True,
+            # When Shiprocket expects explicit shipping fields, mirror billing values
+            "shipping_customer_name": billing_name,
+            "shipping_last_name": "",
+            "shipping_address": billing_addr_line,
+            "shipping_city": billing_city,
+            "shipping_pincode": billing_pincode,
+            "shipping_state": billing_state,
+            "shipping_country": billing_country,
+            "shipping_email": user.get("email"),
+            "shipping_phone": billing_phone,
             "order_items": order_items,
             "payment_method": "Prepaid",
             "shipping_charges": order.get("shipping_charges", 0),
@@ -2840,27 +3573,180 @@ async def trigger_shiprocket_shipment(store_id: str, order_id: str):
         
         if res and res.get("order_id"): # Shiprocket Order ID
              await log_shiprocket(store_id, "create_order_success", "success", response=res)
-             
-             # Update Order with tracking info
+
+             # Normalize tracking and carrier values from Shiprocket response
+             tracking_val = res.get("awb_code") or res.get("shipment_id") or res.get("order_id")
+             carrier_val = res.get("courier_name") or res.get("courier") or "Shiprocket"
+
+             # Update Order with tracking info and store full Shiprocket response
              await db.orders.update_one(
                  {"id": order_id},
                  {"$set": {
-                     "tracking_number": str(res.get("shipment_id", "")), # Using shipment_id as ref
-                     "carrier_name": "Shiprocket",
-                     "notes": (order.get("notes") or "") + f" | Shiprocket ID: {res.get('order_id')}"
+                     "tracking_number": str(tracking_val),
+                     "carrier_name": carrier_val,
+                     "notes": (order.get("notes") or "") + f" | Shiprocket ID: {res.get('order_id')}",
+                     "shiprocket_response": res
                  }}
              )
         else:
              await log_shiprocket(store_id, "create_order_failed", "failed", response=res)
+             # Persist the failure response on the order for debugging/traceability
+             try:
+                 await db.orders.update_one({"id": order_id}, {"$set": {"shiprocket_response": res, "updated_at": datetime.now(timezone.utc).isoformat()}})
+             except Exception:
+                 pass
 
     except Exception as e:
         logger.error(f"Failed to trigger shiprocket: {e}")
         await log_shiprocket(store_id, "trigger_error", "error", error=str(e))
 
+
+# ----------------------
+# Admin Shiprocket Actions
+# ----------------------
+@api_router.post("/stores/{store_id}/admin/orders/{order_id}/shiprocket/create")
+async def admin_create_shiprocket_order(store_id: str, order_id: str, user: dict = Depends(get_current_user)):
+    # Only store admins or super_admin allowed
+    if user.get("role") not in ("super_admin", "store_admin") and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    order = await db.orders.find_one({"id": order_id, "store_id": store_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    try:
+        await trigger_shiprocket_shipment(store_id, order_id)
+        updated = await db.orders.find_one({"id": order_id})
+        return {"message": "Shiprocket create requested", "order": updated}
+    except Exception as e:
+        logger.error(f"Admin create shiprocket failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/stores/{store_id}/admin/orders/{order_id}/shiprocket/sync")
+async def admin_sync_shiprocket_order(store_id: str, order_id: str, user: dict = Depends(get_current_user)):
+    if user.get("role") not in ("super_admin", "store_admin") and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    order = await db.orders.find_one({"id": order_id, "store_id": store_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    sr = order.get("shiprocket_response") or {}
+    sr_order_id = sr.get("order_id") or sr.get("data", {}).get("order_id")
+    if not sr_order_id:
+        raise HTTPException(status_code=400, detail="No Shiprocket order_id found on this order")
+
+    try:
+        ship_config = await db.store_shipping_config.find_one({"store_id": store_id})
+        token = await get_shiprocket_token(ship_config["email"], ship_config["password"])
+        # Log pending sync
+        await log_shiprocket(store_id, "sync_order_request", "pending", {"sr_order_id": sr_order_id})
+
+        # Try to fetch order status from Shiprocket
+        res = await call_shiprocket_api(token, 'GET', f"/orders/{sr_order_id}", store_id=store_id)
+
+        # Persist shiprocket response and update tracking/carrier if present
+        tracking_val = res.get("awb_code") or res.get("shipment_id") or res.get("order_id")
+        carrier_val = res.get("courier_name") or res.get("courier")
+
+        await db.orders.update_one({"id": order_id}, {"$set": {"shiprocket_response": res, "tracking_number": tracking_val or order.get("tracking_number"), "carrier_name": carrier_val or order.get("carrier_name"), "updated_at": datetime.now(timezone.utc).isoformat()}})
+
+        await log_shiprocket(store_id, "sync_order", "success", response=res)
+
+        updated = await db.orders.find_one({"id": order_id})
+        return {"message": "Synced with Shiprocket", "shiprocket_response": res, "order": updated}
+    except Exception as e:
+        logger.error(f"Sync shiprocket failed: {e}")
+        await log_shiprocket(store_id, "sync_order", "error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.post("/stores/{store_id}/admin/orders/{order_id}/shiprocket/cancel")
+async def admin_cancel_shiprocket_order(store_id: str, order_id: str, user: dict = Depends(get_current_user)):
+    if user.get("role") not in ("super_admin", "store_admin") and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    order = await db.orders.find_one({"id": order_id, "store_id": store_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    sr = order.get("shiprocket_response") or {}
+    sr_order_id = sr.get("order_id") or sr.get("data", {}).get("order_id")
+    if not sr_order_id:
+        raise HTTPException(status_code=400, detail="No Shiprocket order_id found on this order")
+
+    try:
+        ship_config = await db.store_shipping_config.find_one({"store_id": store_id})
+        token = await get_shiprocket_token(ship_config["email"], ship_config["password"])
+
+        # Attempt cancel via common Shiprocket cancel endpoints
+        # Try POST /orders/cancel (body with order_id), else /orders/cancel/{order_id}
+        try:
+            res = await call_shiprocket_api(token, 'POST', '/orders/cancel', payload={"order_id": sr_order_id}, store_id=store_id)
+        except Exception:
+            res = await call_shiprocket_api(token, 'POST', f'/orders/cancel/{sr_order_id}', store_id=store_id)
+
+        await log_shiprocket(store_id, "cancel_order", "success", response=res)
+        await db.orders.update_one({"id": order_id}, {"$set": {"shiprocket_response": res, "updated_at": datetime.now(timezone.utc).isoformat()}})
+        updated = await db.orders.find_one({"id": order_id})
+        return {"message": "Cancel requested", "response": res, "order": updated}
+    except Exception as e:
+        logger.error(f"Cancel shiprocket failed: {e}")
+        await log_shiprocket(store_id, "cancel_order", "error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.post("/stores/{store_id}/admin/orders/{order_id}/shiprocket/{action}")
+async def admin_shiprocket_action(store_id: str, order_id: str, action: str, user: dict = Depends(get_current_user)):
+    """Generic admin action endpoint for Shiprocket; actions like 'ship', 'pickup_schedule', 'generate_label'.
+    This will attempt a best-effort proxy to Shiprocket; if not supported, returns 501.
+    """
+    if user.get("role") not in ("super_admin", "store_admin") and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    order = await db.orders.find_one({"id": order_id, "store_id": store_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    sr = order.get("shiprocket_response") or {}
+    sr_order_id = sr.get("order_id") or sr.get("data", {}).get("order_id")
+    if not sr_order_id:
+        raise HTTPException(status_code=400, detail="No Shiprocket order_id found on this order")
+
+    ship_config = await db.store_shipping_config.find_one({"store_id": store_id})
+    try:
+        token = await get_shiprocket_token(ship_config["email"], ship_config["password"])
+
+        # Log pending action
+        await log_shiprocket(store_id, f"{action}_request", "pending", {"sr_order_id": sr_order_id})
+
+        if action == 'ship':
+            # Attempt to create/assign shipment (best-effort)
+            res = await call_shiprocket_api(token, 'POST', f'/orders/ship/{sr_order_id}', payload={}, store_id=store_id)
+        elif action == 'pickup_schedule':
+            res = await call_shiprocket_api(token, 'POST', f'/shipments/pickup', payload={"order_id": sr_order_id}, store_id=store_id)
+        elif action == 'generate_label':
+            res = await call_shiprocket_api(token, 'POST', f'/orders/print/labels', payload={"order_id": sr_order_id}, store_id=store_id)
+        else:
+            raise HTTPException(status_code=501, detail=f"Action '{action}' not implemented for Shiprocket proxy")
+
+        await log_shiprocket(store_id, f"{action}", "success", response=res)
+        await db.orders.update_one({"id": order_id}, {"$set": {"shiprocket_response": res, "updated_at": datetime.now(timezone.utc).isoformat()}})
+        updated = await db.orders.find_one({"id": order_id})
+        return {"message": f"Action {action} requested", "response": res, "order": updated}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Shiprocket action {action} failed: {e}")
+        await log_shiprocket(store_id, action, "error", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
 @api_router.post("/payments/verify")
-async def verify_payment(verification: PaymentVerification, user: dict = Depends(get_current_user)):
+async def verify_payment(verification: PaymentVerification, user: Optional[dict] = Depends(get_optional_user)):
     """Verify Razorpay payment signature"""
-    payment = await db.payments.find_one({"id": verification.payment_id, "user_id": user["id"]})
+    # Allow verification without requiring an authenticated user; fall back to payment.user_id when needed
+    payment = await db.payments.find_one({"id": verification.payment_id})
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found")
     
@@ -2886,17 +3772,19 @@ async def verify_payment(verification: PaymentVerification, user: dict = Depends
                         "payment_method": "online"
                     }}
                 )
-                # Trigger Shiprocket
-                try:
-                    await trigger_shiprocket_shipment(store_id, payment["order_id"])
-                except Exception as e:
-                    logger.error(f"Async shiprocket trigger failed: {e}")
+                # Shiprocket creation is now an admin-triggered workflow.
+                # Previously we automatically created a Shiprocket order here;
+                # that behavior was removed so that store admins can control shipment creation.
             # ---------------------------------------------------------------------
     
     # If not found via order, try subscription
     if not store and payment.get("subscription_id"):
         sub = await db.user_subscriptions.find_one({"id": payment["subscription_id"]})
         if sub:
+            # If this payment was already applied to a subscription, skip further processing
+            if payment.get("applied_to_subscription"):
+                await db.payments.update_one({"id": payment.get("id")}, {"$set": {"subscription_id": payment.get("subscription_id")}})
+                return {"message": "Payment verified and linked to subscription (already recorded)", "status": "completed", "subscription_id": payment.get("subscription_id")}
             store_id = sub.get("store_id")
             store = await db.stores.find_one({"id": store_id})
     
@@ -2941,19 +3829,212 @@ async def verify_payment(verification: PaymentVerification, user: dict = Depends
             "completed_at": datetime.now(timezone.utc).isoformat()
         }}
     )
+
+    # After marking payment completed, if payment contains a subscription_payload and no subscription_id, create subscription now
+    payment = await db.payments.find_one({"id": verification.payment_id})
+    created_subscription_id = None
+    try:
+        if payment and payment.get("subscription_payload") and not payment.get("subscription_id") and not payment.get("applied_to_subscription_creation"):
+            payload = payment.get("subscription_payload") or {}
+            print(f"[verify_payment] Found subscription_payload on payment {verification.payment_id}: {payload}")
+            store_id = payment.get("store_id") or payload.get("store_id")
+            plan_id = payload.get("plan_id")
+            # Derive monthly_amount defensively: prefer payload, fall back to payment.amount
+            monthly_amount = payload.get("monthly_amount") or payment.get("amount") or 0
+            try:
+                monthly_amount = float(monthly_amount)
+            except Exception:
+                monthly_amount = 0.0
+
+            plan = await db.subscription_plans.find_one({"id": plan_id, "store_id": store_id}, {"_id": 0})
+            if plan:
+                scheme_type = plan.get("scheme_type", "fixed")
+                if scheme_type == "fixed":
+                    min_amount = plan.get("min_amount", 500)
+                    max_amount = plan.get("max_amount", 100000)
+                    if monthly_amount < min_amount or monthly_amount > max_amount:
+                        raise HTTPException(status_code=400, detail=f"Monthly amount must be between {min_amount} and {max_amount}")
+
+                # If payment amount is zero or invalid, do not create subscription here
+                payment_amount = payment.get("amount", 0) or 0
+                if payment_amount <= 0:
+                    print(f"[verify_payment] Payment {verification.payment_id} has zero or invalid amount ({payment_amount}); skipping subscription creation")
+                    await db.payments.update_one({"id": verification.payment_id}, {"$set": {"applied_to_subscription_creation": False}})
+                else:
+                    # Before creating, try to find an existing subscription only when an explicit order_id is present.
+                    created_subscription_id = None
+                    existing_sub = None
+                    try:
+                        if payload.get("order_id"):
+                            existing_sub = await db.user_subscriptions.find_one({"order_id": payload.get("order_id")})
+                    except Exception:
+                        existing_sub = None
+
+                if existing_sub:
+                    created_subscription_id = existing_sub.get("id")
+                    await db.payments.update_one({"id": verification.payment_id}, {"$set": {"subscription_id": created_subscription_id, "applied_to_subscription_creation": True}})
+                    print(f"[verify_payment] Linked payment {verification.payment_id} to existing subscription {created_subscription_id}")
+                    # Apply payment now that it's linked
+                    await _apply_payment_to_subscription(verification.payment_id, created_subscription_id)
+                else:
+                    sub_id = str(uuid.uuid4())
+                    order_id = await get_next_order_id(store_id)
+                    now = datetime.now(timezone.utc)
+                    
+                    # Maturity date only for fixed schemes
+                    maturity_date_val = None
+                    if scheme_type == "fixed":
+                        duration_months = plan.get("duration_months", 12)
+                        maturity = now + timedelta(days=duration_months * 30)
+                        maturity_date_val = maturity.isoformat()
+
+                    # Resolve user email safely (await cannot be used inside an expression with optional chaining)
+                    user_email = None
+                    if payment.get("user_id"):
+                        user_doc = await db.users.find_one({"id": payment.get("user_id")}, {"_id": 0})
+                        if user_doc:
+                            user_email = user_doc.get("email")
+
+                    sub_doc = {
+                        "id": sub_id,
+                        "order_id": order_id,
+                        "user_id": payment.get("user_id"),
+                        "user_email": user_email,
+                        "user_name": None,
+                        "store_id": store_id,
+                        "plan_id": plan["id"],
+                        "plan_name": plan["name"],
+                        "plan_type": plan.get("plan_type", ""),
+                        "scheme_type": scheme_type,
+                        "metal_purity_key": payload.get("metal_purity_key") or plan.get("metal_purity_key"),
+                        "target_metal": plan.get("target_metal"),
+                        # Do not accept frontend-provided accumulated grams to avoid double-counting;
+                        # accumulated metal will be computed server-side from payment amounts on completion.
+                        "accumulated_weight_grams": 0.0,
+                        "monthly_amount": monthly_amount,
+                        "payments_made": 1,
+                        "total_paid": payment.get("amount", 0),
+                        
+                        "status": "active",
+                        "start_date": now.isoformat(),
+                        "created_at": now.isoformat()
+                    }
+                    # Only set maturity_date for fixed schemes
+                    if maturity_date_val:
+                        sub_doc["maturity_date"] = maturity_date_val
+
+                    await db.user_subscriptions.insert_one(sub_doc)
+                    created = await db.user_subscriptions.find_one({"id": sub_id}, {"_id": 0})
+                    created_subscription_id = created.get("id")
+                    # Link payment to subscription
+                    await db.payments.update_one({"id": verification.payment_id}, {"$set": {"subscription_id": created_subscription_id, "applied_to_subscription_creation": True}})
+                    print(f"[verify_payment] Created subscription {created_subscription_id} for payment {verification.payment_id}")
+                    # Apply payment to subscription now that it exists
+                    await _apply_payment_to_subscription(verification.payment_id, created_subscription_id)
+    except Exception as e:
+        logger.error(f"Failed to create subscription after payment verification: {e}")
+
+    # Also attach payment details to the order document (if this payment belongs to an order)
+    if payment.get("order_id"):
+        try:
+            await db.orders.update_one(
+                {"id": payment.get("order_id")},
+                {"$set": {
+                    "payment_status": "paid",
+                    "payment_method": "online",
+                    "payment_info": {
+                        "payment_id": verification.payment_id,
+                        "razorpay_payment_id": verification.razorpay_payment_id,
+                        "razorpay_order_id": verification.razorpay_order_id,
+                        "payment_record_id": payment.get("id"),
+                        "amount": payment.get("amount")
+                    }
+                }}
+            )
+            # Also set the amount received on the order record
+            try:
+                await db.orders.update_one({"id": payment.get("order_id")}, {"$set": {"payment_received_amount": payment.get("amount", 0)}})
+            except Exception as e:
+                logger.error(f"Failed to set payment_received_amount on order {payment.get('order_id')}: {e}")
+            # Clear the user's cart for this store since order payment completed
+            try:
+                now = datetime.now(timezone.utc).isoformat()
+                order = await db.orders.find_one({"id": payment.get("order_id")})
+                if order and order.get("store_id") and user and user.get("id"):
+                    await db.carts.update_one(
+                        {"store_id": order.get("store_id"), "user_id": user["id"]},
+                        {"$set": {"items": [], "updated_at": now}}
+                    )
+            except Exception as e:
+                logger.error(f"Failed to clear cart after payment for order {payment.get('order_id')}: {e}")
+        except Exception as e:
+            logger.error(f"Failed to update order with payment info: {e}")
     
     # If subscription payment, update subscription
     if payment.get("subscription_id"):
+        if payment.get("applied_to_subscription"):
+            print(f"[verify_payment] Payment {verification.payment_id} already applied to subscription {payment['subscription_id']}, skipping")
+            return resp
         sub = await db.user_subscriptions.find_one({"id": payment["subscription_id"]})
         if sub:
+            sub_id_to_update = sub.get("id")
+            # Guard: avoid double-applying a payment if a subscription_payments record
+            # already exists for the same subscription/user/amount around the same time.
+            try:
+                payment_created = payment.get("created_at") or payment.get("created_at")
+                if isinstance(payment_created, datetime):
+                    center_dt = payment_created
+                elif isinstance(payment_created, str):
+                    try:
+                        center_dt = datetime.fromisoformat(payment_created)
+                    except Exception:
+                        center_dt = None
+                else:
+                    center_dt = None
+                if center_dt:
+                    from_date = (center_dt - timedelta(seconds=120)).isoformat()
+                    to_date = (center_dt + timedelta(seconds=120)).isoformat()
+                else:
+                    from_date = None
+                    to_date = None
+            except Exception:
+                from_date = None
+                to_date = None
+            try:
+                query = {"subscription_id": payment.get("subscription_id"), "user_id": payment.get("user_id"), "amount": payment.get("amount", 0)}
+                if from_date and to_date:
+                    query["payment_date"] = {"$gte": from_date, "$lte": to_date}
+                existing_subpay = await db.subscription_payments.find_one(query)
+                if existing_subpay:
+                    # Link payment to subscription but skip updating subscription counters
+                    await db.payments.update_one({"id": payment.get("id")}, {"$set": {"subscription_id": payment.get("subscription_id")}})
+                    return {"message": "Payment verified and linked to subscription (already recorded)", "status": "completed", "subscription_id": payment.get("subscription_id")}
+            except Exception:
+                pass
             # Handle Closure Payment
             if payment.get("type") == "closure":
                 metadata = payment.get("metadata", {})
-                needed_grams = metadata.get("needed_grams", 0.0)
+                shipping_charges = metadata.get("shipping_charges", 0.0)
+                # Safely pull accumulated grams before computing fallbacks
+                current_accumulated = sub.get("accumulated_weight_grams", 0.0)
+                # Fallbacks: if needed_grams is missing, derive from target_grams - accumulated
+                raw_needed = metadata.get("needed_grams")
+                raw_target = metadata.get("target_grams")
+                try:
+                    needed_grams = float(raw_needed) if raw_needed is not None else None
+                except Exception:
+                    needed_grams = None
+                try:
+                    target_grams = float(raw_target) if raw_target is not None else None
+                except Exception:
+                    target_grams = None
+                if needed_grams is None and target_grams is not None:
+                    needed_grams = max(target_grams - (float(current_accumulated) or 0.0), 0.0)
+                if target_grams is None:
+                    target_grams = (float(current_accumulated) or 0.0) + (float(needed_grams or 0.0))
                 
                 # Update Subscription
-                current_accumulated = sub.get("accumulated_weight_grams", 0.0)
-                final_accumulated = current_accumulated + needed_grams
+                final_accumulated = (float(current_accumulated) or 0.0) + (float(needed_grams or 0.0))
                 
                 await db.user_subscriptions.update_one(
                     {"id": payment["subscription_id"]},
@@ -2975,37 +4056,155 @@ async def verify_payment(verification: PaymentVerification, user: dict = Depends
                      if addr:
                          address_snapshot = {k: v for k, v in addr.items() if k != "_id"}
 
+                # Recalculate from preview data to get exact breakdown
+                plan = await db.subscription_plans.find_one({"id": sub["plan_id"]})
+                target_metal = (plan.get("target_metal") or "gold").lower() if plan else "gold"
+                
+                # Get market price
+                market_prices = await db.store_market_prices.find_one({"store_id": sub["store_id"]})
+                prices = market_prices.get("prices", {}) if market_prices else {}
+                
+                # Get price for the gold
+                rate_used = 0.0
+                if plan and plan.get("metal_purity_key") and prices.get(plan.get("metal_purity_key")):
+                    rate_used = float(prices.get(plan.get("metal_purity_key")))
+                elif target_metal == 'gold':
+                    rate_used = float(prices.get("gold_24") or prices.get("gold_22") or 0)
+                elif target_metal == 'silver':
+                    rate_used = float(prices.get("silver_1g") or 0)
+                elif target_metal == 'platinum':
+                    rate_used = float(prices.get("platinum_1g") or 0)
+                
+                if rate_used <= 0: rate_used = 5000.0
+                
+                # Get tax rate
+                tax_config = await db.store_tax_config.find_one({"store_id": sub["store_id"]})
+                tax_rate = 0.0
+                if tax_config:
+                    metal_tax = next((m for m in tax_config.get("metal_taxes", []) if m.get("metal") == target_metal and m.get("is_enabled")), None)
+                    if metal_tax:
+                        cgst = metal_tax["tax_rate"].get("cgst", 0)
+                        igst = metal_tax["tax_rate"].get("igst", 0)
+                        try:
+                            cgst_val = float(cgst)
+                        except Exception:
+                            cgst_val = 0.0
+                        try:
+                            igst_val = float(igst)
+                        except Exception:
+                            igst_val = 0.0
+                        if cgst_val > 1: cgst_val = cgst_val / 100.0
+                        if igst_val > 1: igst_val = igst_val / 100.0
+                        tax_rate = cgst_val + igst_val
+                
+                # Calculate gold cost and tax
+                base_gold_cost = needed_grams * rate_used
+                gold_cost = base_gold_cost
+                tax_amount = base_gold_cost * tax_rate
+                
+                # Update payment record with rate and grams purchased (for transaction history)
+                await db.payments.update_one(
+                    {"id": payment["id"]},
+                    {"$set": {
+                        "market_price_per_gram": rate_used,
+                        "grams_purchased": needed_grams,
+                        "completed_at": datetime.now(timezone.utc).isoformat()
+                    }}
+                )
+                
+                # Calculate totals for subscription from payment logs
+                all_completed_payments = await db.payments.find({"subscription_id": payment["subscription_id"], "status": "completed", "type": {"$ne": "closure"}}).to_list(None)
+                # Include subscription_payments as well
+                sub_payments = await db.subscription_payments.find({"subscription_id": payment["subscription_id"]}).to_list(None)
+                total_paid_for_subscription = sum(p.get("amount", 0) for p in all_completed_payments) + sum(sp.get("amount", 0) for sp in sub_payments)
+                total_tax_paid = sum(p.get("tax_amount", 0) if p.get("tax_amount") is not None else 0 for p in all_completed_payments)
+                # Prefer subscription's total_paid if available
+                try:
+                    sub_total_paid_val = float(sub.get("total_paid", 0.0))
+                    if sub_total_paid_val > 0:
+                        total_paid_for_subscription = sub_total_paid_val
+                except Exception:
+                    pass
+
+                # Construct redemption coin image URL based on metal type
+                store_id = sub.get("store_id")
+                coin_image_filename = f"redemption_{target_metal}_coin.png"
+                redemption_image_url = f"http://localhost:8001/static/{store_id}/products/redemption/{coin_image_filename}"
+
                 order_doc = {
                     "id": order_id,
-                    "store_id": sub.get("store_id"),
-                    "user_id": user["id"],
+                    "store_id": store_id,
+                    "user_id": payment.get("user_id") or (user["id"] if user else None),
                     "items": [{
                         "product_id": "redemption_coin",
-                        "product_name": f"{plan_name} Redemption Coin ({final_accumulated:.3f}g)",
+                        "product_name": f"{plan_name} Redemption Coin ({target_grams:.3f}g)",
                         "quantity": 1,
-                        "price": 0, # Already paid via subscription
+                        "price": float(gold_cost + tax_amount),
                         "weight_grams": final_accumulated,
-                        "image": None 
+                        "image": redemption_image_url
                     }],
-                    "total_amount": payment["amount"], # The closure payment amount (includes shipping)
+                    # For redemption orders created from subscriptions, show the user's total paid across the plan
+                    "total_amount": float(sub.get("total_paid", 0.0)),
                     "status": "placed", 
                     "payment_status": "paid",
                     "payment_method": "online", # Razorpay
                     "shipping_address_id": metadata.get("address_id"),
                     "shipping_address": address_snapshot,
-                    "shipping_charges": metadata.get("shipping_charges", 0.0),
+                    "shipping_charges": shipping_charges,
+                    "tax_amount": tax_amount,
+                    "gold_cost": gold_cost,
+                    "accumulated_grams": float(current_accumulated or 0.0),
+                    "additional_grams": needed_grams,
+                    "target_grams": float(target_grams or final_accumulated),
+                    "total_paid_for_subscription": total_paid_for_subscription,
+                    "total_tax_paid_for_subscription": total_tax_paid,
                     "notes": f"Subscription Closure for {payment['subscription_id']}",
                     "created_at": datetime.now(timezone.utc).isoformat(),
                     "updated_at": datetime.now(timezone.utc).isoformat()
                 }
                 await db.orders.insert_one(order_doc)
                 
-                # --- UPDATE: Trigger Shiprocket for Redempion ---
+                # Link payment to this order and attach payment info so UI shows Amount Paid
                 try:
-                    await trigger_shiprocket_shipment(sub.get("store_id"), order_id)
+                    # Save order_id on payment for traceability
+                    await db.payments.update_one({"id": payment.get("id")}, {"$set": {"order_id": order_id}})
+                    # Attach payment details and the received amount on the order
+                    await db.orders.update_one(
+                        {"id": order_id},
+                        {"$set": {
+                            "payment_status": "paid",
+                            "payment_method": "online",
+                            "payment_info": {
+                                "payment_id": verification.payment_id,
+                                "razorpay_payment_id": verification.razorpay_payment_id,
+                                "razorpay_order_id": verification.razorpay_order_id,
+                                "payment_record_id": payment.get("id"),
+                                "amount": payment.get("amount")
+                            },
+                            "payment_received_amount": payment.get("amount", 0)
+                        }}
+                    )
                 except Exception as e:
-                    logger.error(f"Async shiprocket trigger failed: {e}")
-                # -----------------------------------------------
+                    logger.error(f"Failed to update closure order {order_id} with payment info: {e}")
+
+                # Create a separate transaction entry for shipping charges
+                if shipping_charges > 0:
+                    shipping_transaction = {
+                        "id": str(uuid.uuid4()),
+                        "subscription_id": payment["subscription_id"],
+                        "user_id": payment.get("user_id") or (user["id"] if user else None),
+                        "store_id": sub.get("store_id"),
+                        "amount": shipping_charges,
+                        "type": "closure_shipping",
+                        "description": f"Shipping charges for closure - Order {order_id}",
+                        "order_id": order_id,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "updated_at": datetime.now(timezone.utc).isoformat()
+                    }
+                    await db.payments.insert_one(shipping_transaction)
+                
+                # Shiprocket creation for subscription redemptions is admin-triggered.
+                # Previously this automatically called Shiprocket here; behavior removed.
                 
                 return {"message": "Subscription closed and order placed", "status": "completed", "order_id": order_id}
 
@@ -3019,37 +4218,83 @@ async def verify_payment(verification: PaymentVerification, user: dict = Depends
                 market_prices_doc = await db.store_market_prices.find_one({"store_id": sub["store_id"]})
                 market_prices = market_prices_doc.get("prices", {}) if market_prices_doc else {}
                 
-                # Get tax config
+                # Get tax config and determine applicable tax rates for the plan's metal
                 tax_config = await db.store_tax_config.find_one({"store_id": sub["store_id"]})
                 target_metal = (plan.get("target_metal") or "gold").lower()
-                
+
                 rate_cgst = 0.0
                 rate_igst = 0.0
-                
+
                 if tax_config:
-                    metal_tax = next((m for m in tax_config.get("metal_taxes", []) if m["metal"] == target_metal and m["is_enabled"]), None)
+                    metal_tax = next((m for m in tax_config.get("metal_taxes", []) if m.get("metal") == target_metal and m.get("is_enabled")), None)
                     if metal_tax:
                         rate_cgst = metal_tax["tax_rate"]["cgst"]
                         rate_igst = metal_tax["tax_rate"]["igst"]
+                    else:
+                        # Fallback: if store defines a flat gst_rate, use it as the total tax.
+                        gst_rate = tax_config.get("gst_rate") if isinstance(tax_config, dict) else None
+                        if gst_rate is not None:
+                            try:
+                                gst_val = float(gst_rate)
+                            except Exception:
+                                gst_val = 0.0
+                            if gst_val > 1:
+                                gst_val = gst_val / 100.0
+                            # Distribute into CGST slot for downstream code; IGST remains 0
+                            rate_cgst = gst_val
                 
-                total_tax_rate = (rate_cgst + rate_igst) / 100
+                # Normalize rates: support either percentage values (e.g., 3) or decimal (0.03)
+                try:
+                    rate_cgst_val = float(rate_cgst)
+                except Exception:
+                    rate_cgst_val = 0.0
+                try:
+                    rate_igst_val = float(rate_igst)
+                except Exception:
+                    rate_igst_val = 0.0
+                if rate_cgst_val > 1:
+                    rate_cgst_val = rate_cgst_val / 100.0
+                if rate_igst_val > 1:
+                    rate_igst_val = rate_igst_val / 100.0
+
+                total_tax_rate = rate_cgst_val + rate_igst_val
                 
-                # Get Price
-                if target_metal == 'gold':
-                     price_per_gram_used = float(market_prices.get("gold_24") or market_prices.get("gold_22") or 0)
-                elif target_metal == 'silver':
-                     price_per_gram_used = float(market_prices.get("silver_1g") or 0)
-                elif target_metal == 'platinum':
-                     price_per_gram_used = float(market_prices.get("platinum_1g") or 0)
-                
-                # Fallback for dev/demo if prices not set
+                # Resolve preferred purity key in precedence:
+                # subscription.metal_purity_key -> payment.subscription_payload.metal_purity_key -> plan.metal_purity_key -> store.default_purity[target_metal] -> fallbacks
+                preferred_key = None
+                try:
+                    if sub.get("metal_purity_key"):
+                        preferred_key = sub.get("metal_purity_key")
+                    elif payment.get("subscription_payload") and isinstance(payment.get("subscription_payload"), dict) and payment.get("subscription_payload").get("metal_purity_key"):
+                        preferred_key = payment.get("subscription_payload").get("metal_purity_key")
+                    elif plan.get("metal_purity_key"):
+                        preferred_key = plan.get("metal_purity_key")
+                    else:
+                        default_map = market_prices_doc.get("default_purity", {}) if market_prices_doc else {}
+                        if default_map and default_map.get(target_metal):
+                            preferred_key = default_map.get(target_metal)
+                except Exception:
+                    preferred_key = None
+
+                if preferred_key and market_prices.get(preferred_key) is not None:
+                    try:
+                        price_per_gram_used = float(market_prices.get(preferred_key))
+                    except Exception:
+                        price_per_gram_used = 0.0
+                else:
+                    if target_metal == 'gold':
+                        price_per_gram_used = float(market_prices.get("gold_24") or market_prices.get("gold_22") or 0)
+                    elif target_metal == 'silver':
+                        price_per_gram_used = float(market_prices.get("silver_1g") or 0)
+                    elif target_metal == 'platinum':
+                        price_per_gram_used = float(market_prices.get("platinum_1g") or 0)
+
+                # Fallback defaults for dev/demo
                 if price_per_gram_used <= 0:
-                    if target_metal == 'gold': price_per_gram_used = 5000.0
-                    else: price_per_gram_used = 100.0
+                    price_per_gram_used = 5000.0 if target_metal == 'gold' else 100.0
 
                 if price_per_gram_used > 0:
-                    # Inclusive calculation: Gross = Net * (1 + Rate) => Net = Gross / (1 + Rate)
-                    net_amount = payment["amount"] / (1 + total_tax_rate)
+                    net_amount = payment["amount"] * (1 - total_tax_rate)
                     grams_purchased = net_amount / price_per_gram_used
 
             new_payments = sub["payments_made"] + 1
@@ -3065,14 +4310,23 @@ async def verify_payment(verification: PaymentVerification, user: dict = Depends
                 update_fields["accumulated_weight_grams"] = current_grams + grams_purchased
                 
                 # Update the payment record with weight and rate stats
-                await db.payments.update_one(
-                    {"id": verification.payment_id},
-                    {"$set": {
-                        "grams_purchased": grams_purchased,
-                        "market_price_per_gram": price_per_gram_used,
-                        "metal_type": target_metal
-                    }}
-                )
+                try:
+                    amt = payment.get("amount", 0)
+                    net_amount_calc = (amt * (1 - total_tax_rate)) if (total_tax_rate is not None) else amt
+                    tax_amount_calc = amt - net_amount_calc
+                    await db.payments.update_one(
+                        {"id": verification.payment_id},
+                        {"$set": {
+                            "grams_purchased": grams_purchased,
+                            "market_price_per_gram": price_per_gram_used,
+                            "metal_type": target_metal,
+                            "net_amount": net_amount_calc,
+                            "tax_amount": tax_amount_calc,
+                            "tax_rate": total_tax_rate
+                        }}
+                    )
+                except Exception:
+                    pass
 
             # Check maturity logic (Fixed Plans)
             if plan and plan.get("scheme_type") == "fixed":
@@ -3081,11 +4335,21 @@ async def verify_payment(verification: PaymentVerification, user: dict = Depends
                      update_fields["status"] = "completed"
 
             await db.user_subscriptions.update_one(
-                {"id": payment["subscription_id"]},
+                {"id": sub_id_to_update},
                 {"$set": update_fields}
             )
+            print(f"[verify_payment] Updated subscription {sub_id_to_update} with {update_fields}")
+
+            # Mark payment as applied to avoid duplicate application
+            try:
+                await db.payments.update_one({"id": payment.get("id")}, {"$set": {"applied_to_subscription": True}})
+            except Exception:
+                pass
     
-    return {"message": "Payment verified successfully", "status": "completed"}
+    resp = {"message": "Payment verified successfully", "status": "completed"}
+    if created_subscription_id:
+        resp["subscription_id"] = created_subscription_id
+    return resp
 
 # ==================== PROFILE ENDPOINTS ====================
 
@@ -3125,6 +4389,7 @@ class StoreShippingConfig(BaseModel):
     email: Optional[str] = None
     password: Optional[str] = None
     pickup_pincode: Optional[str] = None
+    pickup_location: Optional[str] = None
 
 class StoreShippingConfigResponse(BaseModel):
     store_id: str
@@ -3133,6 +4398,7 @@ class StoreShippingConfigResponse(BaseModel):
     email: Optional[str] = None
     # Do not expose password
     pickup_pincode: Optional[str] = None
+    pickup_location: Optional[str] = None
 
 class ClosurePreviewResponse(BaseModel):
     subscription_id: str
@@ -3199,7 +4465,8 @@ async def get_store_shipping_config(store_id: str, user: dict = Depends(require_
         is_enabled=config.get("is_enabled", False),
         provider=config.get("provider", "shiprocket"),
         email=config.get("email"),
-        pickup_pincode=config.get("pickup_pincode")
+        pickup_pincode=config.get("pickup_pincode"),
+        pickup_location=config.get("pickup_location")
     )
 
 @api_router.put("/stores/{store_id}/shipping-config")
@@ -3213,6 +4480,7 @@ async def update_store_shipping_config(store_id: str, payload: StoreShippingConf
         "provider": payload.provider,
         "email": payload.email,
         "pickup_pincode": payload.pickup_pincode,
+        "pickup_location": getattr(payload, 'pickup_location', None),
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
     
@@ -3378,26 +4646,57 @@ async def preview_subscription_closure(subscription_id: str, payload: dict, user
         plan = await db.subscription_plans.find_one({"id": sub["plan_id"]})
         target_metal = (plan.get("target_metal") or "gold").lower()
         
-        if target_metal == 'gold':
+        # First, try to use the plan's configured metal_purity_key
+        if plan and plan.get("metal_purity_key") and prices.get(plan.get("metal_purity_key")):
+            rate_used = float(prices.get(plan.get("metal_purity_key")))
+        # Fallback to metal-based lookup
+        elif target_metal == 'gold':
              rate_used = float(prices.get("gold_24") or prices.get("gold_22") or 0)
         elif target_metal == 'silver':
              rate_used = float(prices.get("silver_1g") or 0)
         elif target_metal == 'platinum':
              rate_used = float(prices.get("platinum_1g") or 0)
+        else:
+             rate_used = 0.0
              
         # Fallback price
         if rate_used <= 0: rate_used = 5000.0
 
         base_gold_cost = needed_grams * rate_used
         
-        # Calculate Tax
+        # Calculate Tax (exclusive model: tax is calculated on the gold cost and added on top)
         tax_config = await db.store_tax_config.find_one({"store_id": sub["store_id"]})
         tax_rate = 0.03 # Default 3%
         if tax_config:
-             metal_tax = next((m for m in tax_config.get("metal_taxes", []) if m["metal"] == target_metal and m["is_enabled"]), None)
-             if metal_tax:
-                 tax_rate = (metal_tax["tax_rate"]["cgst"] + metal_tax["tax_rate"]["igst"]) / 100
+            metal_tax = next((m for m in tax_config.get("metal_taxes", []) if m.get("metal") == target_metal and m.get("is_enabled")), None)
+            if metal_tax:
+                cgst = metal_tax["tax_rate"].get("cgst")
+                igst = metal_tax["tax_rate"].get("igst")
+                try:
+                    cgst_val = float(cgst)
+                except Exception:
+                    cgst_val = 0.0
+                try:
+                    igst_val = float(igst)
+                except Exception:
+                    igst_val = 0.0
+                if cgst_val > 1:
+                    cgst_val = cgst_val / 100.0
+                if igst_val > 1:
+                    igst_val = igst_val / 100.0
+                tax_rate = cgst_val + igst_val
+            else:
+                gst_rate = tax_config.get("gst_rate") if isinstance(tax_config, dict) else None
+                if gst_rate is not None:
+                    try:
+                        gst_val = float(gst_rate)
+                    except Exception:
+                        gst_val = 0.0
+                    if gst_val > 1:
+                        gst_val = gst_val / 100.0
+                    tax_rate = gst_val
         
+        # Exclusive tax model: gold_cost is the amount to buy, tax is added on top
         gold_cost = base_gold_cost
         tax_amount = base_gold_cost * tax_rate
         
@@ -3546,11 +4845,139 @@ async def update_store_settings(store_id: str, request: Request, user: dict = De
             "store_id": store_id,
             "enabled": bool(market_prices.get("enabled", False)),
             "prices": market_prices.get("prices", {}) if isinstance(market_prices, dict) else {},
+            "default_purity": market_prices.get("default_purity", {}) if isinstance(market_prices, dict) else {},
             "updated_at": now
         }
         await db.store_market_prices.update_one({"store_id": store_id}, {"$set": doc}, upsert=True)
 
     return {"message": "Settings updated"}
+
+# ==================== LOGGING ENDPOINTS ====================
+
+async def store_log(store_id: str, module: str, message: str, level: str = "info", context: Optional[dict] = None, raw_log: Optional[str] = None):
+    """Helper function to store a log entry."""
+    try:
+        # Check if logging is enabled for this module
+        log_config = await db.store_log_configs.find_one({"store_id": store_id})
+        if not log_config or not log_config.get(module, False):
+            return  # Logging disabled for this module
+        
+        log_entry = {
+            "id": str(uuid.uuid4()),
+            "store_id": store_id,
+            "module": module,
+            "message": message,
+            "level": level,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "context": context,
+            "raw_log": raw_log
+        }
+        await db.store_logs.insert_one(log_entry)
+    except Exception as e:
+        print(f"[store_log] Error storing log: {e}")
+
+@api_router.get("/admin/stores/{store_id}/log-config", response_model=StoreLogConfigResponse)
+async def get_store_log_config(store_id: str, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    """Get logging configuration for a store."""
+    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot access log config for other stores")
+    
+    config = await db.store_log_configs.find_one({"store_id": store_id})
+    if not config:
+        # Return default (all disabled)
+        return StoreLogConfigResponse(
+            store_id=store_id,
+            subscription_plans=False,
+            payments=False,
+            orders=False,
+            tax_config=False,
+            market_prices=False
+        )
+    
+    return StoreLogConfigResponse(
+        store_id=store_id,
+        subscription_plans=config.get("subscription_plans", False),
+        payments=config.get("payments", False),
+        orders=config.get("orders", False),
+        tax_config=config.get("tax_config", False),
+        market_prices=config.get("market_prices", False),
+        updated_at=config.get("updated_at")
+    )
+
+@api_router.put("/admin/stores/{store_id}/log-config")
+async def update_store_log_config(store_id: str, config: StoreLogConfigUpdate, user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    """Update logging configuration for a store."""
+    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot update log config for other stores")
+    
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "store_id": store_id,
+        "subscription_plans": config.subscription_plans,
+        "payments": config.payments,
+        "orders": config.orders,
+        "tax_config": config.tax_config,
+        "market_prices": config.market_prices,
+        "updated_at": now
+    }
+    
+    await db.store_log_configs.update_one(
+        {"store_id": store_id},
+        {"$set": doc},
+        upsert=True
+    )
+    
+    return {"message": "Log configuration updated"}
+
+@api_router.get("/admin/stores/{store_id}/logs")
+async def get_store_logs(
+    store_id: str,
+    module: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=1000),
+    skip: int = Query(0, ge=0),
+    user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))
+):
+    """Get logs for a store, optionally filtered by module."""
+    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot access logs for other stores")
+    
+    query = {"store_id": store_id}
+    if module:
+        query["module"] = module
+    
+    logs = await db.store_logs.find(query).sort("timestamp", -1).skip(skip).limit(limit).to_list(None)
+    total = await db.store_logs.count_documents(query)
+    
+    return {
+        "logs": [
+            StoreLogResponse(
+                id=log["id"],
+                store_id=log["store_id"],
+                module=log["module"],
+                message=log["message"],
+                level=log["level"],
+                timestamp=log["timestamp"],
+                context=log.get("context"),
+                raw_log=log.get("raw_log")
+            ) for log in logs
+        ],
+        "total": total,
+        "limit": limit,
+        "skip": skip
+    }
+
+@api_router.delete("/admin/stores/{store_id}/logs")
+async def clear_store_logs(store_id: str, module: Optional[str] = Query(None), user: dict = Depends(require_roles([UserRole.SUPER_ADMIN, UserRole.STORE_ADMIN]))):
+    """Clear logs for a store, optionally filtered by module."""
+    if user["role"] == UserRole.STORE_ADMIN and user.get("store_id") != store_id:
+        raise HTTPException(status_code=403, detail="Cannot clear logs for other stores")
+    
+    query = {"store_id": store_id}
+    if module:
+        query["module"] = module
+    
+    result = await db.store_logs.delete_many(query)
+    return {"message": f"Deleted {result.deleted_count} logs"}
 
 # Include router
 app.include_router(api_router)
@@ -3579,6 +5006,11 @@ async def create_default_admin():
     await db.carts.create_index([("store_id", 1), ("session_id", 1)], unique=False)
     # Index for domain lookup and uniqueness
     await db.store_domain_configs.create_index([("domain", 1)], unique=True, sparse=True)
+    
+    # Create indexes for logging collections
+    await db.store_logs.create_index([("store_id", 1), ("timestamp", -1)], unique=False)
+    await db.store_logs.create_index([("store_id", 1), ("module", 1), ("timestamp", -1)], unique=False)
+    await db.store_log_configs.create_index([("store_id", 1)], unique=True, sparse=True)
     
     existing = await db.users.find_one({"email": "admin@admin.com"})
     if not existing:
