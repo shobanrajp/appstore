@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { getStore, getPageConfig } from '../lib/api';
 import { Button } from '../components/ui/button';
@@ -17,11 +17,7 @@ const StoreContact = () => {
     const [pageConfig, setPageConfig] = useState(null);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        loadData();
-    }, [storeId]);
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         try {
             const storeRes = await getStore(storeId);
             setStore(storeRes.data);
@@ -42,7 +38,12 @@ const StoreContact = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [storeId]);
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
 
     const getWhatsAppLink = () => {
         if (!store?.contact_phone) return null;

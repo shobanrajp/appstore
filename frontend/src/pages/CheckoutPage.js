@@ -11,7 +11,7 @@ import { Input } from '../components/ui/input';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
-import { getAddresses, createAddress, createOrder, createPaymentOrder, verifyPayment, getStore, estimateShipping } from '../lib/api';
+import { getAddresses, createAddress, createOrder, createPaymentOrder, verifyPayment, getStore, estimateShipping, deleteOrder } from '../lib/api';
 import { formatCurrency } from '../lib/utils';
 import { useRef } from 'react';
 
@@ -35,6 +35,7 @@ const CheckoutPage = () => {
   const pendingEstimateRef = useRef(false);
   const rzpWaitingRef = useRef(false);
   const skipEstimateRef = useRef(false);
+  const paymentCompletedRef = useRef(false);
 
   useEffect(() => {
     const init = async () => {
@@ -65,6 +66,7 @@ const CheckoutPage = () => {
     // avoid depending on `loadCart` (it can change identity) to prevent effect loops
   }, [storeId]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const loadAddresses = async () => {
       if (!user) return;
@@ -81,6 +83,7 @@ const CheckoutPage = () => {
   }, [user]);
 
   // When the user selects an address, compute shipping via API and show full address
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const timer = setTimeout(() => {
       const compute = async () => {
@@ -158,9 +161,10 @@ const CheckoutPage = () => {
       toast.error('Select a shipping address');
       return;
     }
-    // We'll show a processing overlay only after the Razorpay popup closes
-    // so the user doesn't see the overlay while interacting with the popup.
+    paymentCompletedRef.current = false;
     rzpWaitingRef.current = false;
+
+    setProcessingPayment(true);
 
     // Ensure cart is fresh
     await loadCart(true);
@@ -174,6 +178,7 @@ const CheckoutPage = () => {
       setProcessingPayment(false);
       return;
     }
+    let currentOrder = null;
     try {
       // Create order on server (will snapshot cart tax etc)
       const orderPayload = {
@@ -183,13 +188,54 @@ const CheckoutPage = () => {
         total_tax: taxAmount
       };
 
-      const { data: order } = await createOrder(storeId, orderPayload);
+      const { data: createdOrder } = await createOrder(storeId, orderPayload);
+      currentOrder = createdOrder;
+
+      let cancellationHandled = false;
+
+      function onWindowFocus() {
+        if (paymentCompletedRef.current) {
+          try { window.removeEventListener('focus', onWindowFocus); } catch (e) {}
+          return;
+        }
+        if (rzpWaitingRef.current) {
+          setProcessingPayment(true);
+          rzpWaitingRef.current = false;
+          try { window.removeEventListener('focus', onWindowFocus); } catch (e) {}
+        }
+      }
+
+      async function cleanupPendingOrder(message, { showToast = true, reloadCart = true } = {}) {
+        if (paymentCompletedRef.current || cancellationHandled) return;
+        cancellationHandled = true;
+        try {
+          if (currentOrder?.id) {
+            await deleteOrder(storeId, currentOrder.id);
+          }
+        } catch (delErr) {
+          console.warn('Failed to delete pending order', delErr);
+        } finally {
+          rzpWaitingRef.current = false;
+          try { window.removeEventListener('focus', onWindowFocus); } catch (e) {}
+          setProcessingPayment(false);
+          if (reloadCart) {
+            try {
+              await loadCart(true);
+            } catch (cartErr) {
+              console.warn('Failed to reload cart after cancellation', cartErr);
+            }
+          }
+          if (showToast && message) {
+            toast.error(message);
+          }
+        }
+      }
 
       // Create Razorpay order
       const paymentData = {
-        amount: order.total_amount,
-        description: `Order ${order.id}`,
-        order_id: order.id,
+        amount: currentOrder.total_amount,
+        description: `Order ${currentOrder.id}`,
+        order_id: currentOrder.id,
         store_id: storeId
       };
       const { data: paymentOrder } = await createPaymentOrder(paymentData);
@@ -202,6 +248,7 @@ const CheckoutPage = () => {
         description: paymentOrder.description,
         order_id: paymentOrder.razorpay_order_id,
         handler: async function (response) {
+          paymentCompletedRef.current = true;
           // Ensure overlay is visible during server-side verification
           setProcessingPayment(true);
           try {
@@ -234,35 +281,43 @@ const CheckoutPage = () => {
           email: user?.email,
           contact: user?.phone
         },
-        theme: { color: store?.settings?.primary_color || '#3399cc' }
+        theme: { color: store?.settings?.primary_color || '#3399cc' },
+        modal: {
+          ondismiss: () => {
+            cleanupPendingOrder('Payment cancelled');
+          }
+        }
       };
 
       const rzp = new window.Razorpay(options);
-
-      // When user returns focus to the page (popup closed), show processing overlay
-      const onWindowFocus = () => {
-        if (rzpWaitingRef.current) {
-          setProcessingPayment(true);
-          rzpWaitingRef.current = false;
-          window.removeEventListener('focus', onWindowFocus);
-        }
-      };
 
       window.addEventListener('focus', onWindowFocus);
       // Mark that we are waiting for the popup to close
       rzpWaitingRef.current = true;
 
-      rzp.on('payment.failed', function (resp) {
+      rzp.on('payment.failed', async function (resp) {
         toast.error(resp.error.description || 'Payment failed');
-        rzpWaitingRef.current = false;
-        setProcessingPayment(false);
-        try { window.removeEventListener('focus', onWindowFocus); } catch(e) {}
+        await cleanupPendingOrder(null, { showToast: false });
       });
 
-      rzp.open();
+      try {
+        rzp.open();
+      } finally {
+        // Hide overlay once Razorpay modal is launched unless payment already completed
+        if (!paymentCompletedRef.current) {
+          setProcessingPayment(false);
+        }
+      }
 
     } catch (err) {
       console.error(err);
+      if (currentOrder?.id && !paymentCompletedRef.current) {
+        try {
+          await deleteOrder(storeId, currentOrder.id);
+        } catch (cleanupErr) {
+          console.warn('Failed to rollback pending order after initiation error', cleanupErr);
+        }
+      }
       toast.error(err.response?.data?.detail || 'Payment initiation failed');
       setProcessingPayment(false);
     }

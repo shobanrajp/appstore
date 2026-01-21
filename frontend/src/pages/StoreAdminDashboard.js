@@ -197,11 +197,13 @@ const StoreAdminDashboard = () => {
         }
     };
 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
         loadStoreInfo();
     }, []);
 
     // Load data when tab or pagination changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
         if (!store) return;
         loadTabContent();

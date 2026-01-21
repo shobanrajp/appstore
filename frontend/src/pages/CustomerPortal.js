@@ -78,6 +78,70 @@ const CustomerPortal = () => {
     const [taxConfig, setTaxConfig] = useState(null);
     const [marketPrices, setMarketPrices] = useState(null);
     
+    const normalizeValue = (value) => {
+        const num = Number(value);
+        return Number.isFinite(num) ? num : 0;
+    };
+
+    const getOrderBreakdown = (order) => {
+        if (!order) {
+            return {
+                isClosureOrder: false,
+                planContribution: 0,
+                planTax: 0,
+                closureGoldCost: 0,
+                closureTax: 0,
+                closureTopUpTotal: 0,
+                combinedTax: 0,
+                shipping: 0,
+                computedOrderTotal: 0,
+                totalPlanClosurePaid: 0
+            };
+        }
+
+        const isClosureOrder = !!order.notes && order.notes.includes('Subscription Closure');
+        const shipping = normalizeValue(order.shipping_charges);
+
+        if (!isClosureOrder) {
+            return {
+                isClosureOrder,
+                planContribution: 0,
+                planTax: 0,
+                closureGoldCost: 0,
+                closureTax: 0,
+                closureTopUpTotal: 0,
+                combinedTax: normalizeValue(order.total_tax),
+                shipping,
+                computedOrderTotal: normalizeValue(order.total_amount),
+                totalPlanClosurePaid: 0
+            };
+        }
+
+        const planContribution = normalizeValue(order.total_paid_for_subscription);
+        const planTax = normalizeValue(order.total_tax_paid_for_subscription);
+        const closureGoldCost = normalizeValue(order.gold_cost);
+        const closureTax = normalizeValue(order.tax_amount);
+        const closureTopUpTotal = closureGoldCost + closureTax;
+        const combinedTaxRaw = planTax + closureTax;
+        const combinedTax = combinedTaxRaw > 0 ? combinedTaxRaw : normalizeValue(order.total_tax);
+        const computedOrderTotalRaw = planContribution + closureGoldCost + shipping + combinedTax;
+        const computedOrderTotal = computedOrderTotalRaw > 0 ? computedOrderTotalRaw : normalizeValue(order.total_amount);
+        const totalPlanClosurePaid = planContribution + closureTopUpTotal;
+
+        return {
+            isClosureOrder,
+            planContribution,
+            planTax,
+            closureGoldCost,
+            closureTax,
+            closureTopUpTotal,
+            combinedTax,
+            shipping,
+            computedOrderTotal,
+            totalPlanClosurePaid
+        };
+    };
+
     // Transactions View
     const [transactionDialogOpen, setTransactionDialogOpen] = useState(false);
     const [transactionList, setTransactionList] = useState([]);
@@ -115,12 +179,14 @@ const CustomerPortal = () => {
     }, [authLoading, user, searchParams, navigate]);
 
     // If subscriptions tab becomes unavailable (no plans), switch to orders tab
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
         if (!loading && plans.length === 0 && activeTab === 'subscriptions') {
             setActiveTab('orders');
         }
     }, [plans, activeTab, loading]);
 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
         if (user) {
             fetchOrders(orderPage);
@@ -800,6 +866,19 @@ const CustomerPortal = () => {
                                 </Button>
                                 {(() => {
                                     const order = orders.find(o => o.id === selectedOrderId);
+                                    const {
+                                        isClosureOrder,
+                                        planContribution,
+                                        planTax,
+                                        closureGoldCost,
+                                        closureTax,
+                                        closureTopUpTotal,
+                                        combinedTax,
+                                        shipping: resolvedShipping,
+                                        computedOrderTotal,
+                                        totalPlanClosurePaid
+                                    } = getOrderBreakdown(order);
+                                    const resolvedOrderTotal = isClosureOrder ? computedOrderTotal : normalizeValue(order?.total_amount);
                                     return (
                                         <Card>
                                             <CardHeader className="border-b">
@@ -827,6 +906,9 @@ const CustomerPortal = () => {
                                                     <div className="space-y-3 border rounded-lg p-4 bg-muted/30">
                                                         {order.items.map((item, idx) => {
                                                             const productLink = (order.store_id && item.product_id) ? `/store/${order.store_id}/product/${item.product_id}` : null;
+                                                            const itemTotal = isClosureOrder
+                                                                ? (planContribution + closureTopUpTotal)
+                                                                : (item.price * item.quantity);
                                                             return (
                                                                 <div key={idx} className="flex items-center justify-between pb-3 last:pb-0 last:border-b-0 border-b">
                                                                     <div className="flex items-center gap-4 flex-1 min-w-0">
@@ -855,8 +937,17 @@ const CustomerPortal = () => {
                                                                         </div>
                                                                     </div>
                                                                     <div className="text-right">
-                                                                        <p className="font-semibold gold-text">{formatCurrency(item.price * item.quantity)}</p>
-                                                                        <p className="text-xs text-muted-foreground">{formatCurrency(item.price)} each</p>
+                                                                        <p className="font-semibold gold-text">{formatCurrency(itemTotal)}</p>
+                                                                        {isClosureOrder ? (
+                                                                            <div className="text-xs text-muted-foreground space-y-0.5">
+                                                                                <p>Total paid across plan: {formatCurrency(planContribution)}</p>
+                                                                                {closureTopUpTotal > 0 && (
+                                                                                    <p>Closure top-up: {formatCurrency(closureTopUpTotal)}</p>
+                                                                                )}
+                                                                            </div>
+                                                                        ) : (
+                                                                            <p className="text-xs text-muted-foreground">{formatCurrency(item.price)} each</p>
+                                                                        )}
                                                                     </div>
                                                                 </div>
                                                             );
@@ -868,34 +959,40 @@ const CustomerPortal = () => {
                                                 <div className="border-t pt-4">
                                                     <h3 className="font-semibold mb-3">Order Summary</h3>
                                                     <div className="space-y-2 text-sm">
-                                                        {/* For closure/redemption orders, show breakdown */}
-                                                        {order.notes && order.notes.includes("Subscription Closure") ? (
+                                                        {isClosureOrder ? (
                                                             <>
                                                                 <div className="flex justify-between">
-                                                                    <span className="text-muted-foreground">Gold Cost (Total Paid for Subscription):</span>
-                                                                    <span>{formatCurrency(order.total_paid_for_subscription || 0)}</span>
+                                                                    <span className="text-muted-foreground">Total Paid Across Plan:</span>
+                                                                    <span>{formatCurrency(planContribution)}</span>
                                                                 </div>
                                                                 <div className="flex justify-between">
-                                                                    <span className="text-muted-foreground">Total Tax (from Transaction History):</span>
-                                                                    <span>{formatCurrency(order.total_tax_paid_for_subscription || 0)}</span>
+                                                                    <span className="text-muted-foreground">Tax Paid Across Plan:</span>
+                                                                    <span>{formatCurrency(planTax)}</span>
                                                                 </div>
                                                                 <div className="flex justify-between">
-                                                                    <span className="text-muted-foreground">Additional Gold Cost:</span>
-                                                                    <span>{formatCurrency(order.gold_cost || 0)}</span>
+                                                                    <span className="text-muted-foreground">Closure Gold Cost:</span>
+                                                                    <span>{formatCurrency(closureGoldCost)}</span>
                                                                 </div>
                                                                 <div className="flex justify-between">
-                                                                    <span className="text-muted-foreground">Additional Gold Tax:</span>
-                                                                    <span>{formatCurrency(order.tax_amount || 0)}</span>
+                                                                    <span className="text-muted-foreground">Closure Tax:</span>
+                                                                    <span>{formatCurrency(closureTax)}</span>
+                                                                </div>
+                                                                <div className="flex justify-between">
+                                                                    <span className="text-muted-foreground">Total Amount Paid (Plan + Closure):</span>
+                                                                    <span>{formatCurrency(totalPlanClosurePaid)}</span>
+                                                                </div>
+                                                                <div className="flex justify-between">
+                                                                    <span className="text-muted-foreground">Total Tax (Plan + Closure):</span>
+                                                                    <span>{formatCurrency(combinedTax)}</span>
                                                                 </div>
                                                                 <div className="flex justify-between">
                                                                     <span className="text-muted-foreground">Shipping:</span>
-                                                                    <span>{formatCurrency(order.shipping_charges || 0)}</span>
+                                                                    <span>{formatCurrency(resolvedShipping)}</span>
                                                                 </div>
                                                                 <div className="flex justify-between font-semibold text-base border-t pt-2">
-                                                                    <span>Total Amount:</span>
-                                                                    <span className="gold-text">{formatCurrency(order.total_amount)}</span>
+                                                                    <span>Grand Total:</span>
+                                                                    <span className="gold-text">{formatCurrency(resolvedOrderTotal)}</span>
                                                                 </div>
-                                                                {/* Closure specific details */}
                                                                 <div className="border-t pt-3 mt-3 space-y-2">
                                                                     <div className="flex justify-between text-xs">
                                                                         <span className="text-muted-foreground">Accumulated Grams:</span>
@@ -944,8 +1041,19 @@ const CustomerPortal = () => {
                                                             </div>
                                                         )}
                                                         <div className="pt-2 text-sm">
-                                                            <span className="text-muted-foreground">Amount Paid</span>
-                                                            <div className="font-semibold">{formatCurrency(order.payment_received_amount || order.payment_info?.amount || 0)}</div>
+                                                            <span className="text-muted-foreground">{isClosureOrder ? 'Grand Total' : 'Amount Paid'}</span>
+                                                            <div className="font-semibold">
+                                                                {formatCurrency(
+                                                                    isClosureOrder
+                                                                        ? resolvedOrderTotal
+                                                                        : (order.payment_received_amount || order.payment_info?.amount || 0)
+                                                                )}
+                                                            </div>
+                                                            {isClosureOrder && (order.payment_received_amount || order.payment_info?.amount) && (
+                                                                <p className="text-xs text-muted-foreground pt-1">
+                                                                    Closure payment collected: {formatCurrency(order.payment_received_amount || order.payment_info?.amount || 0)}
+                                                                </p>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -1015,7 +1123,9 @@ const CustomerPortal = () => {
                                     {orders.length > 0 ? (
                                         <>
                                         <div className="space-y-4">
-                                            {orders.map((order) => (
+                                            {orders.map((order) => {
+                                                const breakdown = getOrderBreakdown(order);
+                                                return (
                                                 <Card 
                                                     key={order.id} 
                                                     className="border cursor-pointer hover:shadow-md transition-shadow" 
@@ -1034,15 +1144,15 @@ const CustomerPortal = () => {
                                                             </div>
                                                             <div>
                                                                 <p className="text-sm text-muted-foreground">Total</p>
-                                                                <p className="font-semibold gold-text">{formatCurrency(order.total_amount)}</p>
+                                                                <p className="font-semibold gold-text">{formatCurrency(breakdown.computedOrderTotal || 0)}</p>
                                                             </div>
                                                             <div>
                                                                 <p className="text-sm text-muted-foreground">Tax</p>
-                                                                <p className="font-semibold">{formatCurrency(order.total_tax || 0)}</p>
+                                                                <p className="font-semibold">{formatCurrency(breakdown.combinedTax || 0)}</p>
                                                             </div>
                                                             <div>
                                                                 <p className="text-sm text-muted-foreground">Shipping</p>
-                                                                <p className="font-semibold">{formatCurrency(order.shipping_charges || 0)}</p>
+                                                                <p className="font-semibold">{formatCurrency(breakdown.shipping || 0)}</p>
                                                             </div>
                                                             <div>
                                                                 <p className="text-sm text-muted-foreground">Date</p>
@@ -1055,6 +1165,9 @@ const CustomerPortal = () => {
                                                             <div className="space-y-2">
                                                                 {order.items.map((item, idx) => {
                                                                     const productLink = (order.store_id && item.product_id) ? `/store/${order.store_id}/product/${item.product_id}` : null;
+                                                                    const itemTotal = breakdown.isClosureOrder
+                                                                        ? (breakdown.planContribution + breakdown.closureTopUpTotal)
+                                                                        : (item.price * item.quantity);
                                                                     return (
                                                                         <div key={idx} className="flex items-center justify-between text-sm">
                                                                             <div className="flex items-center gap-3 min-w-0">
@@ -1079,7 +1192,14 @@ const CustomerPortal = () => {
                                                                                 )}
                                                                                 <span className="truncate">{item.product_name} × {item.quantity}</span>
                                                                             </div>
-                                                                            <span>{formatCurrency(item.price * item.quantity)}</span>
+                                                                            <div className="text-right flex flex-col items-end">
+                                                                                <span>{formatCurrency(itemTotal)}</span>
+                                                                                {breakdown.isClosureOrder && (
+                                                                                    <span className="text-xs text-muted-foreground">
+                                                                                        {formatCurrency(breakdown.planContribution)} + {formatCurrency(breakdown.closureTopUpTotal)}
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
                                                                         </div>
                                                                     );
                                                                 })}
@@ -1127,7 +1247,8 @@ const CustomerPortal = () => {
                                                         )}
                                                     </CardContent>
                                                 </Card>
-                                            ))}
+                                            );
+                                            })}
                                         </div>
                                         {orderTotalPages > 1 && (
                                             <div className="flex items-center justify-center gap-4 mt-6">

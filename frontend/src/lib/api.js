@@ -140,6 +140,7 @@ export const getOrders = (storeId, page = 1, limit = 50) => api.get(`/stores/${s
 export const getMyOrders = (page = 1, limit = 20) => api.get(`/my-orders?page=${page}&limit=${limit}`);
 export const createOrder = (storeId, data) => api.post(`/stores/${storeId}/orders`, data);
 export const updateOrderStatus = (storeId, orderId, data) => api.put(`/stores/${storeId}/orders/${orderId}/status`, data);
+export const deleteOrder = (storeId, orderId) => api.delete(`/stores/${storeId}/orders/${orderId}`);
 
 // Addresses
 export const getAddresses = () => api.get('/addresses');

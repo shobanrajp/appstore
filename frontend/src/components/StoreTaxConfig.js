@@ -15,7 +15,8 @@ const StoreTaxConfig = ({ storeId }) => {
 
     const metals = ['gold', 'silver', 'platinum'];
 
-     useEffect(() => {
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => {
         const fetchData = async () => {
             try {
                 const [configRes, productsRes] = await Promise.all([

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getStore, getSubscriptionPlans } from '../lib/api';
 import { Button } from '../components/ui/button';
@@ -19,19 +19,7 @@ const StorePlans = () => {
     const [loading, setLoading] = useState(true);
     const [recentlyViewed, setRecentlyViewed] = useState([]);
 
-    useEffect(() => {
-        loadData();
-    }, [storeId]);
-
-    useEffect(() => {
-        // Load recently viewed plans
-        const recentKey = `recent_plans_${storeId}`;
-        const recentIds = JSON.parse(localStorage.getItem(recentKey) || '[]');
-        const recentPlansList = recentIds.map(id => plans.find(p => p.id === id)).filter(Boolean);
-        setRecentlyViewed(recentPlansList);
-    }, [plans, storeId]);
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         try {
             const [storeRes, plansRes] = await Promise.all([
                 getStore(storeId),
@@ -45,7 +33,20 @@ const StorePlans = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [storeId]);
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
+
+    useEffect(() => {
+        // Load recently viewed plans
+        const recentKey = `recent_plans_${storeId}`;
+        const recentIds = JSON.parse(localStorage.getItem(recentKey) || '[]');
+        const recentPlansList = recentIds.map(id => plans.find(p => p.id === id)).filter(Boolean);
+        setRecentlyViewed(recentPlansList);
+    }, [plans, storeId]);
 
     const trackPlanView = (plan) => {
         const recentKey = `recent_plans_${storeId}`;

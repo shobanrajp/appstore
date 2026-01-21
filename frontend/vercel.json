@@ -1,5 +1,12 @@
 {
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
+  "buildCommand": "CI=false npm run build",
+  "outputDirectory": "build",
+  "routes": [
+    { "handle": "filesystem" },
+    { "src": "/.*", "dest": "/index.html" }
+  ],
+  "env": {
+    "REACT_APP_BACKEND_URL": "https://appstores-pink.vercel.app",
+    "CI": "false"
+  }
 }

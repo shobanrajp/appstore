@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -38,10 +38,11 @@ export default function StoreLogs({ storeId }) {
     const [selectedLog, setSelectedLog] = useState(null);
 
     // Load configuration
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
         loadConfig();
         loadLogs();
-    }, [storeId]);
+    }, [loadConfig, loadLogs]);
 
     // Auto-refresh logs every 5 seconds
     useEffect(() => {
@@ -51,9 +52,9 @@ export default function StoreLogs({ storeId }) {
             }
         }, 5000);
         return () => clearInterval(interval);
-    }, [storeId, selectedModule]);
+    }, [logs, logConfig, loadLogs]);
 
-    const loadConfig = async () => {
+    const loadConfig = useCallback(async () => {
         try {
             const response = await api.get(`/admin/stores/${storeId}/log-config`);
             if (response.data) {
@@ -64,9 +65,9 @@ export default function StoreLogs({ storeId }) {
         } finally {
             setConfigLoading(false);
         }
-    };
+    }, [storeId]);
 
-    const loadLogs = async () => {
+    const loadLogs = useCallback(async () => {
         setLoading(true);
         try {
             let url = `/admin/stores/${storeId}/logs?limit=200`;
@@ -83,7 +84,7 @@ export default function StoreLogs({ storeId }) {
         } finally {
             setLoading(false);
         }
-    };
+    }, [storeId, selectedModule]);
 
     const handleConfigChange = async (module, enabled) => {
         try {

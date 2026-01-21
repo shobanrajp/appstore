@@ -65,6 +65,9 @@ load_dotenv(ROOT_DIR / '.env')
 mongo_url = os.environ.get('MONGO_URL')
 db_name = os.environ.get('DB_NAME')
 
+# Image Server URL
+IMAGE_SERVER_BASE_URL = os.environ.get('IMAGE_SERVER_BASE_URL', 'http://localhost:8001')
+
 if not mongo_url or not db_name:
     logging.warning("MONGO_URL or DB_NAME not set. Database connection will fail.")
     client = None
@@ -325,6 +328,13 @@ class OrderResponse(BaseModel):
     carrier_name: Optional[str] = None
     carrier_url: Optional[str] = None
     notes: Optional[str] = None
+    tax_amount: Optional[float] = None
+    gold_cost: Optional[float] = None
+    accumulated_grams: Optional[float] = None
+    additional_grams: Optional[float] = None
+    target_grams: Optional[float] = None
+    total_paid_for_subscription: Optional[float] = None
+    total_tax_paid_for_subscription: Optional[float] = None
     created_at: str
     updated_at: str
 
@@ -1889,18 +1899,28 @@ async def create_order(store_id: str, order_data: OrderCreate, user: dict = Depe
     }
     
     await db.orders.insert_one(order_doc)
-    # Clear the user's cart after successful order creation
-    try:
-        if user:
-            await db.carts.update_one(
-                {"store_id": store_id, "user_id": user["id"]},
-                {"$set": {"items": [], "total_tax": 0.0, "shipping_estimate": None, "updated_at": now}}
-            )
-    except Exception:
-        # Don't block order creation if cart-clearing fails
-        pass
 
     return OrderResponse(**{k: v for k, v in order_doc.items() if k != "_id"})
+
+@api_router.delete("/stores/{store_id}/orders/{order_id}")
+async def delete_pending_order(store_id: str, order_id: str, user: dict = Depends(get_current_user)):
+    order = await db.orders.find_one({"id": order_id, "store_id": store_id})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # End users can only delete their own pending orders
+    if user["role"] == UserRole.END_USER:
+        if order.get("user_id") != user["id"]:
+            raise HTTPException(status_code=403, detail="Cannot delete this order")
+        if order.get("status") not in ("pending", "payment_pending", None):
+            raise HTTPException(status_code=400, detail="Order can no longer be cancelled")
+    elif user["role"] in (UserRole.STORE_ADMIN, UserRole.STORE_USER):
+        if user.get("store_id") != store_id:
+            raise HTTPException(status_code=403, detail="Cannot delete orders from other stores")
+    # Super admin permitted for any store
+
+    await db.orders.delete_one({"id": order_id, "store_id": store_id})
+    return {"message": "Order deleted"}
 
 @api_router.get("/stores/{store_id}/orders", response_model=List[OrderResponse])
 async def get_orders(store_id: str, user: dict = Depends(get_current_user)):
@@ -3772,6 +3792,15 @@ async def verify_payment(verification: PaymentVerification, user: Optional[dict]
                         "payment_method": "online"
                     }}
                 )
+                # Clear cart after payment confirmation so items remain if payment is cancelled
+                if order and order.get("user_id"):
+                    try:
+                        await db.carts.update_one(
+                            {"store_id": order["store_id"], "user_id": order["user_id"]},
+                            {"$set": {"items": [], "total_tax": 0.0, "shipping_estimate": None, "updated_at": datetime.now(timezone.utc).isoformat()}}
+                        )
+                    except Exception:
+                        pass
                 # Shiprocket creation is now an admin-triggered workflow.
                 # Previously we automatically created a Shiprocket order here;
                 # that behavior was removed so that store admins can control shipment creation.
@@ -4014,7 +4043,11 @@ async def verify_payment(verification: PaymentVerification, user: Optional[dict]
             # Handle Closure Payment
             if payment.get("type") == "closure":
                 metadata = payment.get("metadata", {})
-                shipping_charges = metadata.get("shipping_charges", 0.0)
+                raw_shipping = metadata.get("shipping_charges", 0.0)
+                try:
+                    shipping_charges = float(raw_shipping)
+                except Exception:
+                    shipping_charges = 0.0
                 # Safely pull accumulated grams before computing fallbacks
                 current_accumulated = sub.get("accumulated_weight_grams", 0.0)
                 # Fallbacks: if needed_grams is missing, derive from target_grams - accumulated
@@ -4129,7 +4162,14 @@ async def verify_payment(verification: PaymentVerification, user: Optional[dict]
                 # Construct redemption coin image URL based on metal type
                 store_id = sub.get("store_id")
                 coin_image_filename = f"redemption_{target_metal}_coin.png"
-                redemption_image_url = f"http://localhost:8001/static/{store_id}/products/redemption/{coin_image_filename}"
+                redemption_image_url = f"{IMAGE_SERVER_BASE_URL}/static/{store_id}/products/redemption/{coin_image_filename}"
+
+                total_plan_paid = float(total_paid_for_subscription or 0.0)
+                total_plan_tax = float(total_tax_paid or 0.0)
+                closure_gold_cost = float(gold_cost or 0.0)
+                closure_tax_amount = float(tax_amount or 0.0)
+                combined_tax = total_plan_tax + closure_tax_amount
+                final_total_amount = total_plan_paid + combined_tax + closure_gold_cost + float(shipping_charges or 0.0)
 
                 order_doc = {
                     "id": order_id,
@@ -4144,20 +4184,21 @@ async def verify_payment(verification: PaymentVerification, user: Optional[dict]
                         "image": redemption_image_url
                     }],
                     # For redemption orders created from subscriptions, show the user's total paid across the plan
-                    "total_amount": float(sub.get("total_paid", 0.0)),
+                    "total_amount": final_total_amount,
                     "status": "placed", 
                     "payment_status": "paid",
                     "payment_method": "online", # Razorpay
                     "shipping_address_id": metadata.get("address_id"),
                     "shipping_address": address_snapshot,
-                    "shipping_charges": shipping_charges,
-                    "tax_amount": tax_amount,
-                    "gold_cost": gold_cost,
+                    "shipping_charges": float(shipping_charges or 0.0),
+                    "tax_amount": closure_tax_amount,
+                    "gold_cost": closure_gold_cost,
                     "accumulated_grams": float(current_accumulated or 0.0),
                     "additional_grams": needed_grams,
                     "target_grams": float(target_grams or final_accumulated),
                     "total_paid_for_subscription": total_paid_for_subscription,
                     "total_tax_paid_for_subscription": total_tax_paid,
+                    "total_tax": combined_tax,
                     "notes": f"Subscription Closure for {payment['subscription_id']}",
                     "created_at": datetime.now(timezone.utc).isoformat(),
                     "updated_at": datetime.now(timezone.utc).isoformat()

@@ -43,6 +43,7 @@ const CustomerOrdersPage = () => {
 	const [filtersOpen, setFiltersOpen] = useState(true);
 	const [filterText, setFilterText] = useState('');
 
+	// eslint-disable-next-line react-hooks/exhaustive-deps
 	useEffect(() => { fetchOrders(page); }, [page, user]);
 
 	useEffect(() => {

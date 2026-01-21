@@ -1,7 +1,12 @@
 {
   "version": 2,
-  "builds": [],
+  "builds": [
+    { "src": "server.py", "use": "@vercel/python" }
+  ],
   "routes": [
-    { "src": "/(.*)", "status": 404 }
-  ]
+    { "src": "/(.*)", "dest": "server.py" }
+  ],
+  "env": {
+    "IMAGE_SERVER_BASE_URL": "https://appstores-image-server.vercel.app/"
+  }
 }

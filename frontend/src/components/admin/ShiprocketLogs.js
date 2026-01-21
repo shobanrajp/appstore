@@ -32,6 +32,7 @@ const ShiprocketLogs = ({ storeId }) => {
         }
     };
 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
         if (storeId) loadLogs();
     }, [storeId, page]);
