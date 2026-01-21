@@ -15,6 +15,8 @@ import { getAddresses, createAddress, createOrder, createPaymentOrder, verifyPay
 import { formatCurrency } from '../lib/utils';
 import { useRef } from 'react';
 
+const UPI_VPA_PATTERN = /^[\w.\-]{2,}@[a-zA-Z0-9]{2,}$/i;
+
 const CheckoutPage = () => {
   const { storeId } = useParams();
   const navigate = useNavigate();
@@ -32,6 +34,7 @@ const CheckoutPage = () => {
   const [processingPayment, setProcessingPayment] = useState(false);
   const [shipping, setShipping] = useState(null);
   const [shippingLoading, setShippingLoading] = useState(false);
+  const [upiVpa, setUpiVpa] = useState('');
   const pendingEstimateRef = useRef(false);
   const rzpWaitingRef = useRef(false);
   const skipEstimateRef = useRef(false);
@@ -161,6 +164,12 @@ const CheckoutPage = () => {
       toast.error('Select a shipping address');
       return;
     }
+    const trimmedUpi = (upiVpa || '').trim();
+    if (trimmedUpi && !UPI_VPA_PATTERN.test(trimmedUpi)) {
+      toast.error('Enter a valid UPI ID');
+      return;
+    }
+    const normalizedUpi = trimmedUpi ? trimmedUpi.toLowerCase() : '';
     paymentCompletedRef.current = false;
     rzpWaitingRef.current = false;
 
@@ -240,6 +249,16 @@ const CheckoutPage = () => {
       };
       const { data: paymentOrder } = await createPaymentOrder(paymentData);
 
+      const prefill = {
+        name: user?.name,
+        email: user?.email,
+        contact: user?.phone
+      };
+      if (normalizedUpi) {
+        prefill.method = 'upi';
+        prefill.upi = { vpa: normalizedUpi };
+      }
+
       const options = {
         key: paymentOrder.razorpay_key_id,
         amount: paymentOrder.amount * 100,
@@ -276,11 +295,7 @@ const CheckoutPage = () => {
             setProcessingPayment(false);
           }
         },
-        prefill: {
-          name: user?.name,
-          email: user?.email,
-          contact: user?.phone
-        },
+        prefill,
         theme: { color: store?.settings?.primary_color || '#3399cc' },
         modal: {
           ondismiss: () => {
@@ -288,6 +303,9 @@ const CheckoutPage = () => {
           }
         }
       };
+
+      options.method = 'upi';
+      options.upi = normalizedUpi ? { flow: 'collect', vpa: normalizedUpi } : { flow: 'intent' };
 
       const rzp = new window.Razorpay(options);
 
@@ -432,6 +450,17 @@ const CheckoutPage = () => {
                 <div className="flex justify-between text-lg font-semibold pt-2">
                   <span>Total</span>
                   <span className="gold-text">{formatCurrency(finalTotal)}</span>
+                </div>
+
+                <div className="space-y-1 pt-2">
+                  <Label htmlFor="upi-vpa">UPI ID (optional)</Label>
+                  <Input
+                    id="upi-vpa"
+                    placeholder="name@bank"
+                    value={upiVpa}
+                    onChange={(e) => setUpiVpa(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">Leave blank to use Razorpay sandbox intent flow.</p>
                 </div>
 
                 <Button className="w-full gold-gradient text-white" onClick={handlePay} disabled={!shipping || shipping.error || processingPayment}>
